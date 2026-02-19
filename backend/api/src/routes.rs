@@ -3,7 +3,7 @@ use axum::{
     Router,
 };
 
-use crate::{handlers, state::AppState};
+use crate::{handlers, compliance_handlers, state::AppState};
 
 /// Contract-related routes
 pub fn contract_routes() -> Router<AppState> {
@@ -21,6 +21,16 @@ pub fn publisher_routes() -> Router<AppState> {
         .route("/api/publishers", post(handlers::create_publisher))
         .route("/api/publishers/:id", get(handlers::get_publisher))
         .route("/api/publishers/:id/contracts", get(handlers::get_publisher_contracts))
+}
+
+/// Compliance-related routes
+pub fn compliance_routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/compliance/frameworks", get(compliance_handlers::get_frameworks))
+        .route("/api/compliance/audit", post(compliance_handlers::audit_contract))
+        .route("/api/compliance/:contract_id/:framework/report", get(compliance_handlers::generate_report))
+        .route("/api/compliance/:contract_id/:framework/gaps", get(compliance_handlers::identify_gaps))
+        .route("/api/compliance/:contract_id/:framework/eligible", get(compliance_handlers::check_eligibility))
 }
 
 /// Health check routes

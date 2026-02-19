@@ -2,6 +2,7 @@ mod routes;
 mod handlers;
 mod error;
 mod state;
+mod compliance_handlers;
 
 use anyhow::Result;
 use axum::http::{header, HeaderValue, Method};
@@ -59,6 +60,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .merge(routes::contract_routes())
         .merge(routes::publisher_routes())
+        .merge(routes::compliance_routes())
         .merge(routes::health_routes())
         .fallback(handlers::route_not_found)
         .layer(CorsLayer::permissive())

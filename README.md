@@ -18,6 +18,7 @@ Soroban Registry is the trusted package manager and contract registry for the St
 - 📊 **Analytics** - Contract usage statistics and metrics
 - 🎨 **Modern UI** - Beautiful, responsive web interface
 - 🛠️ **CLI Tool** - Command-line interface for developers
+- ⚖️ **Compliance Toolkit** - Ensure contracts meet regulatory requirements (GDPR, SOC2, HIPAA, ISO 27001, PCI DSS)
 
 ## 🏗️ Architecture
 
@@ -99,6 +100,58 @@ npm install
 npm run dev
 ```
 
+## ⚖️ Compliance Toolkit
+
+The Soroban Registry includes a comprehensive **Compliance Toolkit** to ensure contracts meet regulatory requirements.
+
+### Supported Frameworks
+
+- **GDPR** - General Data Protection Regulation (EU)
+- **SOC2** - Service Organization Control 2 (US)
+- **HIPAA** - Health Insurance Portability and Accountability (Healthcare)
+- **ISO 27001** - Information Security Management (International)
+- **PCI DSS** - Payment Card Industry Data Security Standard (Global)
+
+### Key Features
+
+- ✅ **Automated Audits** - Run compliance checks against any framework
+- 🔍 **Gap Analysis** - Identify missing requirements with severity levels
+- 📋 **Remediation Guidance** - Step-by-step fixes for compliance issues
+- 📊 **Report Generation** - Generate detailed compliance reports
+- 🏆 **Certification Support** - Full certification process management
+
+### Quick Example
+
+```bash
+# Run a GDPR compliance audit
+soroban-registry compliance audit \
+  --contract-id "CAAAAAAA..." \
+  --framework gdpr
+
+# Identify compliance gaps
+soroban-registry compliance gaps \
+  --contract-id "CAAAAAAA..." \
+  --framework gdpr
+
+# Get remediation suggestions
+soroban-registry compliance remediate \
+  --contract-id "CAAAAAAA..." \
+  --framework gdpr
+
+# Generate a compliance report
+soroban-registry compliance report \
+  --contract-id "CAAAAAAA..." \
+  --framework gdpr \
+  --output report.json
+
+# Check certification eligibility
+soroban-registry compliance certify \
+  --contract-id "CAAAAAAA..." \
+  --framework soc2
+```
+
+For complete details, see [COMPLIANCE_TOOLKIT.md](./COMPLIANCE_TOOLKIT.md) and [COMPLIANCE_QUICKSTART.md](./COMPLIANCE_QUICKSTART.md).
+
 ## 📖 Usage
 
 ### Web Interface
@@ -148,6 +201,14 @@ soroban-registry verify <contract-id> --source ./src
 
 - `GET /api/stats` - Get registry statistics
 - `GET /health` - Health check
+
+### Compliance
+
+- `GET /api/compliance/frameworks` - List supported compliance frameworks
+- `POST /api/compliance/audit` - Run compliance audit on a contract
+- `GET /api/compliance/:contract_id/:framework/report` - Generate compliance report
+- `GET /api/compliance/:contract_id/:framework/gaps` - Identify compliance gaps
+- `GET /api/compliance/:contract_id/:framework/eligible` - Check certification eligibility
 
 ## 🗄️ Database Schema
 
