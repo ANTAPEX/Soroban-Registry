@@ -32,6 +32,8 @@ mod rate_limit;
 mod routes;
 mod scoring;
 mod state;
+mod trust_handlers;
+mod trust_routes;
 
 use anyhow::Result;
 use axum::http::{header, HeaderValue, Method};
@@ -106,6 +108,7 @@ async fn main() -> Result<()> {
         .merge(cost_routes::cost_routes())
         .merge(backup_routes::backup_routes())
         .merge(governance_routes::governance_routes())
+        .merge(trust_routes::trust_routes())
         .fallback(handlers::route_not_found)
         .layer(middleware::from_fn(request_logger))
         .layer(middleware::from_fn_with_state(

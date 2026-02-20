@@ -725,6 +725,61 @@ pub struct ProposalResults {
     pub approved: bool,
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// TRUST SCORING
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TrustScore {
+    pub id: Uuid,
+    pub contract_id: Uuid,
+    pub score: i32,
+    pub verified_points: i32,
+    pub audit_points: i32,
+    pub usage_points: i32,
+    pub age_points: i32,
+    pub vulnerability_penalty: i32,
+    pub calculated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustScoreBreakdown {
+    pub score: i32,
+    pub tier: String,
+    pub factors: Vec<TrustFactor>,
+    pub calculated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustFactor {
+    pub name: String,
+    pub points: i32,
+    pub max_points: i32,
+    pub weight: f64,
+    pub explanation: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustScoreWeights {
+    pub verified: f64,
+    pub audit: f64,
+    pub usage: f64,
+    pub age: f64,
+    pub vulnerability: f64,
+}
+
+impl Default for TrustScoreWeights {
+    fn default() -> Self {
+        Self {
+            verified: 0.30,
+            audit: 0.25,
+            usage: 0.20,
+            age: 0.15,
+            vulnerability: 0.10,
+        }
+    }
+}
+
 impl std::fmt::Display for DeploymentEnvironment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
          match self {

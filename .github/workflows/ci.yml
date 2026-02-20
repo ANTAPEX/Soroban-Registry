@@ -104,6 +104,18 @@ jobs:
           test -f backend/api/src/governance_routes.rs && echo "✓ Routes present"
           test -f database/migrations/008_governance_framework.sql && echo "✓ Migration present"
           echo "✓ All governance framework files present"
+          
+  check-trust-scoring-feature:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify trust scoring files
+        run: |
+          echo "Checking trust scoring implementation..."
+          test -f backend/api/src/trust_handlers.rs && echo "✓ Handlers present"
+          test -f backend/api/src/trust_routes.rs && echo "✓ Routes present"
+          test -f database/migrations/009_trust_scoring.sql && echo "✓ Migration present"
+          echo "✓ All trust scoring files present"
 
   format-check:
     runs-on: ubuntu-latest

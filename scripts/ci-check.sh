@@ -139,6 +139,27 @@ if [ "$ALL_PRESENT" = false ]; then
 fi
 echo ""
 
+# Check 2f: Trust Scoring Feature Files
+echo "✓ Check 2f: Trust Scoring Feature Files"
+TRUST_FILES=(
+    "backend/api/src/trust_handlers.rs"
+    "backend/api/src/trust_routes.rs"
+)
+
+for file in "${TRUST_FILES[@]}"; do
+    if [ -f "$file" ]; then
+        echo "  ✅ $file"
+    else
+        echo "  ❌ $file (missing)"
+        ALL_PRESENT=false
+    fi
+done
+
+if [ "$ALL_PRESENT" = false ]; then
+    exit 1
+fi
+echo ""
+
 # Check 3: Frontend Structure
 echo "✓ Check 3: Frontend Structure"
 if [ -f "frontend/package.json" ]; then
