@@ -1,0 +1,40 @@
+openapi: 3.0.0
+info:
+  title: dummy_abi
+  description: null
+  version: 0.0.0
+paths:
+  /invoke/hello:
+    post:
+      operation_id: hello
+      summary: Say hello to someone
+      description: Say hello to someone
+      request_body:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                to:
+                  type: string
+                  description: Symbol
+                  example: ''
+              required:
+              - to
+              example:
+                to: ''
+            example:
+              to: ''
+      responses:
+        '200':
+          description: 'Success. Returns: Symbol'
+          content:
+            application/json:
+              schema:
+                type: string
+                description: Symbol
+                example: ''
+              example: ''
+      tags:
+      - Contract

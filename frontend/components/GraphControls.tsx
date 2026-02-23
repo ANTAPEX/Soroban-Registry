@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
     Search, ZoomIn, ZoomOut, Maximize2, Download, FileImage,
-    GitBranch, Circle, Activity, Sparkles, ChevronUp, ChevronDown,
+    GitBranch, Circle, Sparkles, ChevronUp, ChevronDown,
     Keyboard, ChevronLeft, ChevronRight, BarChart2
 } from 'lucide-react';
 

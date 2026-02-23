@@ -4,10 +4,12 @@ use axum::{
 };
 
 use crate::{
-    handlers, metrics_handler, custom_metrics_handlers,
-    handlers, metrics_handler, breaking_changes,
+    handlers,
+    metrics_handler,
+    breaking_changes,
     changelog_handlers,
     deprecation_handlers,
+    custom_metrics_handlers,
     state::AppState,
 };
 
@@ -23,10 +25,11 @@ pub fn contract_routes() -> Router<AppState> {
         .route("/api/contracts/graph", get(handlers::get_contract_graph))
         .route("/api/contracts/:id", get(handlers::get_contract))
         .route("/api/contracts/:id/abi", get(handlers::get_contract_abi))
+        .route("/api/contracts/:id/openapi.yaml", get(handlers::get_contract_openapi_yaml))
+        .route("/api/contracts/:id/openapi.json", get(handlers::get_contract_openapi_json))
         .route("/api/contracts/:id/versions", get(handlers::get_contract_versions).post(handlers::create_contract_version))
         .route("/api/contracts/breaking-changes", get(breaking_changes::get_breaking_changes))
         .route("/api/contracts/:id/versions", get(handlers::get_contract_versions))
-<<<<<<< feature/issue-46-add-contract-interaction-history-tracking
         .route(
             "/api/contracts/:id/interactions",
             get(handlers::get_contract_interactions).post(handlers::post_contract_interaction),
@@ -35,10 +38,8 @@ pub fn contract_routes() -> Router<AppState> {
             "/api/contracts/:id/interactions/batch",
             post(handlers::post_contract_interactions_batch),
         )
-=======
         .route("/api/contracts/:id/deprecation-info", get(deprecation_handlers::get_deprecation_info))
         .route("/api/contracts/:id/deprecate", post(deprecation_handlers::deprecate_contract))
->>>>>>> main
         .route("/api/contracts/:id/state/:key", get(handlers::get_contract_state).post(handlers::update_contract_state))
         .route("/api/contracts/:id/analytics", get(handlers::get_contract_analytics))
         .route("/api/contracts/:id/trust-score", get(handlers::get_trust_score))
@@ -78,6 +79,9 @@ pub fn contract_routes() -> Router<AppState> {
             get(changelog_handlers::get_contract_changelog)
                 .post(changelog_handlers::generate_changelog),
         )
+        // TODO: backup_routes, notification_routes, and post_incident_routes
+        // are available in the api library crate but need architectural refactoring
+        // to be integrated with the main AppState
 }
 
 pub fn publisher_routes() -> Router<AppState> {

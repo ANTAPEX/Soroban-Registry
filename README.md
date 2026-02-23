@@ -1,6 +1,6 @@
 # Soroban Registry
 
-> **A comprehensive platform for discovering, publishing, and verifying Soroban smart contracts on the Stellar network.**
+A comprehensive platform for discovering, publishing, and verifying Soroban smart contracts on the Stellar network.
 
 Soroban Registry is the trusted package manager and contract registry for the Stellar ecosystem, similar to npm for JavaScript or crates.io for Rust. It provides developers with a centralized platform to share, discover, and verify smart contracts.
 
@@ -8,18 +8,18 @@ Soroban Registry is the trusted package manager and contract registry for the St
 ![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)
 ![TypeScript](https://img.shields.io/badge/typescript-5.0%2B-blue.svg)
 
-## ✨ Features
+## Features
 
-- 🔍 **Contract Discovery** - Search and browse verified Soroban contracts
-- ✅ **Source Verification** - Verify contract source code matches on-chain bytecode
-- 📦 **Package Management** - Publish and manage contract versions
-- 🌐 **Multi-Network Support** - Mainnet, Testnet, and Futurenet
-- 🔐 **Publisher Profiles** - Track contract publishers and their deployments
-- 📊 **Analytics** - Contract usage statistics and metrics
-- 🎨 **Modern UI** - Beautiful, responsive web interface
-- 🛠️ **CLI Tool** - Command-line interface for developers
+- **Contract Discovery** - Search and browse verified Soroban contracts
+- **Source Verification** - Verify contract source code matches on-chain bytecode
+- **Package Management** - Publish and manage contract versions
+- **Multi-Network Support** - Mainnet, Testnet, and Futurenet
+- **Publisher Profiles** - Track contract publishers and their deployments
+- **Analytics** - Contract usage statistics and metrics
+- **Web Interface** - Responsive web application for contract management
+- **Command Line Interface** - Developer-friendly CLI tool
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 soroban-registry/
@@ -34,18 +34,18 @@ soroban-registry/
 └── examples/            # Example contracts
 ```
 
-## 🚀 Quick Start
+## Prerequisites
 
-### Prerequisites
+- **Rust** 1.75+ ([Installation Guide](https://rustup.rs/))
+- **Node.js** 20+ ([Installation Guide](https://nodejs.org/))
+- **PostgreSQL** 16+ ([Installation Guide](https://www.postgresql.org/download/))
+- **Docker** (optional, for containerized deployment)
 
-- **Rust** 1.75+ ([Install](https://rustup.rs/))
-- **Node.js** 20+ ([Install](https://nodejs.org/))
-- **PostgreSQL** 16+ ([Install](https://www.postgresql.org/download/))
-- **Docker** (optional, for containerized setup)
+## Getting Started
 
 ### Database Seeding
 
-Populate your development database with realistic test data:
+Populate your development database with test data:
 
 ```bash
 # Seed with 50 contracts (default)
@@ -65,13 +65,13 @@ cargo run --bin seeder -- --count=50 --database-url=postgresql://user:pass@local
 ```
 
 **Features:**
-- creates realistic contracts with names, descriptions, tags, and categories
-- generates publishers with Stellar addresses
-- creates contract versions and verification records
+- Creates realistic contracts with names, descriptions, tags, and categories
+- Generates publishers with Stellar addresses
+- Creates contract versions and verification records
 - Distributes contracts across all networks (mainnet, testnet, futurenet)
-- safe to run multiple times
-- fast - creates 100 contracts in <5 seconds
-- reproducible with `--seed` flag
+- Safe to run multiple times
+- Performance: creates 100 contracts in less than 5 seconds
+- Reproducible results with `--seed` flag
 
 **Custom Data Format:**
 ```json
@@ -94,8 +94,8 @@ cp .env.example .env
 # Start all services
 docker-compose up -d
 
-# The API will be available at http://localhost:3001
-# The frontend will be available at http://localhost:3000
+# API endpoint: http://localhost:3001
+# Frontend: http://localhost:3000
 ```
 
 ### Option 2: Manual Setup
@@ -137,11 +137,11 @@ npm install
 npm run dev
 ```
 
-## 📖 Usage
+## Usage
 
 ### Web Interface
 
-Visit `http://localhost:3000` to:
+Access the web application at `http://localhost:3000` to:
 - Browse and search contracts
 - View contract details and source code
 - Publish new contracts
@@ -182,10 +182,9 @@ soroban-registry migrate rollback <migration-id>
 soroban-registry migrate history --limit 20
 ```
 
-Migration commands read snapshots from `.soroban-registry/contracts/<contract-id>.json`
-and record all migration activity to `.soroban-registry/migration_history.jsonl`.
+CLI configuration is stored at `~/.soroban-registry/config.toml`. If a legacy `~/.soroban-registry.toml` file exists, it will be migrated automatically.
 
-## 🔧 API Endpoints
+## API Reference
 
 ### Contracts
 
@@ -201,24 +200,24 @@ and record all migration activity to `.soroban-registry/migration_history.jsonl`
 - `GET /api/publishers/:id/contracts` - Get publisher's contracts
 - `POST /api/publishers` - Create publisher profile
 
-### Statistics
+### Monitoring
 
-- `GET /api/stats` - Get registry statistics
+- `GET /api/stats` - Registry statistics
 - `GET /health` - Health check
 
-## 🗄️ Database Schema
+## Database
 
-The registry uses PostgreSQL with the following main tables:
+The registry uses PostgreSQL with the following primary tables:
 
-- `contracts` - Contract metadata and deployment info
-- `contract_versions` - Version history
-- `verifications` - Verification records
-- `publishers` - Publisher accounts
-- `contract_interactions` - Usage statistics
+- `contracts` - Contract metadata and deployment information
+- `contract_versions` - Version history and changelog
+- `verifications` - Source code verification records
+- `publishers` - Publisher account information
+- `contract_interactions` - Usage statistics and analytics
 
 See [`database/migrations/001_initial.sql`](database/migrations/001_initial.sql) for the complete schema.
 
-## 🛠️ Development
+## Development
 
 ### Running Tests
 
@@ -232,19 +231,17 @@ cd frontend
 npm test
 ```
 
-### Code Formatting
+### Code Quality
 
 ```bash
-# Rust
+# Format Rust code
 cargo fmt --all
 
-# TypeScript
+# Lint TypeScript
 npm run lint
 ```
 
-## 🌟 Example Contract
-
-Here's how to publish a simple contract:
+## Example: Publishing a Simple Contract
 
 ```rust
 // examples/hello-world/src/lib.rs
@@ -275,32 +272,25 @@ soroban-registry publish \
   --network testnet
 ```
 
-## 🤝 Contributing
+## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome. To contribute:
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
+2. Create a feature branch (`git checkout -b feature/description`)
+3. Commit your changes (`git commit -m 'Add feature description'`)
+4. Push to the branch (`git push origin feature/description`)
 5. Open a Pull Request
 
-## 📝 License
+Please ensure all tests pass and code follows the project's style guidelines.
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## License
 
-## 🙏 Acknowledgments
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
-- Built with [Soroban SDK](https://github.com/stellar/rs-soroban-sdk)
-- Inspired by [Hintents](https://github.com/dotandev/hintents) debugging tool
-- Powered by the Stellar ecosystem
+## References
 
-## 📞 Support
-
-- **Documentation**: [Coming soon]
-- **Issues**: [GitHub Issues](https://github.com/yourusername/soroban-registry/issues)
-- **Discord**: [Stellar Discord](https://discord.gg/stellar)
-
----
-
-**Built with ❤️ for the Stellar ecosystem**
+- [Soroban SDK](https://github.com/stellar/rs-soroban-sdk)
+- [Stellar Documentation](https://developers.stellar.org/)
+- [GitHub Issues](https://github.com/yourusername/soroban-registry/issues)
+- [Stellar Community Discord](https://discord.gg/stellar)

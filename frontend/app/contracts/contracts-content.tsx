@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, ContractSearchParams, Contract } from '@/lib/api';
 import ContractCard from '@/components/ContractCard';
@@ -10,13 +10,11 @@ import { FilterPanel } from '@/components/contracts/FilterPanel';
 import { ResultsCount } from '@/components/contracts/ResultsCount';
 import { SearchBar } from '@/components/contracts/SearchBar';
 import { SortDropdown, SortBy } from '@/components/contracts/SortDropdown';
+import TagAutocomplete from '@/components/tags/TagAutocomplete';
+import { Tag } from '@/types/tag';
 import { Filter, Package, SlidersHorizontal, X, ArrowUpDown } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-<<<<<<< HEAD
-import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAnalytics } from '@/hooks/useAnalytics';
-=======
->>>>>>> bf33e5b9ccbaba0b83d5ef0ac28d977a2cdc6198
 
 const DEFAULT_PAGE_SIZE = 12;
 const CATEGORY_OPTIONS = [
@@ -69,6 +67,7 @@ type ContractsUiFilters = {
   query: string;
   categories: string[];
   languages: string[];
+  tags: string[];
   author: string;
   networks: NonNullable<ContractSearchParams['network']>[];
   verified_only: boolean;
@@ -82,6 +81,7 @@ function getInitialFilters(searchParams: URLSearchParams): ContractsUiFilters {
   const query = searchParams.get('query') || searchParams.get('q') || '';
   const categories = parseCsvOrMulti(searchParams.getAll('category'));
   const languages = parseCsvOrMulti(searchParams.getAll('language'));
+  const tags = parseCsvOrMulti(searchParams.getAll('tag'));
   const networks = parseCsvOrMulti(searchParams.getAll('network')).filter(
     (network): network is NonNullable<ContractSearchParams['network']> =>
       network === 'mainnet' || network === 'testnet' || network === 'futurenet',
@@ -97,6 +97,7 @@ function getInitialFilters(searchParams: URLSearchParams): ContractsUiFilters {
     query,
     categories,
     languages,
+    tags,
     author: searchParams.get('author') || '',
     networks,
     verified_only: searchParams.get('verified_only') === 'true',
@@ -127,6 +128,7 @@ export function ContractsContent() {
     if (debouncedQuery) params.set('query', debouncedQuery);
     filters.categories.forEach((category) => params.append('category', category));
     filters.languages.forEach((language) => params.append('language', language));
+    filters.tags.forEach((tag) => params.append('tag', tag));
     filters.networks.forEach((network) => params.append('network', network));
     if (filters.author) params.set('author', filters.author);
     if (filters.verified_only) params.set('verified_only', 'true');
@@ -144,6 +146,7 @@ export function ContractsContent() {
       query: debouncedQuery || undefined,
       categories: filters.categories.length > 0 ? filters.categories : undefined,
       languages: filters.languages.length > 0 ? filters.languages : undefined,
+      tags: filters.tags.length > 0 ? filters.tags : undefined,
       author: filters.author || undefined,
       networks: filters.networks.length > 0 ? filters.networks : undefined,
       verified_only: filters.verified_only,
@@ -199,6 +202,7 @@ export function ContractsContent() {
       query: '',
       categories: [],
       languages: [],
+      tags: [],
       author: '',
       networks: [],
       verified_only: false,
@@ -239,6 +243,19 @@ export function ContractsContent() {
           setFilters((current) => ({
             ...current,
             languages: removeOne(current.languages, language),
+            page: 1,
+          })),
+      }),
+    );
+
+    filters.tags.forEach((tag) =>
+      chips.push({
+        id: `tag:${tag}`,
+        label: `Tag: ${tag}`,
+        onRemove: () =>
+          setFilters((current) => ({
+            ...current,
+            tags: removeOne(current.tags, tag),
             page: 1,
           })),
       }),
@@ -348,6 +365,22 @@ export function ContractsContent() {
               setFilters((current) => ({ ...current, query: '', page: 1 }));
             }}
           />
+          
+          <div className="w-full">
+             <TagAutocomplete
+                onSelect={(tag) =>
+                  setFilters((current) => {
+                    if (current.tags.includes(tag.name)) return current;
+                    return {
+                      ...current,
+                      tags: [...current.tags, tag.name],
+                      page: 1,
+                    };
+                  })
+                }
+                placeholder="Filter by tag..."
+             />
+          </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <SortDropdown
@@ -479,7 +512,6 @@ export function ContractsContent() {
           </p>
           <button
             type="button"
-<<<<<<< HEAD
             onClick={() => {
               logEvent('search_performed', {
                 keyword: '',
@@ -487,11 +519,7 @@ export function ContractsContent() {
               });
               clearAllFilters();
             }}
-            className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-=======
-            onClick={clearAllFilters}
             className="px-4 py-2 rounded-lg border border-border text-foreground hover:bg-accent transition-colors"
->>>>>>> bf33e5b9ccbaba0b83d5ef0ac28d977a2cdc6198
           >
             Clear all filters
           </button>

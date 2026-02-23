@@ -1,12 +1,10 @@
-import { debug } from "console"
-
 // lib/analytics.ts
 declare global {
   interface Window {
-    gtag?: (...args: any[]) => void
-    plausible?: (...args: any[]) => void
-    mixpanel?: any
-    dataLayer?: any[]
+    gtag?: (...args: unknown[]) => void
+    plausible?: (eventName: string, options?: Record<string, unknown>) => void
+    mixpanel?: { init: (token: string) => void; track: (name: string, params?: Record<string, unknown>) => void }
+    dataLayer?: unknown[]
   }
 }
 
@@ -24,7 +22,7 @@ export const initAnalytics = () => {
       document.head.appendChild(script)
 
       window.dataLayer = window.dataLayer || []
-      function gtag(...args: any[]) {
+      function gtag(...args: unknown[]) {
         window.dataLayer?.push(args)
       }
       window.gtag = gtag
@@ -48,8 +46,11 @@ export const initAnalytics = () => {
       script.defer = true
       script.dataset.domain = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN
       document.head.appendChild(script)
-      window.plausible = (eventName: string, options?: any) =>
-        (window as any).plausible(eventName, options)
+      window.plausible = (eventName: string, options?: Record<string, unknown>) => {
+        if (typeof (window as Window & { plausible?: (e: string, o?: Record<string, unknown>) => void }).plausible === 'function') {
+          (window as Window & { plausible: (e: string, o?: Record<string, unknown>) => void }).plausible(eventName, options)
+        }
+      }
     }
   }
 
@@ -58,14 +59,16 @@ export const initAnalytics = () => {
       const script = document.createElement('script')
       script.src = 'https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js'
       script.async = true
+      script.onload = () => {
+        window.mixpanel?.init(process.env.NEXT_PUBLIC_MIXPANEL_TOKEN ?? '')
+      }
       document.head.appendChild(script)
-      window.mixpanel.init(process.env.NEXT_PUBLIC_MIXPANEL_TOKEN)
     }
   }
 }
 
 // Track events in a unified way
-export const trackEvent = (name: string, params?: Record<string, any>) => {
+export const trackEvent = (name: string, params?: Record<string, unknown>) => {
   if (provider === 'ga' && window.gtag) {
     window.gtag('event', name, params)
     console.log(`GA event tracked: ${name}`, params)

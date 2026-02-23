@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -8,6 +10,9 @@ use std::str::FromStr;
 
 const DEFAULT_API_BASE: &str = "http://localhost:3001";
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
+const CONFIG_DIR_NAME: &str = ".soroban-registry";
+const CONFIG_FILE_NAME: &str = "config.toml";
+const LEGACY_CONFIG_FILE_NAME: &str = ".soroban-registry.toml";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -101,6 +106,7 @@ pub fn resolve_runtime_config(
 }
 
 pub fn show_config() -> Result<()> {
+    migrate_legacy_config()?;
     let path = config_file_path().context("Could not determine home directory")?;
     let defaults = load_defaults_section()?;
 
@@ -124,6 +130,7 @@ pub fn show_config() -> Result<()> {
 }
 
 pub fn edit_config() -> Result<()> {
+    migrate_legacy_config()?;
     let path = config_file_path().context("Could not determine home directory")?;
     ensure_config_file_exists(&path)?;
 
@@ -141,6 +148,7 @@ pub fn edit_config() -> Result<()> {
 }
 
 fn load_defaults_section() -> Result<DefaultsSection> {
+    migrate_legacy_config()?;
     let path = match config_file_path() {
         Some(p) => p,
         None => return Ok(DefaultsSection::default()),
@@ -181,12 +189,52 @@ timeout = 30
     Ok(())
 }
 
-fn config_file_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|mut p| {
-        p.push(".soroban-registry");
-        p.push("config.toml");
-        p
-    })
+pub fn config_file_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| config_file_path_for(&home))
+}
+
+fn config_file_path_for(base: &Path) -> PathBuf {
+    base.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME)
+}
+
+fn legacy_config_file_path_for(base: &Path) -> PathBuf {
+    base.join(LEGACY_CONFIG_FILE_NAME)
+}
+
+fn migrate_legacy_config() -> Result<()> {
+    let Some(home) = dirs::home_dir() else {
+        return Ok(());
+    };
+    migrate_legacy_config_for(&home)
+}
+
+fn migrate_legacy_config_for(base: &Path) -> Result<()> {
+    let legacy_path = legacy_config_file_path_for(base);
+    let current_path = config_file_path_for(base);
+
+    if !legacy_path.exists() || current_path.exists() {
+        return Ok(());
+    }
+
+    if let Some(parent) = current_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory {:?}", parent))?;
+    }
+
+    match fs::rename(&legacy_path, &current_path) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            fs::copy(&legacy_path, &current_path).with_context(|| {
+                format!(
+                    "Failed to copy legacy config from {:?} to {:?}: {}",
+                    legacy_path, current_path, err
+                )
+            })?;
+            fs::remove_file(&legacy_path)
+                .with_context(|| format!("Failed to remove legacy config at {:?}", legacy_path))?;
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -224,5 +272,46 @@ timeout = 55
         assert_eq!(defaults.network.as_deref(), Some("mainnet"));
         assert_eq!(defaults.api_base.as_deref(), Some("http://localhost:9000"));
         assert_eq!(defaults.timeout, Some(55));
+    }
+
+    #[test]
+    fn test_config_file_path_for_base() {
+        let dir = tempdir().unwrap();
+        let expected = dir
+            .path()
+            .join(CONFIG_DIR_NAME)
+            .join(CONFIG_FILE_NAME);
+        assert_eq!(config_file_path_for(dir.path()), expected);
+    }
+
+    #[test]
+    fn test_migrate_legacy_config_for_moves_file() {
+        let dir = tempdir().unwrap();
+        let legacy_path = legacy_config_file_path_for(dir.path());
+        let current_path = config_file_path_for(dir.path());
+        fs::write(&legacy_path, "test = true").unwrap();
+
+        migrate_legacy_config_for(dir.path()).unwrap();
+
+        assert!(!legacy_path.exists());
+        assert!(current_path.exists());
+        assert_eq!(fs::read_to_string(&current_path).unwrap(), "test = true");
+    }
+
+    #[test]
+    fn test_migrate_legacy_config_for_skips_when_current_exists() {
+        let dir = tempdir().unwrap();
+        let legacy_path = legacy_config_file_path_for(dir.path());
+        let current_path = config_file_path_for(dir.path());
+        if let Some(parent) = current_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&current_path, "current = true").unwrap();
+        fs::write(&legacy_path, "legacy = true").unwrap();
+
+        migrate_legacy_config_for(dir.path()).unwrap();
+
+        assert!(legacy_path.exists());
+        assert_eq!(fs::read_to_string(&current_path).unwrap(), "current = true");
     }
 }

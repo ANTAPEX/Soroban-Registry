@@ -8,6 +8,7 @@ use shared::models::{
     CastVoteRequest, CreateProposalRequest, GovernanceProposal, GovernanceVote, ProposalResults,
     ProposalStatus, VoteDelegation,
 };
+use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{
@@ -20,11 +21,13 @@ pub async fn create_proposal(
     Path(contract_id): Path<Uuid>,
     Json(req): Json<CreateProposalRequest>,
 ) -> ApiResult<Json<GovernanceProposal>> {
-    let contract = sqlx::query!("SELECT publisher_id FROM contracts WHERE id = $1", contract_id)
+    let contract = sqlx::query("SELECT publisher_id FROM contracts WHERE id = $1")
+        .bind(contract_id)
         .fetch_optional(&state.db)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::not_found("contract", "Contract not found"))?;
+    let publisher_id: Uuid = contract.get("publisher_id");
 
     let now = Utc::now();
     let voting_starts_at = now;
@@ -42,7 +45,7 @@ pub async fn create_proposal(
     .bind(&req.title)
     .bind(&req.description)
     .bind(&req.governance_model)
-    .bind(contract.publisher_id)
+    .bind(publisher_id)
     .bind(voting_starts_at)
     .bind(voting_ends_at)
     .bind(req.execution_delay_hours)
@@ -137,7 +140,7 @@ pub async fn get_proposal_results(
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
     .ok_or_else(|| ApiError::not_found("proposal", "Proposal not found"))?;
 
-    let votes = sqlx::query!(
+    let votes = sqlx::query(
         r#"
         SELECT 
             SUM(CASE WHEN vote_choice = 'for' THEN voting_power ELSE 0 END) as votes_for,
@@ -147,16 +150,21 @@ pub async fn get_proposal_results(
         FROM governance_votes 
         WHERE proposal_id = $1
         "#,
-        proposal_id
     )
+    .bind(proposal_id)
     .fetch_one(&state.db)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let votes_for = votes.votes_for.unwrap_or(0);
-    let votes_against = votes.votes_against.unwrap_or(0);
-    let votes_abstain = votes.votes_abstain.unwrap_or(0);
-    let total_votes = votes.total_votes.unwrap_or(0);
+    let votes_for: Option<i64> = votes.get("votes_for");
+    let votes_against: Option<i64> = votes.get("votes_against");
+    let votes_abstain: Option<i64> = votes.get("votes_abstain");
+    let total_votes_opt: Option<i64> = votes.get("total_votes");
+
+    let votes_for = votes_for.unwrap_or(0);
+    let votes_against = votes_against.unwrap_or(0);
+    let votes_abstain = votes_abstain.unwrap_or(0);
+    let total_votes = total_votes_opt.unwrap_or(0);
 
     let quorum_met = total_votes >= proposal.quorum_required as i64;
     let approval_pct = if total_votes > 0 {
@@ -209,11 +217,13 @@ pub async fn delegate_vote(
     Path(contract_id): Path<Uuid>,
     Json(delegate_id): Json<Uuid>,
 ) -> ApiResult<Json<VoteDelegation>> {
-    let contract = sqlx::query!("SELECT publisher_id FROM contracts WHERE id = $1", contract_id)
+    let contract = sqlx::query("SELECT publisher_id FROM contracts WHERE id = $1")
+        .bind(contract_id)
         .fetch_optional(&state.db)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::not_found("contract", "Contract not found"))?;
+    let publisher_id: Uuid = contract.get("publisher_id");
 
     let delegation = sqlx::query_as::<_, VoteDelegation>(
         r#"
@@ -222,7 +232,7 @@ pub async fn delegate_vote(
         RETURNING *
         "#,
     )
-    .bind(contract.publisher_id)
+    .bind(publisher_id)
     .bind(delegate_id)
     .bind(contract_id)
     .fetch_one(&state.db)

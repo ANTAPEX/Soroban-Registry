@@ -8,6 +8,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{
@@ -208,7 +209,7 @@ pub async fn add_contract_compatibility(
         ));
     }
 
-    sqlx::query!(
+    sqlx::query(
         r#"
         INSERT INTO contract_version_compatibility
             (source_contract_id, source_version, target_contract_id, target_version, stellar_version, is_compatible)
@@ -219,13 +220,13 @@ pub async fn add_contract_compatibility(
             is_compatible = EXCLUDED.is_compatible,
             updated_at = NOW()
         "#,
-        contract_id,
-        body.source_version,
-        body.target_contract_id,
-        body.target_version,
-        body.stellar_version,
-        body.is_compatible
     )
+    .bind(contract_id)
+    .bind(&body.source_version)
+    .bind(body.target_contract_id)
+    .bind(&body.target_version)
+    .bind(&body.stellar_version)
+    .bind(body.is_compatible)
     .execute(&state.db)
     .await
     .map_err(|e| ApiError::internal(format!("DB error: {e}")))?;

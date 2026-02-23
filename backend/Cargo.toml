@@ -1,5 +1,5 @@
 [workspace]
-members = ["api", "indexer", "verifier", "shared", "seeder"]
+members = ["api", "indexer", "verifier", "shared", "seeder", "contract_abi"]
 resolver = "2"
 
 [workspace.package]
@@ -71,3 +71,5 @@ rand = "0.8"
 base64 = "0.22"
 sha2 = "0.10"
 hex = "0.4"
+
+syn = { version = "2.0", features = ["full", "visit"] }

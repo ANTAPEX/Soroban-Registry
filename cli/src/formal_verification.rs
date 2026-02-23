@@ -1,8 +1,9 @@
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use colored::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
 
 #[derive(Debug, Deserialize)]
 pub struct PropertiesConfig {

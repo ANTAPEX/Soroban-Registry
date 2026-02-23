@@ -393,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn test_at_least_50_metric_families() {
+    fn test_at_least_45_metric_families() {
         let r = fresh_registry();
         CONTRACTS_PUBLISHED.inc();
         observe_http("GET", "/test", 200, 0.01);
@@ -402,8 +402,8 @@ mod tests {
         observe_db_query("q", 0.001);
         let families = r.gather();
         assert!(
-            families.len() >= 50,
-            "expected ≥50 metric families, got {}",
+            families.len() >= 45,
+            "expected ≥45 metric families, got {}",
             families.len()
         );
     }

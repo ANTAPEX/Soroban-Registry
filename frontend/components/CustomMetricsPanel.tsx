@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, MetricCatalogEntry } from '@/lib/api';
 import { Activity, BarChart3, Clock3, LineChart } from 'lucide-react';
@@ -53,13 +53,7 @@ export default function CustomMetricsPanel({ contractId }: Props) {
     queryFn: () => api.getCustomMetricCatalog(contractId),
   });
 
-  useEffect(() => {
-    if (!selectedMetric && catalog && catalog.length > 0) {
-      setSelectedMetric(catalog[0].metric_name);
-    }
-  }, [catalog, selectedMetric]);
-
-  const metricName = selectedMetric || catalog?.[0]?.metric_name;
+  const metricName = selectedMetric || (catalog?.[0]?.metric_name ?? '');
 
   const {
     data: series,

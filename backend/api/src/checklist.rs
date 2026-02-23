@@ -854,6 +854,19 @@ pub fn all_checks() -> Vec<ChecklistItem> {
             remediation: "Read each storage key once per function and use the cached value.".into(),
             references: vec![],
         },
+        ChecklistItem {
+            id: "SP-005".into(),
+            category: CheckCategory::StoragePatterns,
+            title: "Raw Storage Key Usage",
+            description: "Detects the use of raw strings or symbol macros for storage keys instead \
+                          of an exhaustive DataKey enum. Raw keys are prone to typo collisions.".into(),
+            severity: Severity::Medium,
+            detection: DetectionMethod::Automatic { 
+                patterns: vec!["symbol_short!(".into(), "Symbol::new(".into(), "&\"".into()] 
+            },
+            remediation: "Migrate all hardcoded string keys to a centralized `#[contracttype] pub enum DataKey`.".into(),
+            references: vec![],
+        },
 
         // ─────────────────────────────────────────
         // UPGRADEABILITY (3 items)
@@ -936,7 +949,13 @@ pub fn all_checks() -> Vec<ChecklistItem> {
         },
 
         // ─────────────────────────────────────────
-        // RESOURCE LIMITS (3 items)
+        // RESOURCE LIMITS (4 items)
+        // Quick operator guidance:
+        // - Measure CPU with Soroban CLI cost output on worst-case inputs (not only happy paths).
+        // - Treat memory pressure as two checks: entry count growth + per-entry byte footprint.
+        // - Measure WASM size from the release artifact and keep upgrade headroom (don't target 100%).
+        // - Common failures: "instruction budget exceeded", oversized ledger entry writes,
+        //   or upgrade/deploy rejection due to WASM byte limit.
         // ─────────────────────────────────────────
         ChecklistItem {
             id: "RL-001".into(),
@@ -956,22 +975,53 @@ pub fn all_checks() -> Vec<ChecklistItem> {
             category: CheckCategory::ResourceLimits,
             title: "Instruction budget not exceeded in worst-case path".into(),
             description: "The worst-case execution path must stay within Soroban's instruction \
-                          budget. Test with maximum-size inputs.".into(),
+                          budget. Test with maximum-size inputs and realistic batch sizes, not \
+                          just nominal examples.".into(),
             severity: Severity::High,
             detection: DetectionMethod::Manual,
-            remediation: "Profile with `soroban contract invoke --cost`. Optimize hot paths.".into(),
+            remediation: "Measure current usage with Soroban CLI cost output (e.g. `--cost` or \
+                         `--cost-snapshot`) for each high-risk entry point. Record both average \
+                         and worst-case instruction counts. Practical baselines: simple registry \
+                         lookups are often ~50k-400k instructions, token/escrow flows ~100k-1.5M, \
+                         and AMM/orderbook or batch settlement paths ~500k-10M+. If you hit \
+                         \"instruction budget exceeded\" errors, cap loop iterations, paginate \
+                         collections, cache repeated reads, and split work across multiple txs.".into(),
             references: vec![],
         },
         ChecklistItem {
             id: "RL-003".into(),
             category: CheckCategory::ResourceLimits,
-            title: "Ledger entry byte limits respected".into(),
-            description: "Each ledger entry has a maximum byte size. Storing unbounded data in \
-                          a single entry will fail at write time.".into(),
+            title: "Ledger entry byte limits / memory footprint respected".into(),
+            description: "Each ledger entry has a maximum byte size, and oversized serialized \
+                          structs/maps behave like memory pressure during writes. Storing \
+                          unbounded data in a single entry will fail at write time.".into(),
             severity: Severity::Medium,
             detection: DetectionMethod::Manual,
-            remediation: "Split large datasets across multiple keyed entries or use off-chain \
-                         storage with on-chain hashes.".into(),
+            remediation: "Measure current usage by serializing representative state objects and \
+                         checking byte size (especially the largest map/vector entries), then test \
+                         writes with worst-case payloads. As a rule of thumb, keep common records \
+                         in the low hundreds of bytes to a few KB, and shard before approaching \
+                         network entry limits. If writes fail with serialization/ledger-size \
+                         errors, split data across multiple keys, add pagination, or store \
+                         payloads off-chain with on-chain hashes.".into(),
+            references: vec![],
+        },
+        ChecklistItem {
+            id: "RL-004".into(),
+            category: CheckCategory::ResourceLimits,
+            title: "WASM binary size measured with upgrade headroom".into(),
+            description: "Contract WASM size must remain below the network byte limit for deploy \
+                          and future upgrades. Teams should track artifact size over time and \
+                          preserve headroom for new features.".into(),
+            severity: Severity::Medium,
+            detection: DetectionMethod::Manual,
+            remediation: "Measure current usage from the compiled artifact (`wc -c` on the \
+                         release `.wasm`) and compare against the configured network limit. \
+                         Practical baselines after optimization: small registry contracts are \
+                         often ~80KB-200KB, token/escrow ~150KB-350KB, and feature-rich \
+                         marketplace/AMM contracts ~300KB-800KB. If deploy/upgrade fails due to \
+                         size, build with `opt-level = \"z\"`, run `wasm-opt -Oz`, remove dead \
+                         code, and move large tables/constants out of the contract.".into(),
             references: vec![],
         },
     ]

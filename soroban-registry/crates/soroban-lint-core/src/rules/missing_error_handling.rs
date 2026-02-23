@@ -46,11 +46,10 @@ impl<'ast> Visit<'ast> for ErrorHandlingVisitor {
         let prev_test = self.in_test;
         self.in_test = is_test || self.in_test;
 
-        // Visit the function body for unwrap/expect calls
-        self.visit_block(&node.block);
+        // Let syn::visit handle visiting the block - don't visit manually to avoid double-visiting
+        syn::visit::visit_item_fn(self, node);
 
         self.in_test = prev_test;
-        syn::visit::visit_item_fn(self, node);
     }
 
     fn visit_expr(&mut self, node: &'ast syn::Expr) {

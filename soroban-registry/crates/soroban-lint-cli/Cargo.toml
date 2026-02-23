@@ -11,6 +11,7 @@ path = "src/main.rs"
 soroban-lint-core = { path = "../soroban-lint-core" }
 soroban-state-core = { path = "../soroban-state-core" }
 soroban-load-balancer = { path = "../soroban-load-balancer" }
+soroban-batch = { path = "../soroban-batch" }
 syn = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }

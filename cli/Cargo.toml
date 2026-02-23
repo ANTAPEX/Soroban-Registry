@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 shared = { path = "../backend/shared" }
+contract_abi = { path = "../backend/contract_abi" }
 clap = { version = "4.5", features = ["derive", "env"] }
 tokio = { version = "1", features = ["full", "macros", "rt-multi-thread"] }
 reqwest = { version = "0.12", default-features = false, features = [
@@ -27,6 +28,7 @@ dirs = "5.0"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 sha2 = "0.10"
+hmac = "0.12"
 flate2 = "1.0"
 tar = "0.4"
 tempfile = "3.14"

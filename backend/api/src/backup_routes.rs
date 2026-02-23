@@ -20,4 +20,14 @@ pub fn backup_routes() -> Router<AppState> {
             "/api/contracts/:id/backups/stats",
             get(backup_handlers::get_backup_stats),
         )
+        // Disaster Recovery Routes
+        .route(
+            "/api/contracts/:id/disaster-recovery-plan",
+            post(backup_handlers::create_disaster_recovery_plan)
+                .get(backup_handlers::get_disaster_recovery_plan),
+        )
+        .route(
+            "/api/contracts/:id/disaster-recovery/execute",
+            post(backup_handlers::execute_recovery),
+        )
 }

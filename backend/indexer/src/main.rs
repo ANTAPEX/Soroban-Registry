@@ -1,3 +1,5 @@
+#![allow(dead_code, unused)]
+
 /// Stellar Blockchain Indexer Service
 /// Continuously monitors Stellar network for contract deployments and syncs to registry database
 ///

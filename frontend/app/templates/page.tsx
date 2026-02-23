@@ -3,15 +3,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import TemplateGallery from '@/components/TemplateGallery';
-<<<<<<< HEAD
-import { Package, Sparkles, Terminal } from 'lucide-react';
-import Link from 'next/link';
-import { useAnalytics } from '@/hooks/useAnalytics';
-import { useEffect } from 'react';
-=======
 import { Sparkles, Terminal } from 'lucide-react';
 import Navbar from '@/components/Navbar';
->>>>>>> bf33e5b9ccbaba0b83d5ef0ac28d977a2cdc6198
+import { useAnalytics } from '@/hooks/useAnalytics';
+import { useEffect } from 'react';
 
 export default function TemplatesPage() {
     const { data: templates, isLoading, error } = useQuery({
@@ -29,35 +24,8 @@ export default function TemplatesPage() {
     }, [error, logEvent]);
 
     return (
-<<<<<<< HEAD
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30 dark:from-gray-950 dark:via-blue-950/20 dark:to-purple-950/20">
-            <nav className="border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex items-center justify-between h-16">
-                        <Link href="/" className="flex items-center gap-2">
-                            <Package className="w-8 h-8 text-blue-600" />
-                            <span className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                                Soroban Registry
-                            </span>
-                        </Link>
-                        <div className="flex items-center gap-4">
-                            <Link href="/contracts" className="text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Browse</Link>
-                            <Link href="/templates" className="text-blue-600 dark:text-blue-400 font-medium">Templates</Link>
-                            <Link
-                                href="/publish"
-                                onClick={() => logEvent('publish_cta_clicked', { source: 'templates_nav' })}
-                                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors font-medium"
-                            >
-                                Publish Contract
-                            </Link>
-                        </div>
-                    </div>
-                </div>
-            </nav>
-=======
-        <div className="min-h-screen bg-linear-to-br from-gray-50 via-blue-50/30 to-purple-50/30 dark:from-gray-950 dark:via-blue-900/10 dark:to-purple-900/10">
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30 dark:from-gray-950 dark:via-blue-900/10 dark:to-purple-900/10">
             <Navbar />
->>>>>>> bf33e5b9ccbaba0b83d5ef0ac28d977a2cdc6198
 
             <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
                 <div className="mb-12">

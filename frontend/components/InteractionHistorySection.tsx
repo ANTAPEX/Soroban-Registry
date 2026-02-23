@@ -138,7 +138,7 @@ export default function InteractionHistorySection({ contractId }: InteractionHis
                 </p>
               ) : (
                 <ul className="space-y-2">
-                  {analytics.interactors.top_users.map((u, i) => (
+                  {analytics.interactors.top_users.map((u) => (
                     <li
                       key={u.address}
                       className="flex justify-between items-center text-sm"

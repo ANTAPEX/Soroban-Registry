@@ -33,18 +33,18 @@ pub async fn run_formal_verification(
     let session = payload.session.clone();
     
     // Insert session
-    sqlx::query!(
+    sqlx::query(
         r#"
         INSERT INTO formal_verification_sessions (id, contract_id, version, verifier_version, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6)
         "#,
-        session.id,
-        contract_id,
-        session.version,
-        session.verifier_version,
-        session.created_at,
-        session.updated_at
     )
+    .bind(session.id)
+    .bind(contract_id)
+    .bind(&session.version)
+    .bind(&session.verifier_version)
+    .bind(session.created_at)
+    .bind(session.updated_at)
     .execute(&mut *tx)
     .await
     .map_err(|e| {
@@ -55,18 +55,18 @@ pub async fn run_formal_verification(
     // Insert properties and results
     for prop_out in payload.properties.iter() {
         let prop = &prop_out.property;
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO formal_verification_properties (id, session_id, property_id, description, invariant, severity)
             VALUES ($1, $2, $3, $4, $5, $6)
             "#,
-            prop.id,
-            session.id,
-            prop.property_id,
-            prop.description,
-            prop.invariant,
-            prop.severity
         )
+        .bind(prop.id)
+        .bind(session.id)
+        .bind(&prop.property_id)
+        .bind(&prop.description)
+        .bind(&prop.invariant)
+        .bind(&prop.severity)
         .execute(&mut *tx)
         .await
         .map_err(|e| {
@@ -75,17 +75,17 @@ pub async fn run_formal_verification(
         })?;
 
         let res = &prop_out.result;
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO formal_verification_results (id, property_id, status, counterexample, details)
             VALUES ($1, $2, $3::verification_status, $4, $5)
             "#,
-            res.id,
-            prop.id,
-            res.status as VerificationStatus,
-            res.counterexample,
-            res.details
         )
+        .bind(res.id)
+        .bind(prop.id)
+        .bind(&res.status)
+        .bind(&res.counterexample)
+        .bind(&res.details)
         .execute(&mut *tx)
         .await
         .map_err(|e| {
@@ -107,16 +107,15 @@ pub async fn get_formal_verification_history(
     State(state): State<AppState>,
     Path(contract_id): Path<Uuid>,
 ) -> Result<Json<Vec<FormalVerificationReport>>, ApiError> {
-    let sessions = sqlx::query_as!(
-        FormalVerificationSession,
+    let sessions = sqlx::query_as::<_, FormalVerificationSession>(
         r#"
         SELECT id, contract_id, version, verifier_version, created_at, updated_at
         FROM formal_verification_sessions
         WHERE contract_id = $1
         ORDER BY created_at DESC
         "#,
-        contract_id
     )
+    .bind(contract_id)
     .fetch_all(&state.pool)
     .await
     .map_err(|_| ApiError::InternalServerError)?;
@@ -124,30 +123,28 @@ pub async fn get_formal_verification_history(
     let mut reports = Vec::new();
 
     for session in sessions {
-        let properties = sqlx::query_as!(
-            FormalVerificationProperty,
+        let properties = sqlx::query_as::<_, FormalVerificationProperty>(
             r#"
             SELECT id, session_id, property_id, description, invariant, severity
             FROM formal_verification_properties
             WHERE session_id = $1
             "#,
-            session.id
         )
+        .bind(session.id)
         .fetch_all(&state.pool)
         .await
         .map_err(|_| ApiError::InternalServerError)?;
 
         let mut prop_results = Vec::new();
         for prop in properties.into_iter() {
-            let result = sqlx::query_as!(
-                FormalVerificationResult,
+            let result = sqlx::query_as::<_, FormalVerificationResult>(
                 r#"
                 SELECT id, property_id, status as "status: VerificationStatus", counterexample, details
                 FROM formal_verification_results
                 WHERE property_id = $1
                 "#,
-                prop.id
             )
+            .bind(prop.id)
             .fetch_one(&state.pool)
             .await
             .map_err(|_| ApiError::InternalServerError)?;

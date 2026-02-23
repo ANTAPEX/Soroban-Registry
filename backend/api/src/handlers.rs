@@ -3,19 +3,18 @@ use axum::{
         rejection::{JsonRejection, QueryRejection},
         Path, Query, State,
     },
-    http::StatusCode,
-    response::IntoResponse,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde_json::{json, Value};
 use shared::{
     Contract, ContractAnalyticsResponse, ContractGetResponse, ContractSearchParams,
-    ContractVersion, CreateInteractionBatchRequest, CreateInteractionRequest,
-    ContractInteractionResponse, DeploymentStats, InteractionsListResponse,
-    InteractionsQueryParams, InteractorStats, Network, NetworkConfig,
-    PaginatedResponse, PublishRequest, Publisher, TimelineEntry, TopUser,
-    Contract,ContractGetResponse, ContractSearchParams, ContractVersion, Network, NetworkConfig, CreateContractVersionRequest, PaginatedResponse, PublishRequest, Publisher,
-    SemVer,
+    ContractVersion, CreateContractVersionRequest, CreateInteractionBatchRequest,
+    CreateInteractionRequest, ContractInteractionResponse, DeploymentStats,
+    InteractionsListResponse, InteractionsQueryParams, InteractorStats, Network,
+    NetworkConfig, PaginatedResponse, PublishRequest, Publisher, SemVer,
+    TimelineEntry, TopUser,
 };
 use uuid::Uuid;
 
@@ -29,6 +28,8 @@ use crate::{
     error::{ApiError, ApiResult},
     breaking_changes::{diff_abi, has_breaking_changes, resolve_abi},
     state::AppState,
+    type_safety::{generate_openapi, to_json, to_yaml},
+    type_safety::parser::parse_json_spec,
 };
 
 fn db_internal_error(operation: &str, err: sqlx::Error) -> ApiError {
@@ -599,11 +600,68 @@ pub async fn get_publisher_contracts(
     Ok(Json(contracts))
 }
 
-// Stubs for upstream added endpoints
-pub async fn get_contract_abi() -> impl IntoResponse {
-    Json(json!({"abi": null}))
+/// Query for contract ABI and OpenAPI (optional version)
+#[derive(Debug, serde::Deserialize)]
+pub struct ContractAbiQuery {
+    pub version: Option<String>,
 }
 
+/// Fetch ABI JSON string for contract (by id or id@version)
+async fn resolve_contract_abi(state: &AppState, id: &str, version: Option<&str>) -> ApiResult<String> {
+    let selector = match version {
+        Some(v) => format!("{}@{}", id, v),
+        None => id.to_string(),
+    };
+    resolve_abi(state, &selector).await
+}
+
+// Contract ABI and OpenAPI endpoints
+pub async fn get_contract_abi(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<ContractAbiQuery>,
+) -> ApiResult<Json<Value>> {
+    let abi_json = resolve_contract_abi(&state, &id, query.version.as_deref()).await?;
+    let abi: Value = serde_json::from_str(&abi_json)
+        .map_err(|e| ApiError::internal(format!("Invalid ABI JSON: {}", e)))?;
+    Ok(Json(json!({ "abi": abi })))
+}
+
+pub async fn get_contract_openapi_yaml(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<ContractAbiQuery>,
+) -> ApiResult<Response> {
+    let abi_json = resolve_contract_abi(&state, &id, query.version.as_deref()).await?;
+    let abi = parse_json_spec(&abi_json, &id)
+        .map_err(|e| ApiError::bad_request("InvalidABI", format!("Failed to parse ABI: {}", e)))?;
+    let doc = generate_openapi(&abi, Some("/invoke"));
+    let yaml = to_yaml(&doc).map_err(|e| ApiError::internal(format!("OpenAPI YAML: {}", e)))?;
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/x-yaml")
+        .body(axum::body::Body::from(yaml))
+        .map_err(|_| ApiError::internal("Failed to build response"))
+}
+
+pub async fn get_contract_openapi_json(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<ContractAbiQuery>,
+) -> ApiResult<Response> {
+    let abi_json = resolve_contract_abi(&state, &id, query.version.as_deref()).await?;
+    let abi = parse_json_spec(&abi_json, &id)
+        .map_err(|e| ApiError::bad_request("InvalidABI", format!("Failed to parse ABI: {}", e)))?;
+    let doc = generate_openapi(&abi, Some("/invoke"));
+    let json = to_json(&doc).map_err(|e| ApiError::internal(format!("OpenAPI JSON: {}", e)))?;
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(json))
+        .map_err(|_| ApiError::internal("Failed to build response"))
+}
+
+// Stubs for upstream added endpoints
 pub async fn get_contract_state() -> impl IntoResponse {
     Json(json!({"state": {}}))
 }

@@ -5,9 +5,25 @@ use std::process::Command;
 fn get_binary_path() -> PathBuf {
     // When running tests via cargo test, CARGO_BIN_EXE_<name> is set
     let name = "soroban-registry";
-    let path = env::var(format!("CARGO_BIN_EXE_{}", name))
-        .expect("Could not find binary path via env var");
-    PathBuf::from(path)
+    if let Ok(path) = env::var(format!("CARGO_BIN_EXE_{}", name)) {
+        return PathBuf::from(path);
+    }
+    // Fallback: look for the binary in target/debug
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR")
+        .unwrap_or_else(|_| ".".to_string());
+    let binary_path = PathBuf::from(&manifest_dir)
+        .join("target")
+        .join("debug")
+        .join(name);
+    if binary_path.exists() {
+        return binary_path;
+    }
+    // Try workspace target directory
+    PathBuf::from(&manifest_dir)
+        .parent()
+        .map(|p| p.join("target").join("debug").join(name))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| panic!("Could not find {} binary. Run `cargo build` first.", name))
 }
 
 #[test]

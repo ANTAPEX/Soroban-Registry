@@ -42,8 +42,10 @@ impl<'ast> Visit<'ast> for AuthCheckVisitor {
 
             // Check if it has require_auth
             if !code_str.contains("require_auth") && !code_str.contains("env.require_auth") {
-                // Check if it modifies state
-                if code_str.contains(".set(") || code_str.contains("storage().") {
+                // Check if it modifies state - handle quote::quote! spacing variations
+                let has_set = code_str.contains(". set (") || code_str.contains(".set(");
+                let has_storage = code_str.contains("storage ()") || code_str.contains("storage()");
+                if has_set || has_storage {
                     let fn_name = node.sig.ident.to_string();
                     if !fn_name.starts_with("get") && !fn_name.starts_with("view") {
                         let diag = Diagnostic::new(
@@ -73,5 +75,19 @@ mod tests {
     fn rule_created() {
         let rule = MissingAuthCheckRule;
         assert_eq!(rule.rule_id(), "missing_auth_check");
+    }
+
+    #[test]
+    fn flags_missing_auth_on_transfer() {
+        let source = r#"
+            use soroban_sdk::{Env, Address, Symbol};
+            pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+                env.storage().persistent().set(&Symbol::new(&env, "balance"), &amount);
+            }
+        "#;
+        let syntax = syn::parse_file(source).expect("valid syntax");
+        let rule = MissingAuthCheckRule;
+        let diags = rule.check("test.rs", &syntax);
+        assert!(!diags.is_empty());
     }
 }

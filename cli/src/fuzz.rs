@@ -661,14 +661,14 @@ impl Clone for Fuzzer {
 
 fn parse_duration(s: &str) -> Result<Duration> {
     let s = s.trim();
-    let (num, unit) = if s.ends_with('s') {
+    let (num, unit) = if s.ends_with("ms") {
+        (&s[..s.len() - 2], "ms")
+    } else if s.ends_with('s') {
         (&s[..s.len() - 1], "s")
-    } else if s.ends_with('m') && !s.ends_with("ms") {
+    } else if s.ends_with('m') {
         (&s[..s.len() - 1], "m")
     } else if s.ends_with('h') {
         (&s[..s.len() - 1], "h")
-    } else if s.ends_with("ms") {
-        (&s[..s.len() - 2], "ms")
     } else {
         (s, "s")
     };

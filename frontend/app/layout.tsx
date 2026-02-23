@@ -1,18 +1,12 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import Providers from "@/components/Providers";
 import Script from "next/script";
 import PageViewTracker from "@/components/PageViewTracker";
 import UserInteractionTracker from "@/components/UserInteractionTracker";
 
-const GA_PROVIDER = process.env.NEXT_PUBLIC_ANALYTICS_PROVIDER = 'ga'
+const GA_PROVIDER = process.env.NEXT_PUBLIC_ANALYTICS_PROVIDER || 'ga'
 const GA_ID = process.env.NEXT_PUBLIC_GA_ID
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-});
 
 export const metadata: Metadata = {
   title: "Soroban Registry - Smart Contract Discovery for Stellar",
@@ -46,7 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         )}
         {/* You could similarly inject Plausible or Mixpanel scripts here if needed */}
       </head>
-      <body className={`${inter.variable} font-sans antialiased`}>
+      <body className="font-sans antialiased">
         <Providers>
           {children}
 

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgPool, Row};
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -43,7 +43,7 @@ pub struct ScanReport {
 pub async fn sync_cves(pool: &PgPool, payloads: Vec<VulnerabilityPayload>) -> Result<usize, sqlx::Error> {
     let mut count = 0;
     for payload in payloads {
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO cve_vulnerabilities (cve_id, description, severity, package_name, patched_versions, updated_at)
             VALUES ($1, $2, $3, $4, $5, NOW())
@@ -54,12 +54,12 @@ pub async fn sync_cves(pool: &PgPool, payloads: Vec<VulnerabilityPayload>) -> Re
                 patched_versions = EXCLUDED.patched_versions,
                 updated_at = NOW()
             "#,
-            payload.cve_id,
-            payload.description,
-            payload.severity,
-            payload.package_name,
-            &payload.patched_versions
         )
+        .bind(&payload.cve_id)
+        .bind(&payload.description)
+        .bind(&payload.severity)
+        .bind(&payload.package_name)
+        .bind(&payload.patched_versions)
         .execute(pool)
         .await?;
         count += 1;
@@ -72,41 +72,44 @@ pub async fn perform_scan(pool: &PgPool, contract_id: Uuid, request: ScanRequest
 
     // Insert dependencies first
     for dep in &request.dependencies {
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO contract_dependencies (contract_id, package_name, version)
             VALUES ($1, $2, $3)
             ON CONFLICT (contract_id, package_name) DO UPDATE SET
                 version = EXCLUDED.version
             "#,
-            contract_id,
-            dep.package_name,
-            dep.version
         )
+        .bind(contract_id)
+        .bind(&dep.package_name)
+        .bind(&dep.version)
         .execute(pool)
         .await?;
         
         // Match against vulnerabilities strictly to minimize false positives (<1%)
         // This query matches if the vulnerability exists for the package and version is not in patched_versions
-        let cves = sqlx::query!(
+        let cves = sqlx::query(
             r#"
             SELECT cve_id, severity, patched_versions
             FROM cve_vulnerabilities
             WHERE package_name = $1
             "#,
-            dep.package_name
         )
+        .bind(&dep.package_name)
         .fetch_all(pool)
         .await?;
 
         for cve in cves {
             // Very simple semantic version match placeholder - if it's not patched, it's vulnerable.
             // A rigid check to maintain <1% false positive. If no patch versions matching exactly, assume vulnerable
-            let is_patched = cve.patched_versions.contains(&dep.version);
+            let patched_versions: Vec<String> = cve.get("patched_versions");
+            let is_patched = patched_versions.contains(&dep.version);
             if !is_patched {
-                let rec_version = cve.patched_versions.first().cloned();
+                let rec_version = patched_versions.first().cloned();
+                let cve_id: String = cve.get("cve_id");
+                let severity: String = cve.get("severity");
                 
-                sqlx::query!(
+                sqlx::query(
                     r#"
                     INSERT INTO contract_scan_results (contract_id, cve_id, package_name, current_version, recommended_version)
                     VALUES ($1, $2, $3, $4, $5)
@@ -114,18 +117,18 @@ pub async fn perform_scan(pool: &PgPool, contract_id: Uuid, request: ScanRequest
                         current_version = EXCLUDED.current_version,
                         recommended_version = EXCLUDED.recommended_version
                     "#,
-                    contract_id,
-                    cve.cve_id,
-                    dep.package_name,
-                    dep.version,
-                    rec_version
                 )
+                .bind(contract_id)
+                .bind(&cve_id)
+                .bind(&dep.package_name)
+                .bind(&dep.version)
+                .bind(&rec_version)
                 .execute(pool)
                 .await?;
 
                 findings.push(ScanResultRow {
-                    cve_id: cve.cve_id,
-                    severity: cve.severity,
+                    cve_id: cve_id,
+                    severity: severity,
                     package_name: dep.package_name.clone(),
                     current_version: dep.version.clone(),
                     recommended_version: rec_version,
@@ -143,8 +146,7 @@ pub async fn perform_scan(pool: &PgPool, contract_id: Uuid, request: ScanRequest
 }
 
 pub async fn get_history(pool: &PgPool, contract_id: Uuid) -> Result<ScanReport, sqlx::Error> {
-    let rows = sqlx::query_as!(
-        ScanResultRow,
+    let rows = sqlx::query_as::<_, ScanResultRow>(
         r#"
         SELECT s.cve_id, s.package_name, s.current_version, s.recommended_version, c.severity, s.is_false_positive
         FROM contract_scan_results s
@@ -152,18 +154,18 @@ pub async fn get_history(pool: &PgPool, contract_id: Uuid) -> Result<ScanReport,
         WHERE s.contract_id = $1
         ORDER BY s.created_at DESC
         "#,
-        contract_id
     )
+    .bind(contract_id)
     .fetch_all(pool)
     .await?;
 
-    let dep_count = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) FROM contract_dependencies WHERE contract_id = $1"#,
-        contract_id
+    let dep_count_row = sqlx::query(
+        r#"SELECT COUNT(*) as count FROM contract_dependencies WHERE contract_id = $1"#,
     )
+    .bind(contract_id)
     .fetch_one(pool)
-    .await?
-    .unwrap_or(0);
+    .await?;
+    let dep_count: i64 = dep_count_row.get("count");
 
     Ok(ScanReport {
         contract_id,

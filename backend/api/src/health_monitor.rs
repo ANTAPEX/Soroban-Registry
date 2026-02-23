@@ -45,7 +45,15 @@ async fn perform_health_checks(pool: &PgPool) -> Result<()> {
         // contract.is_verified is available
 
         // 4. Calculate health score
-        let health = calculate_health(&contract, stats.as_ref());
+        // For now, map the existing boolean to the new graduated enum base cases. 
+        // In a subsequent update, we could map this from a complex DB join or audit state.
+        let verification_level = if contract.is_verified {
+            VerificationLevel::Verified
+        } else {
+            VerificationLevel::Unverified
+        };
+
+        let health = calculate_health(&contract, stats.as_ref(), verification_level);
 
         // 5. Update database
         upsert_contract_health(pool, &health).await?;
@@ -55,13 +63,45 @@ async fn perform_health_checks(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
-fn calculate_health(contract: &Contract, stats: Option<&ContractStats>) -> ContractHealth {
+/// Represents the graduated verification level of a smart contract.
+/// Each level carries a varying degree of trust, which directly impacts the contract's health score.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum VerificationLevel {
+    /// Contract is completely unverified. No source code has been matched.
+    Unverified,
+    /// Contract verification is currently in progress or awaiting review.
+    Pending,
+    /// Contract source code matches the deployed bytecode perfectly.
+    Verified,
+    /// Contract is verified AND has been externally audited by a trusted security firm.
+    Audited,
+}
+
+impl VerificationLevel {
+    /// Returns the health score weight modifier for the verification level.
+    pub fn score_weight(&self) -> i32 {
+        match self {
+            // Unverified contracts suffer a severe health penalty (-40 base) due to lack of transparency
+            VerificationLevel::Unverified => -40,
+            // Pending contracts get an intermediate penalty since they are unverified but attempting reform
+            VerificationLevel::Pending => -20,
+            // Verified contracts are standard expectation; no penalty or bonus (baseline)
+            VerificationLevel::Verified => 0,
+            // Audited contracts receive a substantial health bonus (+20 base) reflecting premium trust
+            VerificationLevel::Audited => 20,
+        }
+    }
+}
+
+fn calculate_health(
+    contract: &Contract,
+    stats: Option<&ContractStats>,
+    verification_level: VerificationLevel,
+) -> ContractHealth {
     let mut score = 100;
 
-    // Penalize for not being verified
-    if !contract.is_verified {
-        score -= 40;
-    }
+    // Apply graduated verification score
+    score += verification_level.score_weight();
 
     // Penalize for inactivity (older than 30 days)
     let last_activity = stats
@@ -95,9 +135,20 @@ fn calculate_health(contract: &Contract, stats: Option<&ContractStats>) -> Contr
         }
     };
 
-    if !contract.is_verified {
-        recommendations
-            .push("Verify the contract source code to improve trust and health score.".to_string());
+    match verification_level {
+        VerificationLevel::Unverified => {
+            recommendations.push("Verify the contract source code to improve trust and health score.".to_string());
+        }
+        VerificationLevel::Pending => {
+            recommendations.push("Contract verification is pending. Health score will improve once verification is complete.".to_string());
+        }
+        VerificationLevel::Verified => {
+            // Optionally recommend an audit
+            recommendations.push("Consider obtaining an external audit to achieve maximum trust and health score.".to_string());
+        }
+        VerificationLevel::Audited => {
+            // Maximum verification achieved
+        }
     }
 
     if days_since_activity > 90 {
@@ -150,4 +201,82 @@ async fn upsert_contract_health(pool: &PgPool, health: &ContractHealth) -> Resul
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use shared::{Contract, ContractStats, Network};
+    use uuid::Uuid;
+
+    fn build_dummy_contract() -> Contract {
+        Contract {
+            id: Uuid::new_v4(),
+            contract_id: "CDUMMY".to_string(),
+            wasm_hash: "hash".to_string(),
+            name: "Dummy".to_string(),
+            description: None,
+            publisher_id: Uuid::new_v4(),
+            network: Network::Testnet,
+            is_verified: true,
+            category: None,
+            tags: vec![],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            is_maintenance: false,
+            logical_id: None,
+            network_configs: None,
+        }
+    }
+
+    #[test]
+    fn test_health_score_unverified() {
+        let contract = build_dummy_contract();
+        // Unverified penalty: -40. Base 100 -> 60
+        let health = calculate_health(&contract, None, VerificationLevel::Unverified);
+        assert_eq!(health.total_score, 60);
+        assert!(health.recommendations.contains(&"Verify the contract source code to improve trust and health score.".to_string()));
+    }
+
+    #[test]
+    fn test_health_score_pending() {
+        let contract = build_dummy_contract();
+        // Pending penalty: -20. Base 100 -> 80
+        let health = calculate_health(&contract, None, VerificationLevel::Pending);
+        assert_eq!(health.total_score, 80);
+        assert!(health.recommendations.contains(&"Contract verification is pending. Health score will improve once verification is complete.".to_string()));
+    }
+
+    #[test]
+    fn test_health_score_verified() {
+        let contract = build_dummy_contract();
+        // Verified: +0. Base 100 -> 100
+        let health = calculate_health(&contract, None, VerificationLevel::Verified);
+        assert_eq!(health.total_score, 100);
+        assert!(health.recommendations.contains(&"Consider obtaining an external audit to achieve maximum trust and health score.".to_string()));
+    }
+
+    #[test]
+    fn test_health_score_audited() {
+        let contract = build_dummy_contract();
+        // Audited: +20. Base 100 -> 100 (capped at 100)
+        let health = calculate_health(&contract, None, VerificationLevel::Audited);
+        assert_eq!(health.total_score, 100);
+    }
+    
+    #[test]
+    fn test_health_score_audited_with_inactivity() {
+        let contract = build_dummy_contract();
+        let stats = ContractStats {
+            contract_id: contract.id,
+            total_deployments: 1,
+            total_interactions: 1,
+            unique_users: 1,
+            last_interaction: Some(Utc::now() - chrono::Duration::days(40)), // > 30 days inactive -> -20 penalty
+        };
+        // Base 100 + 20 (Audited) - 20 (Inactive > 30 days) = 100
+        let health = calculate_health(&contract, Some(&stats), VerificationLevel::Audited);
+        assert_eq!(health.total_score, 100);
+    }
 }

@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { api } from '@/lib/api';
 import useFormValidation, { validators } from '@/lib/formValidation';
-import { FormInput, FormSelect, FormTextarea, FormCheckbox } from '@/components/Form';
+import { FormInput, FormSelect, FormTextarea } from '@/components/Form';
 
 type Values = {
   contract_id: string;
@@ -56,8 +56,8 @@ export default function PublishPage() {
           publisher_address: vals.publisher_address,
         });
         setStatus('Published successfully');
-      } catch (err: any) {
-        setStatus(err?.message || 'Failed to publish (mock mode?)');
+      } catch (err: unknown) {
+        setStatus(err instanceof Error ? err.message : 'Failed to publish (mock mode?)');
       }
     },
   });
@@ -69,7 +69,7 @@ export default function PublishPage() {
       <form
         onSubmit={async (e) => {
           const res = await handleSubmit(e);
-          if ((res as any)?.success) {
+          if (res && typeof res === 'object' && 'success' in res && (res as { success?: boolean }).success) {
             // noop
           }
         }}
@@ -128,7 +128,7 @@ export default function PublishPage() {
           label="Network"
           name="network"
           value={values.network}
-          onChange={(e) => handleChange(e as any)}
+          onChange={(e) => handleChange(e as React.ChangeEvent<HTMLInputElement & HTMLSelectElement>)}
           options={[
             { value: 'mainnet', label: 'Mainnet' },
             { value: 'testnet', label: 'Testnet' },

@@ -1,5 +1,4 @@
 import { Suspense } from 'react';
-import { Package, GitBranch } from 'lucide-react';
 import { GraphContent } from './graph-content';
 import Navbar from '@/components/Navbar';
 

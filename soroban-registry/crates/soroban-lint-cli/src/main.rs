@@ -10,6 +10,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
 use walkdir::WalkDir;
+use soroban_batch::execute_batch;
 
 #[derive(Parser)]
 #[command(name = "soroban-registry")]
@@ -63,6 +64,29 @@ enum Commands {
     Balancer {
         #[command(subcommand)]
         action: BalancerCommands,
+    },
+
+    /// Execute batch operations on multiple contracts atomically
+    Batch {
+        #[command(subcommand)]
+        action: BatchCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum BatchCommands {
+    /// Execute a batch operations manifest
+    Execute {
+        /// Path to the JSON or YAML manifest file
+        file: String,
+
+        /// Output format for execution report
+        #[arg(long, default_value = "human")]
+        format: String,
+
+        /// Dry run - validate manifest without executing
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -154,8 +178,47 @@ fn main() -> Result<()> {
         Commands::Balancer { action } => {
             balancer_command(action)?;
         }
+        Commands::Batch { action } => {
+            batch_command(action)?;
+        }
     }
 
+    Ok(())
+}
+
+fn batch_command(action: BatchCommands) -> Result<()> {
+    match action {
+        BatchCommands::Execute { file, format, dry_run } => {
+            let path = PathBuf::from(&file);
+            
+            // Validate file exists and has correct extension
+            if !path.exists() {
+                anyhow::bail!("Manifest file '{}' does not exist", file);
+            }
+
+            let extension = path.extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("");
+            
+            if !matches!(extension, "json" | "yaml" | "yml") {
+                anyhow::bail!("Manifest file must have .json, .yaml, or .yml extension");
+            }
+
+            println!("📋 Loading batch manifest: {}", file.cyan());
+            
+            if dry_run {
+                println!("{}", "🔍 DRY RUN MODE - No operations will be executed".yellow().bold());
+            }
+
+            // Use the soroban_batch crate function
+            let report = execute_batch(&file, dry_run, &format)?;
+
+            // Exit with error code if any operations failed
+            if report.iter().any(|r| r.status == "failed") {
+                std::process::exit(1);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -296,7 +359,6 @@ fn balancer_command(action: BalancerCommands) -> Result<()> {
             println!("✅ Load balancer started ({} instances registered)", lb.total_count());
         }
 
-        // FIX: destructure all fields — config field was missing, causing pattern mismatch
         BalancerCommands::Status { format, config: _config } => {
             let lb = LoadBalancer::new(LoadBalancerConfig::default());
             let metrics = lb.metrics();
@@ -329,7 +391,6 @@ fn balancer_command(action: BalancerCommands) -> Result<()> {
             println!("✅ Removed instance '{}'", id);
         }
 
-        // FIX: destructure all fields — config field was missing, causing pattern mismatch
         BalancerCommands::Route { session, format, config: _config } => {
             let lb = LoadBalancer::new(LoadBalancerConfig::default());
             match lb.route(session.as_deref()) {

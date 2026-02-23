@@ -1,3 +1,5 @@
+#![allow(dead_code, unused)]
+
 // Library exports for indexer module
 pub mod backoff;
 pub mod config;

@@ -1,17 +1,15 @@
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use sha2::{Digest, Sha256};
 use tar::Builder;
 
+use crate::io_utils::{compute_sha256_streaming, BUF_SIZE};
 use crate::manifest::{ExportManifest, ManifestEntry};
-
-const BUF_SIZE: usize = 65536;
 
 pub fn create_archive(
     contract_dir: &Path,
@@ -97,22 +95,6 @@ fn walk_and_append<W: Write>(
         }
     }
     Ok(())
-}
-
-fn compute_sha256_streaming(path: &Path) -> Result<String> {
-    let mut reader = BufReader::with_capacity(BUF_SIZE, File::open(path)?);
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; BUF_SIZE];
-
-    loop {
-        let n = reader.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-
-    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn build_outer_archive(

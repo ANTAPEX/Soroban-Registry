@@ -21,7 +21,7 @@ export default function ErrorFallback({ error, errorInfo, resetError }: ErrorFal
             </h1>
             
             <p className="text-gray-600 dark:text-gray-300 mb-6">
-              We encountered an unexpected error. Don't worry, your data is safe. 
+              We encountered an unexpected error. Do not worry, your data is safe. 
               You can try refreshing the page or contact support if the problem persists.
             </p>
 

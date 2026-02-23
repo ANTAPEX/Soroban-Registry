@@ -1743,3 +1743,58 @@ pub struct VersionBumpRecommendation {
     pub feature_count: usize,
     pub fix_count: usize,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq)]
+#[sqlx(type_name = "health_status", rename_all = "snake_case")]
+pub enum HealthStatus {
+    Healthy,
+    Warning,
+    Critical,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ContractHealth {
+    pub contract_id: Uuid,
+    pub status: HealthStatus,
+    pub last_activity: DateTime<Utc>,
+    pub security_score: i32,
+    pub audit_date: Option<DateTime<Utc>>,
+    pub total_score: i32,
+    pub recommendations: Vec<String>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// Backup and disaster recovery types
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ContractBackup {
+    pub id: Uuid,
+    pub contract_id: Uuid,
+    pub backup_date: chrono::NaiveDate,
+    pub wasm_hash: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub state_snapshot: Option<serde_json::Value>,
+    pub storage_size_bytes: Option<i64>,
+    pub primary_region: Option<String>,
+    pub backup_regions: Option<Vec<String>>,
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BackupRestoration {
+    pub id: Uuid,
+    pub backup_id: Uuid,
+    pub restored_by: Uuid,
+    pub restore_duration_ms: i32,
+    pub success: bool,
+    pub restored_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateBackupRequest {
+    pub include_state: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestoreBackupRequest {
+    pub backup_date: String,
+}

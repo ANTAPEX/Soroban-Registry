@@ -36,9 +36,12 @@ pub fn build_forecast(
     let mut breach_at:       Option<DateTime<Utc>> = None;
 
     for month in 0..=horizon_months {
+        // Compound growth model using discrete monthly buckets (dashboard granularity).
         let projected = current_value * (1.0 + rate).powi(month as i32);
+        // Protect against divide-by-zero so missing/invalid limits do not produce NaN alerts.
         let pct = if limit > 0.0 { (projected / limit) * 100.0 } else { 0.0 };
         let exceeds = projected > limit;
+        // We intentionally approximate a month as 30 days for a stable, inexpensive forecast.
         let at = now + Duration::days(month as i64 * 30);
 
         if exceeds && breach_at_month.is_none() {
@@ -55,6 +58,7 @@ pub fn build_forecast(
         });
     }
 
+    // Derived from the first breached forecast point; also uses the 30-day/month approximation.
     let days_until_breach = breach_at.map(|b| (b - now).num_days());
 
     ResourceForecast {
@@ -451,16 +455,66 @@ pub fn nearest_breach_days(bundles: &[ScenarioBundle]) -> Option<i64> {
 // Resource limits lookup
 // ─────────────────────────────────────────────────────────
 
+/// Returns the limit used by capacity planning for a resource.
+///
+/// # Calculation methodology by resource type
+///
+/// - `StorageEntries`: uses `limits.max_storage_entries` (network-configured Soroban hard limit).
+/// - `CpuInstructions`: uses `limits.max_cpu_instructions` (network-configured per-tx hard limit).
+/// - `WasmSizeBytes`: uses `limits.max_wasm_bytes` (network-configured deploy/upgrade hard limit).
+/// - `UniqueUsers`: operational planning cap (not a protocol hard limit). We use a conservative,
+///   fixed threshold (`1_000_000`) so alerts fire before user-map growth causes latency spikes and
+///   storage-cost drift.
+/// - `TransactionVolume`: operational daily throughput target (`50_000 tx/day`), representing a
+///   practical backend / queueing threshold rather than a Soroban protocol cap.
+/// - `FeePerOperation`: budget threshold (`10_000_000` stroops) used for cost competitiveness
+///   alerts; this is a business KPI, not a protocol limit.
+///
+/// # Realistic example values (rule-of-thumb starting points)
+///
+/// These are planning baselines for *current usage* snapshots before forecasting; tune by workload.
+///
+/// - Minimal registry / lookup contract:
+///   `WasmSizeBytes` `80_000..200_000`, worst-path `CpuInstructions` `50_000..400_000`,
+///   storage per record usually `< 512` bytes.
+/// - Token / escrow contract:
+///   `WasmSizeBytes` `150_000..350_000`, worst-path `CpuInstructions` `100_000..1_500_000`,
+///   storage records often `128..1024` bytes.
+/// - Marketplace / AMM / orderbook-style contract:
+///   `WasmSizeBytes` `300_000..800_000`, worst-path `CpuInstructions` `500_000..10_000_000`,
+///   storage records often `256..4096` bytes (split oversized entries).
+///
+/// # How to measure current usage
+///
+/// - `WasmSizeBytes`: measure the built artifact (`wc -c target/.../*.wasm`) and compare to
+///   `limits.max_wasm_bytes`.
+/// - `CpuInstructions`: invoke representative and worst-case paths with Soroban CLI cost output
+///   (for example `--cost` / `--cost-snapshot`) and store the measured instruction count.
+/// - Memory / entry footprint: this service tracks memory pressure indirectly via
+///   `StorageEntries` + checklist `RL-003` (ledger-entry byte size). Measure serialized entry sizes
+///   for large structs/collections and record the largest observed entries.
+///
+/// # Troubleshooting common limit failures
+///
+/// - WASM upload/upgrade rejected: build with `opt-level = "z"`, run `wasm-opt -Oz`, remove dead
+///   code, and move large lookup tables/constants into separate contracts or off-chain data.
+/// - Instruction budget exceeded / host aborts on worst-case input: paginate loops, cap batch
+///   sizes, cache repeated reads, and split heavy flows into multi-step transactions.
+/// - Ledger entry too large (serialization/write failures): split state across keyed entries,
+///   store hashes on-chain with payloads off-chain, and avoid unbounded `Vec`/`Map` fields.
 pub fn limit_for(resource: &ResourceKind, limits: &ResourceLimits) -> f64 {
+    // Note: direct VM heap memory is not tracked as a ResourceKind in this service today.
+    // Memory-like pressure is approximated via entry count (`StorageEntries`) and byte-size checks
+    // documented in checklist item RL-003 (ledger entry footprint).
     match resource {
         ResourceKind::StorageEntries    => limits.max_storage_entries as f64,
         ResourceKind::CpuInstructions   => limits.max_cpu_instructions as f64,
         ResourceKind::WasmSizeBytes      => limits.max_wasm_bytes as f64,
         // For user/volume/fee resources we set practical operational limits
         // rather than hard Soroban limits. These are configurable via env.
-        ResourceKind::UniqueUsers        => 1_000_000.0,
-        ResourceKind::TransactionVolume  => 50_000.0,   // tx/day practical limit
-        ResourceKind::FeePerOperation    => 10_000_000.0, // stroops
+        ResourceKind::UniqueUsers        => 1_000_000.0, // alert before state-growth bottlenecks
+        ResourceKind::TransactionVolume  => 50_000.0,   // tx/day practical planning threshold
+        ResourceKind::FeePerOperation    => 10_000_000.0, // stroops budget per operation
     }
 }
 

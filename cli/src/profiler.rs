@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -174,7 +176,8 @@ pub fn profile_contract(contract_path: &str, method: Option<&str>) -> Result<Pro
 
         let func_start = Instant::now();
         // Simulate function execution
-        let _ = simulate_execution(path, func)?;
+        let mut dummy_profiler = Profiler::new();
+        let _ = simulate_execution(path, Some(func), &mut dummy_profiler)?;
         let func_duration = func_start.elapsed();
 
         function_profiles.insert(
@@ -199,6 +202,8 @@ pub fn profile_contract(contract_path: &str, method: Option<&str>) -> Result<Pro
         timestamp: chrono::Utc::now().to_rfc3339(),
         total_duration,
         functions: function_profiles,
+        call_stack: vec![],
+        overhead_percent: 0.0,
     })
 }
 

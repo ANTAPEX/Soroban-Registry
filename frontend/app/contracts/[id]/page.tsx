@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Network } from "@/lib/api";
@@ -9,22 +9,17 @@ import DependencyGraph from "@/components/DependencyGraph";
 import {
   ArrowLeft,
   CheckCircle2,
-  Clock,
   Globe,
-  Github,
   Tag,
   GitCompare,
 } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useAnalytics } from "@/hooks/useAnalytics";
-import { useEffect } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { useAnalytics } from "@/hooks/useAnalytics";
 import FormalVerificationPanel from "@/components/FormalVerificationPanel";
 import InteractionHistorySection from "@/components/InteractionHistorySection";
 import Navbar from "@/components/Navbar";
 import MaintenanceBanner from "@/components/MaintenanceBanner";
-import { useQueryClient } from "@tanstack/react-query";
 import CustomMetricsPanel from "@/components/CustomMetricsPanel";
 import DeprecationBanner from "@/components/DeprecationBanner";
 
@@ -206,13 +201,10 @@ function ContractDetailsContent() {
             <ExampleGallery contractId={contract.id} />
           </section>
 
-<<<<<<< feature/issue-46-add-contract-interaction-history-tracking
           {/* Interaction History (Issue #46) */}
           <InteractionHistorySection contractId={contract.id} />
-=======
           {/* Custom Metrics */}
           <CustomMetricsPanel contractId={contract.id} />
->>>>>>> main
         </div>
 
         {/* Sidebar */}
@@ -265,6 +257,18 @@ function ContractDetailsContent() {
               </div>
             </dl>
           </div>
+
+          {/* API Documentation (OpenAPI / Swagger) */}
+          <Link
+            href={`/contracts/${contract.id}/api-docs`}
+            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-300 dark:hover:border-blue-700 text-gray-700 dark:text-gray-300 hover:text-blue-700 dark:hover:text-blue-300 transition-all group"
+          >
+            <Globe className="w-5 h-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
+            <div>
+              <div className="text-sm font-medium">API Docs</div>
+              <div className="text-xs text-gray-400 dark:text-gray-500">OpenAPI / Swagger UI</div>
+            </div>
+          </Link>
 
           {/* Compatibility Matrix link */}
           <Link

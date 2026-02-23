@@ -14,8 +14,10 @@ pub mod types;
 pub mod parser;
 pub mod validator;
 pub mod bindings;
+pub mod openapi;
 
 pub use types::*;
 pub use parser::*;
 pub use validator::*;
 pub use bindings::*;
+pub use openapi::*;

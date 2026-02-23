@@ -1,6 +1,6 @@
-import { Contract, ContractHealth, api } from '@/lib/api';
+import { Contract, api } from '@/lib/api';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, AlertTriangle, CheckCircle, Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Activity, AlertTriangle, Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
 
 interface HealthWidgetProps {
   contract: Contract;

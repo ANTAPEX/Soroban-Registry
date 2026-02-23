@@ -1,8 +1,8 @@
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use colored::Colorize;
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey};
 use rand::rngs::OsRng;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -527,7 +527,7 @@ fn decode_private_key(key: &str) -> Result<SigningKey> {
         .try_into()
         .map_err(|_| anyhow::anyhow!("Private key must be 32 bytes"))?;
 
-    SigningKey::from_bytes(&bytes).context("Invalid private key")
+    Ok(SigningKey::from_bytes(&bytes))
 }
 
 fn create_signing_message(hash: &str, contract_id: &str, version: &str) -> Vec<u8> {
