@@ -18,7 +18,9 @@ mod analytics;
 mod custom_metrics_handlers;
 mod breaking_changes;
 mod changelog_handlers;
+mod cost_handlers;
 mod deprecation_handlers;
+mod gas_estimate_handlers;
 mod type_safety;
 pub mod health_monitor;
 
@@ -94,6 +96,8 @@ async fn main() -> Result<()> {
         .merge(routes::publisher_routes())
         .merge(routes::health_routes())
         .merge(routes::migration_routes())
+        .merge(routes::cost_routes())
+        .merge(routes::gas_estimate_routes())
         .fallback(handlers::route_not_found)
         .layer(middleware::from_fn(request_logger))
         .layer(middleware::from_fn_with_state(

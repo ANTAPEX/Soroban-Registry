@@ -1798,3 +1798,112 @@ pub struct CreateBackupRequest {
 pub struct RestoreBackupRequest {
     pub backup_date: String,
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COST & GAS ESTIMATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CostEstimateRequest {
+    pub method_name: String,
+    pub invocations: Option<i64>,
+    pub storage_growth_kb: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CostEstimate {
+    pub method_name: String,
+    pub gas_cost: i64,
+    pub storage_cost: i64,
+    pub bandwidth_cost: i64,
+    pub total_stroops: i64,
+    pub total_xlm: f64,
+    pub invocations: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchCostEstimate {
+    pub estimates: Vec<CostEstimate>,
+    pub total_stroops: i64,
+    pub total_xlm: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CostOptimization {
+    pub current_cost: i64,
+    pub optimized_cost: i64,
+    pub savings_percent: f64,
+    pub suggestions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CostForecast {
+    pub daily_cost_xlm: f64,
+    pub monthly_cost_xlm: f64,
+    pub yearly_cost_xlm: f64,
+    pub usage_pattern: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GasEstimateRequest {
+    pub method: String,
+    pub params: Option<serde_json::Value>,
+    #[serde(default)]
+    pub network: Option<String>,
+    #[serde(default)]
+    pub source_account: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GasEstimateResponse {
+    pub contract_id: String,
+    pub method: String,
+    pub estimated_gas: u64,
+    pub estimated_fee_stroops: i64,
+    pub estimated_fee_xlm: f64,
+    pub cpu_instructions: u64,
+    pub memory_bytes: u64,
+    pub execution_time_ms: u64,
+    pub cost_breakdown: GasCostBreakdown,
+    pub optimization_suggestions: Vec<OptimizationSuggestion>,
+    pub accuracy: Option<GasAccuracy>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GasCostBreakdown {
+    pub compute_fee: i64,
+    pub storage_fee: i64,
+    pub bandwidth_fee: i64,
+    pub refundable_fee: i64,
+    pub total_fee: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptimizationSuggestion {
+    pub category: String,
+    pub description: String,
+    pub estimated_savings_percent: f64,
+    pub priority: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GasAccuracy {
+    pub historical_samples: i64,
+    pub mean_deviation_percent: f64,
+    pub p95_deviation_percent: f64,
+    pub within_10_percent: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct GasEstimationHistory {
+    pub id: Uuid,
+    pub contract_id: Uuid,
+    pub method_name: String,
+    pub estimated_gas: i64,
+    pub actual_gas: Option<i64>,
+    pub estimated_fee: i64,
+    pub actual_fee: Option<i64>,
+    pub deviation_percent: Option<f64>,
+    pub network: String,
+    pub created_at: DateTime<Utc>,
+}

@@ -10,6 +10,7 @@ mod events;
 mod export;
 mod formal_verification;
 mod fuzz;
+mod gas;
 mod import;
 mod incident;
 mod io_utils;
@@ -414,6 +415,12 @@ pub enum Commands {
         #[command(subcommand)]
         action: WebhookCommands,
     },
+
+    /// Estimate gas costs for contract operations
+    Gas {
+        #[command(subcommand)]
+        action: GasCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -766,6 +773,42 @@ pub enum WebhookCommands {
         /// Signature header value (e.g. sha256=abc123...)
         #[arg(long)]
         signature: String,
+    },
+}
+
+/// Sub-commands for gas estimation
+#[derive(Debug, Subcommand)]
+pub enum GasCommands {
+    /// Estimate gas for a contract method call (dry-run simulation)
+    Estimate {
+        /// Contract registry UUID
+        id: String,
+
+        /// Contract method to estimate
+        #[arg(long)]
+        method: String,
+
+        /// JSON-encoded method parameters
+        #[arg(long)]
+        params: Option<String>,
+
+        /// Network (mainnet, testnet, futurenet)
+        #[arg(long)]
+        network: Option<String>,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Show historical accuracy of gas estimates for a contract
+    Accuracy {
+        /// Contract registry UUID
+        id: String,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -1446,6 +1489,34 @@ async fn main() -> Result<()> {
             WebhookCommands::VerifySig { secret, payload, signature } => {
                 log::debug!("Command: webhook verify-sig");
                 webhook::verify_signature_cmd(&secret, &payload, &signature)?;
+            }
+        },
+        Commands::Gas { action } => match action {
+            GasCommands::Estimate {
+                id,
+                method,
+                params,
+                network: gas_network,
+                json,
+            } => {
+                log::debug!(
+                    "Command: gas estimate | id={} method={}",
+                    id,
+                    method
+                );
+                gas::estimate(
+                    &cli.api_url,
+                    &id,
+                    &method,
+                    params.as_deref(),
+                    gas_network.as_deref(),
+                    json,
+                )
+                .await?;
+            }
+            GasCommands::Accuracy { id, json } => {
+                log::debug!("Command: gas accuracy | id={}", id);
+                gas::accuracy(&cli.api_url, &id, json).await?;
             }
         },
     }

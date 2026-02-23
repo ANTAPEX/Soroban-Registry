@@ -8,8 +8,10 @@ use crate::{
     metrics_handler,
     breaking_changes,
     changelog_handlers,
+    cost_handlers,
     deprecation_handlers,
     custom_metrics_handlers,
+    gas_estimate_handlers,
     state::AppState,
 };
 
@@ -109,3 +111,39 @@ pub fn migration_routes() -> Router<AppState> {
 pub fn canary_routes() -> Router<AppState> { Router::new() }
 pub fn ab_test_routes() -> Router<AppState> { Router::new() }
 pub fn performance_routes() -> Router<AppState> { Router::new() }
+
+pub fn cost_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/api/contracts/:id/cost-estimate",
+            post(cost_handlers::estimate_cost),
+        )
+        .route(
+            "/api/contracts/:id/cost-estimate/batch",
+            post(cost_handlers::batch_estimate),
+        )
+        .route(
+            "/api/contracts/:id/cost-estimate/optimize",
+            post(cost_handlers::optimize_costs),
+        )
+        .route(
+            "/api/contracts/:id/cost-estimate/forecast",
+            post(cost_handlers::forecast_costs),
+        )
+}
+
+pub fn gas_estimate_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/api/contracts/:id/gas-estimate",
+            post(gas_estimate_handlers::gas_estimate),
+        )
+        .route(
+            "/api/contracts/:id/gas-estimate/record-actual",
+            post(gas_estimate_handlers::record_actual_gas),
+        )
+        .route(
+            "/api/contracts/:id/gas-estimate/accuracy",
+            get(gas_estimate_handlers::gas_accuracy),
+        )
+}

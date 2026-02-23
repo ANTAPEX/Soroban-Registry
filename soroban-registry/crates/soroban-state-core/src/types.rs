@@ -125,6 +125,50 @@ pub struct DryRunResult {
     pub error: Option<String>,
 }
 
+/// Detailed gas metrics extracted from a simulation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GasMetrics {
+    pub cpu_instructions: u64,
+    pub memory_bytes: u64,
+    pub min_resource_fee: i64,
+    pub read_bytes: u64,
+    pub write_bytes: u64,
+    pub ledger_reads: u32,
+    pub ledger_writes: u32,
+    pub transaction_size: u64,
+    pub refundable_fee: i64,
+    pub execution_time_ms: u64,
+}
+
+impl Default for GasMetrics {
+    fn default() -> Self {
+        Self {
+            cpu_instructions: 0,
+            memory_bytes: 0,
+            min_resource_fee: 0,
+            read_bytes: 0,
+            write_bytes: 0,
+            ledger_reads: 0,
+            ledger_writes: 0,
+            transaction_size: 0,
+            refundable_fee: 0,
+            execution_time_ms: 0,
+        }
+    }
+}
+
+/// Full simulation result with gas metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimulationResult {
+    pub success: bool,
+    pub gas_metrics: GasMetrics,
+    pub return_value: Option<String>,
+    pub events: Vec<String>,
+    pub state_changes: Vec<String>,
+    pub error: Option<String>,
+    pub latest_ledger: u32,
+}
+
 /// Contract event
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractEvent {
