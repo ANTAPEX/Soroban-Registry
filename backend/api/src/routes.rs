@@ -6,6 +6,7 @@ use axum::{
 use crate::{
     handlers, metrics_handler, custom_metrics_handlers,
     handlers, metrics_handler, breaking_changes,
+    changelog_handlers,
     deprecation_handlers,
     state::AppState,
 };
@@ -72,6 +73,11 @@ pub fn contract_routes() -> Router<AppState> {
         // )
         .route("/api/contracts/:id/deployments/status", get(handlers::get_deployment_status))
         .route("/api/deployments/green", post(handlers::deploy_green))
+        .route(
+            "/api/contracts/:id/changelog",
+            get(changelog_handlers::get_contract_changelog)
+                .post(changelog_handlers::generate_changelog),
+        )
 }
 
 pub fn publisher_routes() -> Router<AppState> {

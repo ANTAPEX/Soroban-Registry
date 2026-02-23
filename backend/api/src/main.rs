@@ -15,6 +15,7 @@ mod metrics;
 mod analytics;
 mod custom_metrics_handlers;
 mod breaking_changes;
+mod changelog_handlers;
 mod deprecation_handlers;
 mod type_safety;
 

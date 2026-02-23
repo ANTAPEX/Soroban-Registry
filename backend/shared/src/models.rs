@@ -1591,3 +1591,155 @@ pub struct TransparencyLogQueryParams {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CHANGELOG & RELEASE HISTORY
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq)]
+#[sqlx(type_name = "changelog_change_type", rename_all = "lowercase")]
+pub enum ChangelogChangeType {
+    Feat,
+    Fix,
+    Docs,
+    Style,
+    Refactor,
+    Perf,
+    Test,
+    Build,
+    Ci,
+    Chore,
+    Revert,
+    Breaking,
+}
+
+impl std::fmt::Display for ChangelogChangeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Feat => write!(f, "feat"),
+            Self::Fix => write!(f, "fix"),
+            Self::Docs => write!(f, "docs"),
+            Self::Style => write!(f, "style"),
+            Self::Refactor => write!(f, "refactor"),
+            Self::Perf => write!(f, "perf"),
+            Self::Test => write!(f, "test"),
+            Self::Build => write!(f, "build"),
+            Self::Ci => write!(f, "ci"),
+            Self::Chore => write!(f, "chore"),
+            Self::Revert => write!(f, "revert"),
+            Self::Breaking => write!(f, "breaking"),
+        }
+    }
+}
+
+impl std::str::FromStr for ChangelogChangeType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "feat" | "feature" => Ok(Self::Feat),
+            "fix" | "bugfix" => Ok(Self::Fix),
+            "docs" | "doc" => Ok(Self::Docs),
+            "style" => Ok(Self::Style),
+            "refactor" => Ok(Self::Refactor),
+            "perf" | "performance" => Ok(Self::Perf),
+            "test" | "tests" => Ok(Self::Test),
+            "build" => Ok(Self::Build),
+            "ci" => Ok(Self::Ci),
+            "chore" => Ok(Self::Chore),
+            "revert" => Ok(Self::Revert),
+            "breaking" => Ok(Self::Breaking),
+            other => Err(format!("unknown change type: {}", other)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ContractChangelog {
+    pub id: Uuid,
+    pub contract_id: Uuid,
+    pub version: String,
+    pub title: Option<String>,
+    pub release_date: DateTime<Utc>,
+    pub is_prerelease: bool,
+    pub markdown: String,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ChangelogEntry {
+    pub id: Uuid,
+    pub changelog_id: Uuid,
+    pub change_type: ChangelogChangeType,
+    pub scope: Option<String>,
+    pub description: String,
+    pub commit_hash: Option<String>,
+    pub is_breaking: bool,
+    pub author: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangelogReleaseResponse {
+    pub version: String,
+    pub title: Option<String>,
+    pub release_date: DateTime<Utc>,
+    pub is_prerelease: bool,
+    pub breaking_changes: Vec<ChangelogEntryResponse>,
+    pub features: Vec<ChangelogEntryResponse>,
+    pub fixes: Vec<ChangelogEntryResponse>,
+    pub other: Vec<ChangelogEntryResponse>,
+    pub markdown: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangelogEntryResponse {
+    pub change_type: String,
+    pub scope: Option<String>,
+    pub description: String,
+    pub commit_hash: Option<String>,
+    pub is_breaking: bool,
+    pub author: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractChangelogResponse {
+    pub contract_id: Uuid,
+    pub releases: Vec<ChangelogReleaseResponse>,
+    pub total_releases: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangelogQueryParams {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub include_prereleases: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerateChangelogRequest {
+    pub contract_id: String,
+    pub version: String,
+    pub title: Option<String>,
+    pub commits: Vec<RawCommit>,
+    pub is_prerelease: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawCommit {
+    pub hash: String,
+    pub message: String,
+    pub author: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionBumpRecommendation {
+    pub current_version: String,
+    pub recommended_version: String,
+    pub bump_type: String,
+    pub has_breaking_changes: bool,
+    pub breaking_count: usize,
+    pub feature_count: usize,
+    pub fix_count: usize,
+}

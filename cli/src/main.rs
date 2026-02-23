@@ -1,4 +1,5 @@
 mod backup;
+mod changelog;
 mod commands;
 mod config;
 mod coverage;
@@ -370,6 +371,12 @@ pub enum Commands {
         #[command(subcommand)]
         action: KeysCommands,
     },
+
+    /// Auto-generate changelogs from conventional commits
+    Changelog {
+        #[command(subcommand)]
+        action: ChangelogCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -587,6 +594,74 @@ pub enum KeysCommands {
         /// Maximum entries to show
         #[arg(long, default_value = "20")]
         limit: usize,
+    },
+}
+
+/// Sub-commands for changelog generation
+#[derive(Debug, Subcommand)]
+pub enum ChangelogCommands {
+    /// Generate a markdown changelog from git commits
+    Generate {
+        /// Output file path
+        #[arg(long, default_value = "CHANGELOG.md")]
+        output: String,
+
+        /// Target version (auto-detected from commits if omitted)
+        #[arg(long)]
+        version: Option<String>,
+
+        /// Release title
+        #[arg(long)]
+        title: Option<String>,
+
+        /// Start ref (tag or commit hash). Defaults to latest tag.
+        #[arg(long)]
+        from: Option<String>,
+
+        /// End ref. Defaults to HEAD.
+        #[arg(long)]
+        to: Option<String>,
+
+        /// Output as JSON instead of markdown
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Validate that a version is correct for the current changes
+    Validate {
+        /// Version to validate (e.g. 2.0.0)
+        version: String,
+
+        /// Base ref to compare against (defaults to latest tag)
+        #[arg(long)]
+        from: Option<String>,
+    },
+
+    /// Push generated changelog to the registry API
+    Push {
+        /// Contract registry UUID
+        #[arg(long)]
+        contract_id: String,
+
+        /// Release version
+        #[arg(long)]
+        version: String,
+
+        /// Release title
+        #[arg(long)]
+        title: Option<String>,
+
+        /// Start ref (defaults to latest tag)
+        #[arg(long)]
+        from: Option<String>,
+
+        /// End ref (defaults to HEAD)
+        #[arg(long)]
+        to: Option<String>,
+
+        /// Mark as prerelease
+        #[arg(long)]
+        prerelease: bool,
     },
 }
 
@@ -1117,6 +1192,58 @@ async fn main() -> Result<()> {
             )
             .await?;
         }
+        Commands::Changelog { action } => match action {
+            ChangelogCommands::Generate {
+                output,
+                version,
+                title,
+                from,
+                to,
+                json,
+            } => {
+                log::debug!(
+                    "Command: changelog generate | output={} version={:?}",
+                    output,
+                    version
+                );
+                changelog::generate(
+                    &output,
+                    version.as_deref(),
+                    title.as_deref(),
+                    from.as_deref(),
+                    to.as_deref(),
+                    json,
+                )?;
+            }
+            ChangelogCommands::Validate { version, from } => {
+                log::debug!("Command: changelog validate | version={}", version);
+                changelog::validate(&version, from.as_deref())?;
+            }
+            ChangelogCommands::Push {
+                contract_id,
+                version,
+                title,
+                from,
+                to,
+                prerelease,
+            } => {
+                log::debug!(
+                    "Command: changelog push | contract_id={} version={}",
+                    contract_id,
+                    version
+                );
+                changelog::push_changelog(
+                    &cli.api_url,
+                    &contract_id,
+                    &version,
+                    title.as_deref(),
+                    from.as_deref(),
+                    to.as_deref(),
+                    prerelease,
+                )
+                .await?;
+            }
+        },
         Commands::Keys { action } => match action {
             KeysCommands::Generate {} => {
                 log::debug!("Command: keys generate");
