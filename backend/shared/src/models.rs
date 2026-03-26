@@ -125,6 +125,7 @@ pub struct Verification {
     pub compiler_version: Option<String>,
     pub verified_at: Option<DateTime<Utc>>,
     pub error_message: Option<String>,
+    pub build_logs: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -344,13 +345,44 @@ pub struct DependencyTreeNode {
     pub dependencies: Vec<DependencyTreeNode>,
 }
 
-/// Request to verify a contract
+/// Request to verify a contract (simple upload-only form, kept for compatibility)
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct VerifyRequest {
     pub contract_id: String,
     pub source_code: String,
     pub build_params: serde_json::Value,
     pub compiler_version: String,
+}
+
+/// Source type for contract verification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SourceType {
+    /// Clone source from a public Git repository
+    Git,
+    /// Upload source code directly
+    Upload,
+}
+
+/// Full verification request — supports both Git URL and direct source upload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifyContractRequest {
+    /// UUID of the contract record to verify
+    pub contract_id: Uuid,
+    /// Whether the source comes from a Git URL or direct upload
+    pub source_type: SourceType,
+    /// Git repository URL (required when source_type = "git")
+    pub git_url: Option<String>,
+    /// Branch to check out (defaults to the repo default branch)
+    pub git_branch: Option<String>,
+    /// Exact commit SHA to check out (optional)
+    pub git_commit: Option<String>,
+    /// Raw source code (required when source_type = "upload")
+    pub source_code: Option<String>,
+    /// Compiler / toolchain version (e.g. "21.0.0")
+    pub compiler_version: Option<String>,
+    /// Additional build parameters passed through to the compiler
+    pub build_params: Option<serde_json::Value>,
 }
 
 /// Sorting options for contracts

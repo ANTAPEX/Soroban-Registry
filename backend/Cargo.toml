@@ -1,5 +1,5 @@
 [workspace]
-members = ["api", "indexer", "verifier", "shared", "seeder", "contract_abi"]
+members = ["api", "indexer", "verifier", "shared", "seeder", "contract_abi", "soroban-batch"]
 resolver = "2"
 
 [workspace.package]
@@ -83,6 +83,9 @@ rust_decimal = "1.35"
 # OpenAPI
 utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "8", features = ["axum"] }
+
+# Temp files (used by verifier for compilation sandbox)
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

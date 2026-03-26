@@ -122,6 +122,8 @@ pub fn contract_routes() -> Router<AppState> {
             get(handlers::get_impact_analysis),
         )
         .route("/api/contracts/verify", post(handlers::verify_contract))
+        .route("/api/contracts/:id/verifications", get(handlers::get_contract_verifications))
+        .route("/api/verifications/:id", get(handlers::get_verification))
         .route(
             "/api/contracts/batch-verify",
             post(batch_verify_handlers::batch_verify_contracts),
