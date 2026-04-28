@@ -64,6 +64,7 @@ pub mod similarity_handlers;
 pub mod simulation_handlers;
 pub mod state;
 pub mod subscription_handlers;
+pub mod usage_counter;
 pub mod verification_handlers;
 pub mod websocket;
 pub mod zk_proof_handlers;

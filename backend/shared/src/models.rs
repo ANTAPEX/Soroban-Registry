@@ -86,6 +86,9 @@ pub struct Contract {
     /// The currently active version string for this contract (Issue #486)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_version: Option<String>,
+    /// Number of times this contract has been accessed via API
+    #[serde(default)]
+    pub usage_count: i64,
 }
 
 #[derive(
@@ -4412,151 +4415,130 @@ pub struct ZkCircuitSummary {
     pub compiled_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// CONTRACT USAGE STATISTICS (Issue #732)
-// ═══════════════════════════════════════════════════════════════════════════
+    #[test]
+    fn test_contract_usage_count_serialization() {
+        // Test that Contract can be serialized with usage_count
+        let contract = Contract {
+            id: Uuid::new_v4(),
+            contract_id: "C123".to_string(),
+            wasm_hash: "hash123".to_string(),
+            name: "Test Contract".to_string(),
+            slug: "test-contract".to_string(),
+            description: Some("A test contract".to_string()),
+            publisher_id: Uuid::new_v4(),
+            network: Network::Mainnet,
+            is_verified: true,
+            verification_status: VerificationStatus::Verified,
+            category: Some("DeFi".to_string()),
+            tags: vec![],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            verified_at: Some(Utc::now()),
+            deployed_at: None,
+            verified_by: Some(Uuid::new_v4()),
+            verification_notes: None,
+            last_accessed_at: Some(Utc::now()),
+            health_score: 100,
+            is_maintenance: false,
+            logical_id: None,
+            network_configs: None,
+            relevance_score: None,
+            organization_id: None,
+            visibility: VisibilityType::Public,
+            current_version: Some("1.0.0".to_string()),
+            usage_count: 42,
+        };
 
-/// Time period for stats aggregation
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum StatsPeriod {
-    /// Last 7 days
-    #[serde(rename = "7d")]
-    SevenDays,
-    /// Last 30 days
-    #[serde(rename = "30d")]
-    ThirtyDays,
-    /// Last 90 days
-    #[serde(rename = "90d")]
-    NinetyDays,
-}
+        let json = serde_json::to_string(&contract).expect("Failed to serialize contract");
+        assert!(json.contains("\"usage_count\":42"));
 
-impl StatsPeriod {
-    pub fn days(&self) -> i64 {
-        match self {
-            Self::SevenDays => 7,
-            Self::ThirtyDays => 30,
-            Self::NinetyDays => 90,
-        }
+        let deserialized: Contract = serde_json::from_str(&json).expect("Failed to deserialize contract");
+        assert_eq!(deserialized.usage_count, 42);
     }
 
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::SevenDays => "7d",
-            Self::ThirtyDays => "30d",
-            Self::NinetyDays => "90d",
-        }
+    #[test]
+    fn test_contract_usage_count_backward_compatibility() {
+        // Test that Contract can be deserialized from JSON without usage_count field
+        // This simulates backward compatibility with existing API responses
+        let json_without_usage_count = r#"{
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "contract_id": "C123",
+            "wasm_hash": "hash123",
+            "name": "Test Contract",
+            "slug": "test-contract",
+            "description": "A test contract",
+            "publisher_id": "550e8400-e29b-41d4-a716-446655440001",
+            "network": "mainnet",
+            "is_verified": true,
+            "verification_status": "Verified",
+            "category": "DeFi",
+            "tags": [],
+            "created_at": "2023-10-27T10:00:00Z",
+            "updated_at": "2023-10-27T10:00:00Z",
+            "verified_at": "2023-10-27T10:00:00Z",
+            "verified_by": "550e8400-e29b-41d4-a716-446655440002",
+            "verification_notes": null,
+            "last_accessed_at": "2023-10-27T10:00:00Z",
+            "health_score": 100,
+            "is_maintenance": false,
+            "logical_id": null,
+            "network_configs": null,
+            "relevance_score": null,
+            "organization_id": null,
+            "visibility": "public",
+            "current_version": "1.0.0"
+        }"#;
+
+        let contract: Contract = serde_json::from_str(json_without_usage_count)
+            .expect("Failed to deserialize contract without usage_count");
+        
+        // usage_count should default to 0 due to #[serde(default)]
+        assert_eq!(contract.usage_count, 0);
+        assert_eq!(contract.name, "Test Contract");
+        assert_eq!(contract.contract_id, "C123");
     }
-}
 
-impl std::str::FromStr for StatsPeriod {
-    type Err = String;
+    #[test]
+    fn test_contract_usage_count_with_explicit_zero() {
+        // Test that explicit zero value works correctly
+        let json_with_zero_usage = r#"{
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "contract_id": "C123",
+            "wasm_hash": "hash123",
+            "name": "Test Contract",
+            "slug": "test-contract",
+            "description": "A test contract",
+            "publisher_id": "550e8400-e29b-41d4-a716-446655440001",
+            "network": "mainnet",
+            "is_verified": true,
+            "verification_status": "Verified",
+            "category": "DeFi",
+            "tags": [],
+            "created_at": "2023-10-27T10:00:00Z",
+            "updated_at": "2023-10-27T10:00:00Z",
+            "verified_at": "2023-10-27T10:00:00Z",
+            "verified_by": "550e8400-e29b-41d4-a716-446655440002",
+            "verification_notes": null,
+            "last_accessed_at": "2023-10-27T10:00:00Z",
+            "health_score": 100,
+            "is_maintenance": false,
+            "logical_id": null,
+            "network_configs": null,
+            "relevance_score": null,
+            "organization_id": null,
+            "visibility": "public",
+            "current_version": "1.0.0",
+            "usage_count": 0
+        }"#;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "7d" => Ok(Self::SevenDays),
-            "30d" => Ok(Self::ThirtyDays),
-            "90d" => Ok(Self::NinetyDays),
-            other => Err(format!(
-                "invalid stats period `{}`; expected 7d, 30d, or 90d",
-                other
-            )),
-        }
+        let contract: Contract = serde_json::from_str(json_with_zero_usage)
+            .expect("Failed to deserialize contract with zero usage_count");
+        
+        assert_eq!(contract.usage_count, 0);
     }
-}
-
-/// Query parameters for GET /api/contracts/{id}/stats
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::IntoParams)]
-pub struct ContractStatsQuery {
-    /// Time period: 7d, 30d, 90d (default: 30d)
-    pub period: Option<String>,
-    /// Response format: json (default) or csv
-    pub format: Option<String>,
-}
-
-/// Usage metrics for a single contract over a time period
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct ContractUsageStats {
-    /// Contract UUID
-    pub contract_id: Uuid,
-    /// Contract name
-    pub contract_name: String,
-    /// Time period covered
-    pub period: String,
-    /// Start date of the period
-    pub period_start: chrono::NaiveDate,
-    /// End date of the period
-    pub period_end: chrono::NaiveDate,
-    /// Total deployments in period
-    pub deployment_count: i64,
-    /// Total contract calls (invoke, transfer, query) in period
-    pub call_count: i64,
-    /// Total errors (publish_failed) in period
-    pub error_count: i64,
-    /// Number of unique callers in period
-    pub unique_callers: i64,
-    /// Number of unique deployers in period
-    pub unique_deployers: i64,
-    /// Total interactions of all types in period
-    pub total_interactions: i64,
-    /// Average calls per day
-    pub avg_calls_per_day: f64,
-    /// Error rate as fraction [0.0, 1.0]
-    pub error_rate: f64,
-}
-
-/// One point in a time-series for contract stats
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct StatsTimeSeriesPoint {
-    /// Date of this data point
-    pub date: chrono::NaiveDate,
-    /// Deployments on this date
-    pub deployments: i64,
-    /// Calls on this date
-    pub calls: i64,
-    /// Errors on this date
-    pub errors: i64,
-    /// Total interactions on this date
-    pub total: i64,
-    /// Unique callers on this date
-    pub unique_callers: i64,
-}
-
-/// Time-series response for contract stats
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct ContractStatsTimeSeriesResponse {
-    pub contract_id: Uuid,
-    pub contract_name: String,
-    pub period: String,
-    pub period_start: chrono::NaiveDate,
-    pub period_end: chrono::NaiveDate,
-    pub series: Vec<StatsTimeSeriesPoint>,
-}
-
-/// A trending contract entry with ranking metrics
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
-pub struct TrendingContractStats {
-    pub contract_id: Uuid,
-    pub name: String,
-    pub network: String,
-    pub category: Option<String>,
-    pub is_verified: bool,
-    pub interactions_7d: i64,
-    pub interactions_30d: i64,
-    pub interactions_90d: i64,
-    pub deployments_7d: i64,
-    pub errors_7d: i64,
-    pub unique_callers_7d: i64,
-    pub trending_score: f64,
-    pub rank: i64,
-}
-
-/// Response for GET /api/contracts/trending
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct TrendingContractsResponse {
-    pub period: String,
-    pub total: i64,
-    pub contracts: Vec<TrendingContractStats>,
-    pub generated_at: DateTime<Utc>,
 }

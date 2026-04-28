@@ -336,11 +336,7 @@ pub fn contract_routes() -> Router<AppState> {
         )
         .route(
             "/api/contracts/:id/stats",
-            get(contract_stats_handlers::get_contract_stats),
-        )
-        .route(
-            "/api/contracts/:id/stats/timeseries",
-            get(contract_stats_handlers::get_contract_stats_timeseries),
+            get(handlers::get_contract_stats),
         )
         .route(
             "/api/analytics/dashboard",
