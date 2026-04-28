@@ -3,11 +3,8 @@
 import { Suspense, useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type {
-  Network,
-  ContractVersion,
-  ContractChangelogEntry,
-} from "@/lib/api";
+import type { ContractVersion } from "@/lib/api";
+import type { Network, ContractChangelogEntry } from "@/types";
 import ExampleGallery from "@/components/ExampleGallery";
 import {
   ArrowLeft,
