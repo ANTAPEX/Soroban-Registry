@@ -1,21 +1,14 @@
 import type { NextConfig } from "next";
-import withBundleAnalyzer from "@next/bundle-analyzer";
 
 const apiOrigin =
   process.env.API_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
   "http://localhost:3001";
 
-const analyzer = withBundleAnalyzer({
-  enabled: process.env.ANALYZE === "true",
-});
-
 const nextConfig: NextConfig = {
   output: "standalone",
   images: {
-    // Enable modern image formats (WebP, AVIF) with fallbacks
     formats: ["image/avif", "image/webp"],
-    // Allow external images from common sources
     remotePatterns: [
       {
         protocol: "https",
@@ -58,11 +51,6 @@ const nextConfig: NextConfig = {
         pathname: "/api/**",
       },
     ],
-    // Define device sizes for responsive images
-    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
-    // Define image sizes for srcset
-    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
-    // Minimum cache TTL for optimized images (seconds)
     minimumCacheTTL: 60 * 60 * 24 * 30, // 30 days
   },
   async rewrites() {
@@ -75,4 +63,14 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default analyzer(nextConfig);
+// Only load bundle-analyzer when explicitly requested (pnpm run analyze)
+// This avoids requiring the devDependency at startup in all other cases
+if (process.env.ANALYZE === "true") {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const withBundleAnalyzer = require("@next/bundle-analyzer")({
+    enabled: true,
+  });
+  module.exports = withBundleAnalyzer(nextConfig);
+} else {
+  module.exports = nextConfig;
+}
