@@ -28,7 +28,13 @@ pub struct PagedJson<T: Serialize + Send>(PaginatedResponse<T>, Option<String>);
 impl<T: Serialize + Send> PagedJson<T> {
     /// Build the response, deriving Link header URLs from the incoming request.
     pub fn new(body: PaginatedResponse<T>, req_headers: &HeaderMap, uri: &Uri) -> Self {
-        let link = link_header(req_headers, uri, body.page, body.total_pages, body.page_size);
+        let link = link_header(
+            req_headers,
+            uri,
+            body.page,
+            body.total_pages,
+            body.page_size,
+        );
         Self(body, link)
     }
 }
@@ -138,11 +144,11 @@ mod tests {
 
     fn headers_with_host(host: &str) -> HeaderMap {
         let mut h = HeaderMap::new();
-        h.insert(axum::http::header::HOST, HeaderValue::from_str(host).unwrap());
         h.insert(
-            "x-forwarded-proto",
-            HeaderValue::from_static("https"),
+            axum::http::header::HOST,
+            HeaderValue::from_str(host).unwrap(),
         );
+        h.insert("x-forwarded-proto", HeaderValue::from_static("https"));
         h
     }
 

@@ -8,6 +8,9 @@ module.exports = {
     },
   },
   testMatch: ['**/__tests__/**/*.test.{ts,tsx}', '**/?(*.)+(spec|test).{ts,tsx}'],
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/$1',
+  },
   setupFilesAfterEnv: ['<rootDir>/setupTests.ts'],
   collectCoverageFrom: [
     'lib/**/*.ts',

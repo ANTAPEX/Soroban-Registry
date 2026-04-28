@@ -2,8 +2,20 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api, GraphNode, GraphEdge } from "@/lib/api";
-import DependencyGraph from "@/components/DependencyGraph";
+import dynamic from "next/dynamic";
 import GraphControls from "@/components/GraphControls";
+
+const DependencyGraph = dynamic(() => import("@/components/DependencyGraph"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-full bg-background/50 backdrop-blur-sm">
+      <div className="text-center">
+        <div className="inline-block w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-muted-foreground text-xs">Initializing engine...</p>
+      </div>
+    </div>
+  ),
+});
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { AlertCircle, Sparkles, ExternalLink, X } from "lucide-react";
 import { useAnalytics } from "@/hooks/useAnalytics";

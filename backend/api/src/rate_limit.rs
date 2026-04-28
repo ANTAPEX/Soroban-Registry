@@ -211,9 +211,7 @@ impl RateLimitState {
         }
 
         // Trim the burst (1-minute) sliding window
-        let burst_cutoff = now
-            .checked_sub(self.config.burst_window)
-            .unwrap_or(now);
+        let burst_cutoff = now.checked_sub(self.config.burst_window).unwrap_or(now);
         while bucket
             .burst_timestamps
             .front()
@@ -247,10 +245,7 @@ impl RateLimitState {
                 allowed: false,
                 limit: hourly_limit,
                 remaining: hourly_limit.saturating_sub(bucket.timestamps.len() as u32),
-                reset_seconds: ceil_duration_to_seconds(
-                    self.config.burst_window,
-                )
-                .max(1),
+                reset_seconds: ceil_duration_to_seconds(self.config.burst_window).max(1),
             };
         }
 
@@ -267,11 +262,7 @@ impl RateLimitState {
     }
 
     /// Returns the current quota snapshot for a client key without consuming a token.
-    pub async fn quota_snapshot(
-        &self,
-        client_key: &str,
-        tier: &ApiTier,
-    ) -> QuotaSnapshot {
+    pub async fn quota_snapshot(&self, client_key: &str, tier: &ApiTier) -> QuotaSnapshot {
         let now = Instant::now();
         let hourly_limit = self.config.hourly_limit_for_tier(tier);
         let burst_limit = self.config.burst_limit_for_tier(tier);
@@ -289,9 +280,7 @@ impl RateLimitState {
                 .filter(|&&ts| ts > window_cutoff)
                 .count();
 
-            let burst_cutoff = now
-                .checked_sub(self.config.burst_window)
-                .unwrap_or(now);
+            let burst_cutoff = now.checked_sub(self.config.burst_window).unwrap_or(now);
             let burst_used = bucket
                 .burst_timestamps
                 .iter()

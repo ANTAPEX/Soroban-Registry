@@ -195,10 +195,7 @@ pub async fn submit_contract_verification(
         .map_err(|e| db_err("commit submit-verification transaction", e))?;
 
     // Invalidate cached status so the next GET reflects the pending state.
-    state
-        .cache
-        .invalidate("verification_status", &id)
-        .await;
+    state.cache.invalidate("verification_status", &id).await;
 
     Ok(Json(VerificationSubmitResponse {
         verification_id,
@@ -241,12 +238,12 @@ pub async fn get_contract_verification_status(
 
     // Fetch current status + latest verification record in one query
     let row: Option<(
-        String,   // verification_status
-        bool,     // is_verified
-        Option<DateTime<Utc>>,  // verified_at
-        Option<Uuid>,           // verified_by
-        Option<String>,         // verification_notes
-        Option<String>,         // compiler_version (used as verification_method)
+        String,                // verification_status
+        bool,                  // is_verified
+        Option<DateTime<Utc>>, // verified_at
+        Option<Uuid>,          // verified_by
+        Option<String>,        // verification_notes
+        Option<String>,        // compiler_version (used as verification_method)
     )> = sqlx::query_as(
         r#"
         SELECT

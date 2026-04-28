@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ContractVersion } from '@/lib/api';
 import { useSearchParams } from 'next/navigation';
-import { api, type Contract } from '@/lib/api';
+import { api } from '@/lib/api';
+import type { Contract, ContractVersion } from '@/types';
 import { toComparableContract, getMetricValue, toneForMetricCell, type ComparableContract, type ComparisonMetricKey, type CellTone } from '@/utils/comparison';
 import { parseContractIdsFromSearch, replaceUrlContractIds } from '@/utils/urlState';
 

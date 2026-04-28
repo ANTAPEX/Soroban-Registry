@@ -234,7 +234,7 @@ pub async fn record_web_vitals(
         .get(axum::http::header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
-    
+
     let referer = headers
         .get(axum::http::header::REFERER)
         .and_then(|v| v.to_str().ok())
@@ -374,7 +374,10 @@ async fn get_contract_analytics_inner(
             .map_err(|err| db_err("fetch view_count", err))?;
 
     let view_count = view_count.ok_or_else(|| {
-        ApiError::not_found("ContractNotFound", format!("No contract found with ID: {}", id))
+        ApiError::not_found(
+            "ContractNotFound",
+            format!("No contract found with ID: {}", id),
+        )
     })?;
 
     // ── Deployment stats (within requested range) ─────────────────────────────
@@ -505,7 +508,7 @@ async fn get_contract_analytics_inner(
     let trunc_expr = match bucket.as_str() {
         "weekly" => "DATE_TRUNC('week', day::TIMESTAMP)::DATE",
         "monthly" => "DATE_TRUNC('month', day::TIMESTAMP)::DATE",
-        _ => "day",  // daily
+        _ => "day", // daily
     };
 
     let timeline_sql = format!(
@@ -769,14 +772,14 @@ pub async fn get_analytics_summary(
 
     let top_publishers: Vec<PublisherAnalytics> = publisher_rows
         .into_iter()
-        .map(|(publisher_id, name, contract_count, total_views)| {
-            PublisherAnalytics {
+        .map(
+            |(publisher_id, name, contract_count, total_views)| PublisherAnalytics {
                 publisher_id,
                 name,
                 contract_count,
                 total_views,
-            }
-        })
+            },
+        )
         .collect();
 
     // ── Registry-wide deployment trends (last 30 days) ─────────────────────────
@@ -809,7 +812,15 @@ pub async fn get_analytics_summary(
         .collect();
 
     // ── Recent additions (last 10) ──────────────────────────────────────────
-    let recent_rows: Vec<(Uuid, String, chrono::DateTime<chrono::Utc>, Option<String>, String, Option<String>, String)> = sqlx::query_as(
+    let recent_rows: Vec<(
+        Uuid,
+        String,
+        chrono::DateTime<chrono::Utc>,
+        Option<String>,
+        String,
+        Option<String>,
+        String,
+    )> = sqlx::query_as(
         r#"
         SELECT
             c.id,
@@ -831,17 +842,19 @@ pub async fn get_analytics_summary(
 
     let recent_additions: Vec<RecentContract> = recent_rows
         .into_iter()
-        .map(|(id, name, created_at, publisher_name, network, category, contract_id)| {
-            RecentContract {
-                id,
-                name,
-                created_at,
-                publisher_name,
-                network,
-                category,
-                contract_id,
-            }
-        })
+        .map(
+            |(id, name, created_at, publisher_name, network, category, contract_id)| {
+                RecentContract {
+                    id,
+                    name,
+                    created_at,
+                    publisher_name,
+                    network,
+                    category,
+                    contract_id,
+                }
+            },
+        )
         .collect();
 
     Ok(Json(AnalyticsSummaryResponse {
@@ -1291,9 +1304,15 @@ pub async fn get_analytics_dashboard(
     .map_err(|err| db_err("fetch this month interactions", err))?;
 
     // ── Recent additions (newest contracts first) ─────────────────────────────
-    let recent_rows: Vec<(Uuid, String, String, String, Option<String>, chrono::DateTime<chrono::Utc>)> =
-        sqlx::query_as(
-            r#"
+    let recent_rows: Vec<(
+        Uuid,
+        String,
+        String,
+        String,
+        Option<String>,
+        chrono::DateTime<chrono::Utc>,
+    )> = sqlx::query_as(
+        r#"
             SELECT id, contract_id, name, network::TEXT, category, created_at
             FROM   contracts
             WHERE  ($2::network_type IS NULL OR network = $2)
@@ -1302,25 +1321,27 @@ pub async fn get_analytics_dashboard(
             ORDER  BY created_at DESC
             LIMIT  $1
             "#,
-        )
-        .bind(limit)
-        .bind(params.network)
-        .bind(params.category.as_deref())
-        .bind(params.verified)
-        .fetch_all(&state.db)
-        .await
-        .map_err(|err| db_err("fetch recent additions", err))?;
+    )
+    .bind(limit)
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| db_err("fetch recent additions", err))?;
 
     let recent_additions: Vec<RecentAdditionEntry> = recent_rows
         .into_iter()
-        .map(|(id, contract_id, name, network, category, created_at)| RecentAdditionEntry {
-            id,
-            contract_id,
-            name,
-            network,
-            category,
-            created_at,
-        })
+        .map(
+            |(id, contract_id, name, network, category, created_at)| RecentAdditionEntry {
+                id,
+                contract_id,
+                name,
+                network,
+                category,
+                created_at,
+            },
+        )
         .collect();
 
     // ── Network usage (contract counts per network) ───────────────────────────
@@ -1335,9 +1356,9 @@ pub async fn get_analytics_dashboard(
         ORDER  BY count DESC
         "#,
     )
-        .bind(params.network)
-        .bind(params.category.as_deref())
-        .bind(params.verified)
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
     .fetch_all(&state.db)
     .await
     .map_err(|err| db_err("fetch network usage", err))?;
@@ -1361,9 +1382,9 @@ pub async fn get_analytics_dashboard(
         LIMIT  10
         "#,
     )
-        .bind(params.network)
-        .bind(params.category.as_deref())
-        .bind(params.verified)
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
     .fetch_all(&state.db)
     .await
     .map_err(|err| db_err("fetch category distribution", err))?;
@@ -1404,11 +1425,11 @@ pub async fn get_analytics_dashboard(
         ORDER  BY d::DATE
         "#,
     )
-        .bind(start_date)
-        .bind(end_date)
-        .bind(params.network)
-        .bind(params.category.as_deref())
-        .bind(params.verified)
+    .bind(start_date)
+    .bind(end_date)
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
     .fetch_all(&state.db)
     .await
     .map_err(|err| db_err("fetch deployment trends", err))?;

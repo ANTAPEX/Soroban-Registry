@@ -17,6 +17,8 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use once_cell::sync::Lazy;
+use once_cell::sync::OnceCell;
 use opentelemetry::global;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::TraceContextExt;
@@ -24,8 +26,6 @@ use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::Resource;
-use once_cell::sync::Lazy;
-use once_cell::sync::OnceCell;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::time::Instant;
@@ -50,7 +50,7 @@ static REQUEST_BODY_LIMIT: Lazy<usize> = Lazy::new(|| {
         .unwrap_or(DEFAULT_REQUEST_BODY_LIMIT)
 });
 
-    static LOG_GUARD: OnceCell<tracing_appender::non_blocking::WorkerGuard> = OnceCell::new();
+static LOG_GUARD: OnceCell<tracing_appender::non_blocking::WorkerGuard> = OnceCell::new();
 
 /// The response header name carrying the request ID back to the caller.
 pub static X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
@@ -82,7 +82,9 @@ pub async fn tracing_middleware(
     let request_headers = sanitize_headers(req.headers());
     let request_body = sanitize_body(
         &req_body_bytes,
-        req.headers().get("content-type").and_then(|v| v.to_str().ok()),
+        req.headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok()),
         *REQUEST_BODY_LIMIT,
     );
     let user_info = extract_user_identity(req.headers());
@@ -180,7 +182,10 @@ fn parse_endpoint_log_levels(value: Option<String>) -> Vec<(String, Level)> {
             _ => Level::INFO,
         };
 
-        pairs.push((if prefix.is_empty() { "*" } else { prefix }.to_string(), level));
+        pairs.push((
+            if prefix.is_empty() { "*" } else { prefix }.to_string(),
+            level,
+        ));
     }
 
     if pairs.is_empty() {
@@ -247,7 +252,10 @@ fn sanitize_body(bytes: &[u8], content_type: Option<&str>, limit: usize) -> Valu
         return json!({ "kind": "empty" });
     }
 
-    if content_type.unwrap_or_default().contains("application/json") {
+    if content_type
+        .unwrap_or_default()
+        .contains("application/json")
+    {
         if let Ok(mut value) = serde_json::from_slice::<Value>(bytes) {
             redact_value(&mut value);
             return json!({
@@ -372,9 +380,7 @@ pub fn inject_current_trace_context(headers: &mut reqwest::header::HeaderMap) {
 }
 
 fn extract_remote_context(headers: &HeaderMap) -> opentelemetry::Context {
-    global::get_text_map_propagator(|propagator| {
-        propagator.extract(&AxumHeaderExtractor(headers))
-    })
+    global::get_text_map_propagator(|propagator| propagator.extract(&AxumHeaderExtractor(headers)))
 }
 
 struct AxumHeaderExtractor<'a>(&'a HeaderMap);
@@ -431,8 +437,8 @@ impl RequestId {
 pub fn init_json_tracing() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-    let service_name = std::env::var("OTEL_SERVICE_NAME")
-        .unwrap_or_else(|_| "soroban-registry-api".to_string());
+    let service_name =
+        std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "soroban-registry-api".to_string());
     let otlp_endpoint = std::env::var("OTLP_ENDPOINT")
         .or_else(|_| std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT"))
         .ok();
@@ -457,14 +463,19 @@ pub fn init_json_tracing() {
         .with_writer(writer);
 
     if let Some(endpoint) = otlp_endpoint {
-        let trace_config = opentelemetry_sdk::trace::Config::default().with_resource(
-            Resource::new(vec![KeyValue::new("service.name", service_name)]),
-        );
+        let trace_config =
+            opentelemetry_sdk::trace::Config::default().with_resource(Resource::new(vec![
+                KeyValue::new("service.name", service_name),
+            ]));
 
         match opentelemetry_otlp::new_pipeline()
             .tracing()
             .with_trace_config(trace_config)
-            .with_exporter(opentelemetry_otlp::new_exporter().tonic().with_endpoint(endpoint))
+            .with_exporter(
+                opentelemetry_otlp::new_exporter()
+                    .tonic()
+                    .with_endpoint(endpoint),
+            )
             .install_batch(opentelemetry_sdk::runtime::Tokio)
         {
             Ok(tracer) => {

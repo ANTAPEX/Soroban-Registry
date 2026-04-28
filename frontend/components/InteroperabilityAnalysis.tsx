@@ -1,7 +1,7 @@
 'use client';
 
 import DependencyGraph from '@/components/DependencyGraph';
-import type { ContractInteroperabilityResponse, InteroperabilityCapability, InteroperabilityProtocolMatch } from '@/lib/api';
+import type { ContractInteroperabilityResponse, InteroperabilityCapability, InteroperabilityProtocolMatch } from '@/types';
 import { AlertTriangle, CheckCircle2, GitCompare, Link2, PlugZap, Puzzle, ShieldCheck } from 'lucide-react';
 
 interface InteroperabilityAnalysisProps {

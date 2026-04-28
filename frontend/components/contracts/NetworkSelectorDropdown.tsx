@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, FlaskConical, Globe, Rocket } from 'lucide-react';
-import { ContractSearchParams } from '@/lib/api';
+import type { ContractSearchParams } from '@/types';
 
 type NetworkFilter = NonNullable<ContractSearchParams['network']>;
 

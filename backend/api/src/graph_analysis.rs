@@ -10,8 +10,8 @@
 //   └─────────────────────────────────────────────────────────┘
 
 use shared::{
-    CriticalContractScore, GraphAnalysisReport, GraphCluster, GraphEdge, GraphNode,
-    PropagationHop, VulnerabilityPropagationResult,
+    CriticalContractScore, GraphAnalysisReport, GraphCluster, GraphEdge, GraphNode, PropagationHop,
+    VulnerabilityPropagationResult,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use uuid::Uuid;
@@ -50,22 +50,40 @@ impl AnalysisGraph {
         let mut in_ = vec![Vec::new(); n];
 
         for edge in edges {
-            let Some(&u) = index.get(&edge.source) else { continue };
-            let Some(&v) = index.get(&edge.target) else { continue };
-            if u == v { continue; }
+            let Some(&u) = index.get(&edge.source) else {
+                continue;
+            };
+            let Some(&v) = index.get(&edge.target) else {
+                continue;
+            };
+            if u == v {
+                continue;
+            }
             // Normalise call_frequency to a weight ≥ 1.
             let w = edge.call_frequency.unwrap_or(1).max(1) as f64;
             out[u].push((v, w));
             in_[v].push((u, w));
         }
 
-        Self { node_ids, index, names, out, in_ }
+        Self {
+            node_ids,
+            index,
+            names,
+            out,
+            in_,
+        }
     }
 
-    pub fn n(&self) -> usize { self.node_ids.len() }
+    pub fn n(&self) -> usize {
+        self.node_ids.len()
+    }
 
-    pub fn in_degree(&self, u: usize) -> usize { self.in_[u].len() }
-    pub fn out_degree(&self, u: usize) -> usize { self.out[u].len() }
+    pub fn in_degree(&self, u: usize) -> usize {
+        self.in_[u].len()
+    }
+    pub fn out_degree(&self, u: usize) -> usize {
+        self.out[u].len()
+    }
 }
 
 // ─── Label propagation (community / cluster detection) ───────────────────────
@@ -91,7 +109,9 @@ pub fn label_propagation(g: &AnalysisGraph) -> Vec<usize> {
         // Deterministic shuffle using a simple LCG so results are reproducible.
         let mut rng = 6364136223846793005u64;
         for i in (1..n).rev() {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            rng = rng
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let j = (rng >> 33) as usize % (i + 1);
             order.swap(i, j);
         }
@@ -105,7 +125,9 @@ pub fn label_propagation(g: &AnalysisGraph) -> Vec<usize> {
             for &(v, w) in &g.in_[u] {
                 *freq.entry(prev[v]).or_default() += w;
             }
-            if freq.is_empty() { continue; }
+            if freq.is_empty() {
+                continue;
+            }
             // Pick the label with the highest weighted frequency;
             // break ties by choosing the smallest label for stability.
             let best = freq
@@ -124,7 +146,9 @@ pub fn label_propagation(g: &AnalysisGraph) -> Vec<usize> {
             labels[u] = best;
         }
 
-        if !changed { break; }
+        if !changed {
+            break;
+        }
     }
 
     // Normalise labels to 0-based contiguous cluster IDs.
@@ -191,7 +215,12 @@ pub fn build_clusters(g: &AnalysisGraph, labels: &[usize]) -> Vec<GraphCluster> 
         .collect();
 
     // Sort by size descending, then cluster_id ascending.
-    clusters.sort_by(|a, b| b.members.len().cmp(&a.members.len()).then(a.cluster_id.cmp(&b.cluster_id)));
+    clusters.sort_by(|a, b| {
+        b.members
+            .len()
+            .cmp(&a.members.len())
+            .then(a.cluster_id.cmp(&b.cluster_id))
+    });
     clusters
 }
 
@@ -207,7 +236,9 @@ const PAGERANK_TOLERANCE: f64 = 1e-8;
 
 pub fn pagerank(g: &AnalysisGraph) -> Vec<f64> {
     let n = g.n();
-    if n == 0 { return Vec::new(); }
+    if n == 0 {
+        return Vec::new();
+    }
 
     let init = 1.0 / n as f64;
     let mut pr = vec![init; n];
@@ -231,7 +262,9 @@ pub fn pagerank(g: &AnalysisGraph) -> Vec<f64> {
         }
 
         for u in 0..n {
-            if g.out[u].is_empty() { continue; }
+            if g.out[u].is_empty() {
+                continue;
+            }
             let total_weight: f64 = g.out[u].iter().map(|(_, w)| w).sum();
             for &(v, w) in &g.out[u] {
                 next[v] += PAGERANK_DAMPING * pr[u] * (w / total_weight);
@@ -241,7 +274,9 @@ pub fn pagerank(g: &AnalysisGraph) -> Vec<f64> {
         // Check convergence.
         let delta: f64 = pr.iter().zip(&next).map(|(a, b)| (a - b).abs()).sum();
         pr = next;
-        if delta < PAGERANK_TOLERANCE { break; }
+        if delta < PAGERANK_TOLERANCE {
+            break;
+        }
     }
 
     pr
@@ -257,7 +292,9 @@ const MAX_BETWEENNESS_SAMPLES: usize = 128;
 
 pub fn betweenness_centrality(g: &AnalysisGraph) -> Vec<f64> {
     let n = g.n();
-    if n < 3 { return vec![0.0; n]; }
+    if n < 3 {
+        return vec![0.0; n];
+    }
 
     let mut bc = vec![0.0f64; n];
     // Sample sources — for small graphs use all; for large, take evenly spaced.
@@ -307,7 +344,11 @@ pub fn betweenness_centrality(g: &AnalysisGraph) -> Vec<f64> {
 
     // Scale by sampling ratio and normalise to [0, 1].
     let scale = n as f64 / sample_count as f64;
-    let norm = if n > 2 { ((n - 1) * (n - 2)) as f64 } else { 1.0 };
+    let norm = if n > 2 {
+        ((n - 1) * (n - 2)) as f64
+    } else {
+        1.0
+    };
     bc.iter_mut().for_each(|v| *v = (*v * scale) / norm);
 
     bc
@@ -326,8 +367,16 @@ pub fn rank_critical_contracts(
     let n = g.n();
 
     // Normalise PageRank and betweenness to [0, 1].
-    let pr_max = pr.iter().cloned().fold(f64::NEG_INFINITY, f64::max).max(1e-12);
-    let bc_max = bc.iter().cloned().fold(f64::NEG_INFINITY, f64::max).max(1e-12);
+    let pr_max = pr
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, f64::max)
+        .max(1e-12);
+    let bc_max = bc
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, f64::max)
+        .max(1e-12);
 
     let mut scores: Vec<CriticalContractScore> = (0..n)
         .map(|i| {
@@ -340,7 +389,10 @@ pub fn rank_critical_contracts(
 
             // Weighted combination — in-degree weighted highest because it
             // directly measures how many contracts depend on this one.
-            let criticality = 0.35 * pr_norm + 0.30 * bc_norm + 0.25 * (in_d as f64 / n as f64).min(1.0) + 0.10 * deg_norm;
+            let criticality = 0.35 * pr_norm
+                + 0.30 * bc_norm
+                + 0.25 * (in_d as f64 / n as f64).min(1.0)
+                + 0.10 * deg_norm;
 
             CriticalContractScore {
                 contract_id: g.node_ids[i],
@@ -388,7 +440,9 @@ pub fn propagate_vulnerability(
 
     // Seed the queue from sources.
     for &(src, sev) in source_indices {
-        if src >= n { continue; }
+        if src >= n {
+            continue;
+        }
         if risk[src] < sev {
             risk[src] = sev;
             depth_map[src] = 0;
@@ -399,7 +453,9 @@ pub fn propagate_vulnerability(
     let source_set: HashSet<usize> = source_indices.iter().map(|(i, _)| *i).collect();
 
     while let Some((u, d, r)) = queue.pop_front() {
-        if d >= MAX_PROPAGATION_DEPTH { continue; }
+        if d >= MAX_PROPAGATION_DEPTH {
+            continue;
+        }
 
         // Propagate along out-edges (dependents depend on u, so they inherit risk).
         // We follow IN-edges: if v depends on u and u is vulnerable, v is at risk.
@@ -408,7 +464,9 @@ pub fn propagate_vulnerability(
             let weight_boost = (w / (w + 10.0)).min(0.2); // at most +20%
             let new_risk = r * (DECAY_PER_HOP + weight_boost);
 
-            if new_risk < MIN_RISK_THRESHOLD { continue; }
+            if new_risk < MIN_RISK_THRESHOLD {
+                continue;
+            }
 
             propagates_to[u].insert(v);
 
@@ -478,7 +536,9 @@ pub fn cyclic_nodes(g: &AnalysisGraph) -> Vec<Uuid> {
     let mut finish_order: Vec<usize> = Vec::with_capacity(n);
 
     for start in 0..n {
-        if visited[start] { continue; }
+        if visited[start] {
+            continue;
+        }
         // Stack stores (node, edge_index) — edge_index tracks which out-edge to visit next.
         let mut stack: Vec<(usize, usize)> = vec![(start, 0)];
         visited[start] = true;
@@ -502,10 +562,14 @@ pub fn cyclic_nodes(g: &AnalysisGraph) -> Vec<Uuid> {
     let mut comp_id = 0;
 
     for &u in finish_order.iter().rev() {
-        if component[u] != usize::MAX { continue; }
+        if component[u] != usize::MAX {
+            continue;
+        }
         let mut stack = vec![u];
         while let Some(v) = stack.pop() {
-            if component[v] != usize::MAX { continue; }
+            if component[v] != usize::MAX {
+                continue;
+            }
             component[v] = comp_id;
             for &(w, _) in &g.in_[v] {
                 if component[w] == usize::MAX {
@@ -519,7 +583,9 @@ pub fn cyclic_nodes(g: &AnalysisGraph) -> Vec<Uuid> {
     // Count component sizes, then collect UUIDs in non-trivial SCCs.
     let mut sizes = vec![0usize; comp_id];
     for &c in &component {
-        if c < comp_id { sizes[c] += 1; }
+        if c < comp_id {
+            sizes[c] += 1;
+        }
     }
 
     (0..n)
@@ -530,10 +596,7 @@ pub fn cyclic_nodes(g: &AnalysisGraph) -> Vec<Uuid> {
 
 // ─── Full analysis entry point ────────────────────────────────────────────────
 
-pub fn run_full_analysis(
-    nodes: &[GraphNode],
-    edges: &[GraphEdge],
-) -> GraphAnalysisReport {
+pub fn run_full_analysis(nodes: &[GraphNode], edges: &[GraphEdge]) -> GraphAnalysisReport {
     let started = std::time::Instant::now();
 
     let g = AnalysisGraph::build(nodes, edges);
@@ -598,7 +661,11 @@ mod tests {
     #[test]
     fn pagerank_sums_to_one() {
         let ids: Vec<Uuid> = (0..5).map(|_| Uuid::new_v4()).collect();
-        let nodes: Vec<GraphNode> = ids.iter().enumerate().map(|(i, &id)| make_node(id, &format!("c{}", i))).collect();
+        let nodes: Vec<GraphNode> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| make_node(id, &format!("c{}", i)))
+            .collect();
         let edges = vec![
             make_edge(ids[0], ids[1], 10),
             make_edge(ids[1], ids[2], 5),
@@ -607,14 +674,22 @@ mod tests {
         let g = AnalysisGraph::build(&nodes, &edges);
         let pr = pagerank(&g);
         let sum: f64 = pr.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-6, "PageRank should sum to 1, got {}", sum);
+        assert!(
+            (sum - 1.0).abs() < 1e-6,
+            "PageRank should sum to 1, got {}",
+            sum
+        );
     }
 
     #[test]
     fn label_propagation_finds_two_communities() {
         // Build two triangles connected by one bridge edge.
         let ids: Vec<Uuid> = (0..6).map(|_| Uuid::new_v4()).collect();
-        let nodes: Vec<GraphNode> = ids.iter().enumerate().map(|(i, &id)| make_node(id, &i.to_string())).collect();
+        let nodes: Vec<GraphNode> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| make_node(id, &i.to_string()))
+            .collect();
         let edges = vec![
             // Cluster A: 0-1-2
             make_edge(ids[0], ids[1], 10),
@@ -631,13 +706,21 @@ mod tests {
         let labels = label_propagation(&g);
         let unique: HashSet<usize> = labels.iter().copied().collect();
         // Should produce at least 2 distinct clusters.
-        assert!(unique.len() >= 2, "Expected ≥2 clusters, got {}", unique.len());
+        assert!(
+            unique.len() >= 2,
+            "Expected ≥2 clusters, got {}",
+            unique.len()
+        );
     }
 
     #[test]
     fn vulnerability_propagation_follows_dependencies() {
         let ids: Vec<Uuid> = (0..4).map(|_| Uuid::new_v4()).collect();
-        let nodes: Vec<GraphNode> = ids.iter().enumerate().map(|(i, &id)| make_node(id, &i.to_string())).collect();
+        let nodes: Vec<GraphNode> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| make_node(id, &i.to_string()))
+            .collect();
         // 0 <- 1 <- 2 <- 3  (1,2,3 depend on 0)
         let edges = vec![
             make_edge(ids[1], ids[0], 5),
@@ -647,9 +730,17 @@ mod tests {
         let g = AnalysisGraph::build(&nodes, &edges);
         let result = propagate_vulnerability(&g, &[(0, 1.0)]);
         // Contracts 1, 2, 3 should all be at risk since they depend on 0.
-        assert!(result.total_affected >= 3, "Expected at least 3 affected, got {}", result.total_affected);
+        assert!(
+            result.total_affected >= 3,
+            "Expected at least 3 affected, got {}",
+            result.total_affected
+        );
         // Risk should decrease with depth.
-        let by_id: HashMap<Uuid, f64> = result.affected_contracts.iter().map(|h| (h.contract_id, h.risk_score)).collect();
+        let by_id: HashMap<Uuid, f64> = result
+            .affected_contracts
+            .iter()
+            .map(|h| (h.contract_id, h.risk_score))
+            .collect();
         assert!(by_id[&ids[1]] > by_id[&ids[2]]);
         assert!(by_id[&ids[2]] > by_id[&ids[3]]);
     }

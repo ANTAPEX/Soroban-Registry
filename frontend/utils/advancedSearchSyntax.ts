@@ -1,6 +1,6 @@
 'use client';
 
-import type { QueryCondition, QueryNode, QueryOperator } from '@/lib/api';
+import type { QueryCondition, QueryNode, QueryOperator } from '@/types';
 
 type Token =
   | { type: 'op'; op: QueryOperator }

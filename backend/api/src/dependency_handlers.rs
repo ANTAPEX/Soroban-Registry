@@ -217,22 +217,21 @@ pub async fn declare_contract_dependencies(
     Json(body): Json<DeclareDependenciesRequest>,
 ) -> ApiResult<(StatusCode, Json<DeclareDependenciesResponse>)> {
     // Verify contract exists.
-    let exists: bool =
-        sqlx::query_scalar("SELECT COUNT(*) > 0 FROM contracts WHERE id = $1")
-            .bind(id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| db_internal_error("check contract exists", e))?;
+    let exists: bool = sqlx::query_scalar("SELECT COUNT(*) > 0 FROM contracts WHERE id = $1")
+        .bind(id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| db_internal_error("check contract exists", e))?;
 
     if !exists {
-        return Err(ApiError::not_found("ContractNotFound", "Contract not found"));
+        return Err(ApiError::not_found(
+            "ContractNotFound",
+            "Contract not found",
+        ));
     }
 
     // Pre-check for self-referential declarations.
-    let self_dep = body
-        .dependencies
-        .iter()
-        .any(|d| d.name == id.to_string());
+    let self_dep = body.dependencies.iter().any(|d| d.name == id.to_string());
     if self_dep {
         return Err(ApiError::bad_request(
             "SelfDependency",
@@ -332,7 +331,10 @@ pub async fn get_direct_contract_dependencies(
         .map_err(|e| db_internal_error("check contract exists", e))?;
 
     if !exists {
-        return Err(ApiError::not_found("ContractNotFound", "Contract not found"));
+        return Err(ApiError::not_found(
+            "ContractNotFound",
+            "Contract not found",
+        ));
     }
 
     let rows = sqlx::query(
@@ -544,9 +546,7 @@ pub async fn post_resolve_dependencies(
                 }
                 Some(dep_id) if dep_id == root_id || visited.contains(&dep_id) => {
                     // Already visited or points back to root — circular
-                    let label = resolved_name
-                        .or(c_contract_id)
-                        .unwrap_or(callee_str);
+                    let label = resolved_name.or(c_contract_id).unwrap_or(callee_str);
                     if !circular_contracts.contains(&label) {
                         circular_contracts.push(label);
                     }

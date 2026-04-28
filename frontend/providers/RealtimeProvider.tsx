@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useEffect, useState, ReactNode } from 'react';
 import { wsService } from '@/services/websocket.service';
-import { ContractDeploymentEvent, RealtimeContextType } from '@/types/realtime';
+import type { ContractDeploymentEvent, RealtimeContextType } from '@/types';
 import { requestDesktopNotification, sendDesktopNotification } from '@/utils/notifications';
 
 export const RealtimeContext = createContext<RealtimeContextType | undefined>(undefined);

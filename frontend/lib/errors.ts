@@ -104,8 +104,12 @@ export interface NormalizedError {
   message: string;
   statusCode?: number;
   type: 'network' | 'api' | 'validation' | 'unknown';
+  category: 'user' | 'system' | 'network' | 'validation' | 'unknown';
+  severity: 'info' | 'warning' | 'error' | 'critical';
   endpoint?: string;
   timestamp: string;
+  name?: string;
+  stack?: string;
   details?: unknown;
 }
 
@@ -116,8 +120,12 @@ export function normalizeError(error: unknown, endpoint?: string): NormalizedErr
     return {
       message: error.message,
       type: 'network',
+      category: 'network',
+      severity: 'error',
       endpoint: error.endpoint || endpoint,
       timestamp,
+      name: error.name,
+      stack: error.stack,
     };
   }
   
@@ -126,20 +134,29 @@ export function normalizeError(error: unknown, endpoint?: string): NormalizedErr
       message: error.message,
       statusCode: error.statusCode,
       type: 'validation',
+      category: 'validation',
+      severity: 'warning',
       endpoint: error.endpoint || endpoint,
       timestamp,
-      details: error.fields,
+      name: error.name,
+      stack: error.stack,
+      details: sanitizeForLogging(error.fields),
     };
   }
   
   if (error instanceof ApiError) {
+    const isServerError = (error.statusCode ?? 0) >= 500;
     return {
       message: error.message,
       statusCode: error.statusCode,
       type: 'api',
+      category: isServerError ? 'system' : 'user',
+      severity: isServerError ? 'critical' : 'warning',
       endpoint: error.endpoint || endpoint,
       timestamp,
-      details: error.originalError,
+      name: error.name,
+      stack: error.stack,
+      details: sanitizeForLogging(error.originalError),
     };
   }
   
@@ -147,18 +164,24 @@ export function normalizeError(error: unknown, endpoint?: string): NormalizedErr
     return {
       message: error.message,
       type: 'unknown',
+      category: 'unknown',
+      severity: isCriticalMessage(error.message) ? 'critical' : 'error',
       endpoint,
       timestamp,
-      details: error,
+      name: error.name,
+      stack: error.stack,
+      details: sanitizeForLogging({ name: error.name }),
     };
   }
   
   return {
     message: 'An unexpected error occurred',
     type: 'unknown',
+    category: 'unknown',
+    severity: 'error',
     endpoint,
     timestamp,
-    details: error,
+    details: sanitizeForLogging(error),
   };
 }
 
@@ -176,16 +199,105 @@ export function setErrorLogger(logger: ErrorLogger | null) {
 }
 
 export function logError(error: Error, context?: Record<string, unknown>) {
+  const normalized = normalizeError(error, context?.endpoint as string);
+  const safeContext = sanitizeForLogging(context ?? {});
+
   console.error('[Error]', {
     timestamp: new Date().toISOString(),
     message: error.message,
     name: error.name,
     stack: error.stack,
-    ...context,
+    category: normalized.category,
+    severity: normalized.severity,
+    ...safeContext,
   });
   
   if (errorLogger) {
-    const normalized = normalizeError(error, context?.endpoint as string);
     errorLogger.logError(normalized);
   }
+
+  reportError(normalized, safeContext);
+  return normalized;
+}
+
+function reportError(error: NormalizedError, context: unknown) {
+  if (typeof window === 'undefined') return;
+  if (process.env.NEXT_PUBLIC_ERROR_REPORTING === 'false') return;
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (!apiUrl) return;
+
+  const payload = {
+    source: 'frontend',
+    category: error.category,
+    severity: error.severity,
+    message: error.message,
+    stack_trace: error.stack,
+    route: typeof window !== 'undefined' ? window.location.pathname : error.endpoint,
+    request_id: extractRequestId(error.details),
+    user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+    metadata: sanitizeForLogging({
+      type: error.type,
+      statusCode: error.statusCode,
+      endpoint: error.endpoint,
+      name: error.name,
+      context,
+      details: error.details,
+    }),
+  };
+
+  const body = JSON.stringify(payload);
+  const url = `${apiUrl.replace(/\/$/, '')}/api/errors/report`;
+
+  try {
+    if (navigator.sendBeacon) {
+      const blob = new Blob([body], { type: 'application/json' });
+      if (navigator.sendBeacon(url, blob)) return;
+    }
+  } catch {
+    // Fall through to fetch below.
+  }
+
+  void fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    keepalive: true,
+  }).catch(() => {
+    // Avoid recursive reporting if the report endpoint is unavailable.
+  });
+}
+
+function extractRequestId(details: unknown): string | undefined {
+  if (!details || typeof details !== 'object') return undefined;
+  const value = details as Record<string, unknown>;
+  const direct = value.request_id || value.requestId || value.correlation_id || value.correlationId;
+  return typeof direct === 'string' ? direct : undefined;
+}
+
+function isCriticalMessage(message: string) {
+  const lower = message.toLowerCase();
+  return lower.includes('panic') || lower.includes('invariant') || lower.includes('data loss');
+}
+
+function sanitizeForLogging(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForLogging(item));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const output: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    output[key] = isSensitiveKey(key) ? '[REDACTED]' : sanitizeForLogging(nested);
+  }
+  return output;
+}
+
+function isSensitiveKey(key: string) {
+  const lower = key.toLowerCase();
+  return ['password', 'secret', 'token', 'api_key', 'authorization', 'cookie'].some((needle) =>
+    lower.includes(needle),
+  );
 }

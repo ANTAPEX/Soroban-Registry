@@ -150,7 +150,7 @@ fn generate_mutations(functions: &[String]) -> Vec<Mutation> {
                 operator: op.clone(),
                 target_function: func.clone(),
                 description,
-                killed: false,     // computed below
+                killed: false, // computed below
                 test_output: String::new(),
             });
         }
@@ -184,7 +184,8 @@ fn run_test_suite_against(mutation: &mut Mutation) {
             if survived {
                 (
                     false,
-                    "Test passed (mutation survived — guard condition not fully covered)".to_string(),
+                    "Test passed (mutation survived — guard condition not fully covered)"
+                        .to_string(),
                 )
             } else {
                 (
@@ -222,7 +223,10 @@ pub async fn run_mutation_tests(
             .map_err(|e| db_internal_error("check contract for mutation test", e))?;
 
     if !contract_exists {
-        return Err(ApiError::not_found("ContractNotFound", "Contract not found"));
+        return Err(ApiError::not_found(
+            "ContractNotFound",
+            "Contract not found",
+        ));
     }
 
     // Resolve ABI: use request-supplied ABI or fall back to the stored ABI.
@@ -288,13 +292,11 @@ pub async fn run_mutation_tests(
 
     // 5. Integrate with verification pipeline: update robustness_score column.
     let integrated = if body.integrate_verification {
-        let updated = sqlx::query(
-            "UPDATE contracts SET robustness_score = $1 WHERE id = $2",
-        )
-        .bind(robustness_score)
-        .bind(contract_id)
-        .execute(&state.db)
-        .await;
+        let updated = sqlx::query("UPDATE contracts SET robustness_score = $1 WHERE id = $2")
+            .bind(robustness_score)
+            .bind(contract_id)
+            .execute(&state.db)
+            .await;
 
         updated.is_ok()
     } else {
@@ -324,15 +326,17 @@ pub async fn list_mutation_runs(
     Path(contract_id): Path<Uuid>,
 ) -> ApiResult<Json<serde_json::Value>> {
     // Verify contract exists.
-    let exists: bool =
-        sqlx::query_scalar("SELECT COUNT(*) > 0 FROM contracts WHERE id = $1")
-            .bind(contract_id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| db_internal_error("check contract for list mutation runs", e))?;
+    let exists: bool = sqlx::query_scalar("SELECT COUNT(*) > 0 FROM contracts WHERE id = $1")
+        .bind(contract_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| db_internal_error("check contract for list mutation runs", e))?;
 
     if !exists {
-        return Err(ApiError::not_found("ContractNotFound", "Contract not found"));
+        return Err(ApiError::not_found(
+            "ContractNotFound",
+            "Contract not found",
+        ));
     }
 
     // Try to read from mutation_runs; return empty list if table doesn't exist yet.

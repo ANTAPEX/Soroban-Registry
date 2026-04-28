@@ -22,524 +22,73 @@ import {
   extractErrorData,
   createApiError,
 } from "./errors";
+import { resilientCall } from './resilience';
+import type { 
+  Network, 
+  NetworkStatus, 
+  NetworkEndpoints, 
+  NetworkInfo, 
+  NetworkListResponse, 
+  NetworkConfig,
+  Contract,
+  ContractGetResponse,
+  ContractHealth,
+  ContractInteractionResponse,
+  InteractionsQueryParams,
+  InteractionsListResponse,
+  TimelineEntry,
+  TopUser,
+  InteractorStats,
+  DeploymentStats,
+  ContractAnalyticsResponse,
+  ContractVersion,
+  VersionFieldDiff,
+  VersionCompareResponse,
+  RevertVersionRequest,
+  ContractAbiResponse,
+  ContractChangelogEntry,
+  ContractChangelogResponse,
+  RecommendationReason,
+  RecommendedContract,
+  ContractRecommendationsResponse,
+  CollaborativeReview,
+  CollaborativeReviewer,
+  CollaborativeComment,
+  CollaborativeReviewDetails,
+  Publisher,
+  AnalyticsEventType,
+  AnalyticsEvent,
+  ActivityFeedParams,
+  ActivityFeedResponse,
+  PaginatedResponse,
+  DependencyTreeNode,
+  MaintenanceWindow,
+  MaturityLevel,
+  ContractSearchParams,
+  SearchSuggestion,
+  SearchSuggestionsResponse,
+  SearchIntentType,
+  SearchIntent,
+  SemanticSearchMetadata,
+  SemanticContractSearchResponse,
+  PublishRequest,
+  CustomMetricType,
+  MetricCatalogEntry,
+  MetricSeriesPoint,
+  MetricSample,
+  MetricSeriesResponse,
+  DeprecationStatus,
+  ReleaseNotesStatus,
+  FunctionChange,
+  DiffSummary,
+  ReleaseNotesResponse,
+  GenerateReleaseNotesRequest,
+  UpdateReleaseNotesRequest,
+  PublishReleaseNotesRequest,
+  DeprecationInfo
+} from "../types";
 import type { VerificationLevel } from "../types/verification";
 
-export type Network = "mainnet" | "testnet" | "futurenet";
-
-export type NetworkStatus = "online" | "offline" | "degraded";
-
-export interface NetworkEndpoints {
-  rpc_url: string;
-  health_url: string;
-  explorer_url: string;
-  friendbot_url?: string;
-}
-
-export interface NetworkInfo {
-  id: string;
-  name: string;
-  network_type: Network;
-  status: NetworkStatus;
-  endpoints: NetworkEndpoints;
-  last_checked_at: string;
-  last_indexed_ledger_height?: number;
-  last_indexed_at?: string;
-  consecutive_failures: number;
-  status_message?: string;
-}
-
-export interface NetworkListResponse {
-  networks: NetworkInfo[];
-  cached_at: string;
-}
-
-/** Per-network config (Issue #43) */
-export interface NetworkConfig {
-  contract_id: string;
-  is_verified: boolean;
-  min_version?: string;
-  max_version?: string;
-}
-
-export interface Contract {
-  id: string;
-  contract_id: string;
-  wasm_hash: string;
-  name: string;
-  description?: string;
-  publisher_id: string;
-  network: Network;
-  is_verified: boolean;
-  verification_level?: VerificationLevel;
-  category?: string;
-  tags: string[];
-  popularity_score?: number;
-  downloads?: number;
-  average_rating?: number;
-  avg_rating?: number;
-  review_count?: number;
-  deployment_count?: number;
-  interaction_count?: number;
-  favorites_count?: number;
-  relevance_score?: number;
-  // Image fields for contract logo/icon
-  logo_url?: string;
-  created_at: string;
-  updated_at: string;
-  verified_at?: string;
-  last_accessed_at?: string;
-  is_maintenance?: boolean;
-  /** Logical contract grouping (Issue #43) */
-  logical_id?: string;
-  /** Per-network configs: { mainnet: {...}, testnet: {...} } */
-  network_configs?: Record<Network, NetworkConfig>;
-}
-
-/** GET /contracts/:id response when ?network= is used (Issue #43) */
-export interface ContractGetResponse extends Contract {
-  current_network?: Network;
-  network_config?: NetworkConfig;
-}
-
-export interface ContractHealth {
-  contract_id: string;
-  status: "healthy" | "warning" | "critical";
-  last_activity: string;
-  security_score: number;
-  audit_date?: string;
-  total_score: number;
-  recommendations: string[];
-  updated_at: string;
-}
-
-export interface ContractInteractionResponse {
-  id: string;
-  account: string | null;
-  method: string | null;
-  parameters: unknown;
-  return_value: unknown;
-  transaction_hash: string | null;
-  created_at: string;
-}
-
-export interface InteractionsQueryParams {
-  limit?: number;
-  offset?: number;
-  account?: string;
-  method?: string;
-  from_timestamp?: string;
-  to_timestamp?: string;
-}
-
-export interface InteractionsListResponse {
-  items: ContractInteractionResponse[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-/** Analytics timeline entry (one day) */
-export interface TimelineEntry {
-  date: string;
-  count: number;
-}
-
-export interface TopUser {
-  address: string;
-  count: number;
-}
-
-export interface InteractorStats {
-  unique_count: number;
-  top_users: TopUser[];
-}
-
-export interface DeploymentStats {
-  count: number;
-  unique_users: number;
-  by_network: Record<string, number>;
-}
-
-export interface ContractAnalyticsResponse {
-  contract_id: string;
-  deployments: DeploymentStats;
-  interactors: InteractorStats;
-  timeline: TimelineEntry[];
-}
-
-export interface ContractVersion {
-  id: string;
-  contract_id: string;
-  version: string;
-  wasm_hash: string;
-  source_url?: string;
-  commit_hash?: string;
-  release_notes?: string;
-  change_notes?: string;
-  is_revert?: boolean;
-  reverted_from?: string;
-  created_at: string;
-}
-
-export interface VersionFieldDiff {
-  field: string;
-  from_value: unknown;
-  to_value: unknown;
-}
-
-export interface VersionCompareResponse {
-  contract_id: string;
-  from_version: ContractVersion;
-  to_version: ContractVersion;
-  differences: VersionFieldDiff[];
-  wasm_changed: boolean;
-}
-
-export interface RevertVersionRequest {
-  change_notes?: string;
-  admin_id: string;
-}
-
-export interface ContractAbiResponse {
-  abi: unknown;
-}
-
-export interface ContractChangelogEntry {
-  version: string;
-  created_at: string;
-  commit_hash?: string;
-  source_url?: string;
-  release_notes?: string;
-  breaking: boolean;
-  breaking_changes: string[];
-}
-
-export interface ContractChangelogResponse {
-  contract_id: string;
-  entries: ContractChangelogEntry[];
-}
-
-export interface RecommendationReason {
-  code: string;
-  message: string;
-  weight: number;
-}
-
-export interface RecommendedContract {
-  id: string;
-  contract_id: string;
-  name: string;
-  description?: string;
-  network: Network;
-  category?: string;
-  popularity_score: number;
-  similarity_score: number;
-  recommendation_score: number;
-  reasons: RecommendationReason[];
-  explanation: string;
-}
-
-export interface ContractRecommendationsResponse {
-  contract_id: string;
-  algorithm: string;
-  ab_variant: string;
-  cached: boolean;
-  generated_at: string;
-  recommendations: RecommendedContract[];
-}
-
-export interface CollaborativeReview {
-  id: string;
-  contract_id: string;
-  version: string;
-  status: 'pending' | 'approved' | 'changes_requested';
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CollaborativeReviewer {
-  id: string;
-  review_id: string;
-  user_id: string;
-  status: 'pending' | 'approved' | 'changes_requested';
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CollaborativeComment {
-  id: string;
-  review_id: string;
-  user_id: string;
-  content: string;
-  line_number?: number;
-  file_path?: string;
-  abi_path?: string;
-  parent_id?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CollaborativeReviewDetails {
-  review: CollaborativeReview;
-  reviewers: CollaborativeReviewer[];
-  comments: CollaborativeComment[];
-}
-
-export interface Publisher {
-  id: string;
-  stellar_address: string;
-  username?: string;
-  email?: string;
-  github_url?: string;
-  website?: string;
-  // Image fields for publisher avatar
-  avatar_url?: string;
-  created_at: string;
-}
-
-export type AnalyticsEventType =
-  | "contract_published"
-  | "contract_verified"
-  | "contract_deployed"
-  | "version_created"
-  | "contract_updated"
-  | "publisher_created"
-  | "search_click";
-
-export interface AnalyticsEvent {
-  id: string;
-  event_type: AnalyticsEventType;
-  contract_id: string;
-  user_address: string | null;
-  network: Network | null;
-  metadata: Record<string, unknown> | null;
-  created_at: string;
-}
-
-export interface ActivityFeedParams {
-  cursor?: string;
-  limit?: number;
-  event_type?: AnalyticsEventType;
-  contract_id?: string;
-}
-
-export interface ActivityFeedResponse {
-  items: AnalyticsEvent[];
-  total: number;
-  limit: number;
-  next_cursor: string | null;
-}
-
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  page_size: number;
-  total_pages: number;
-}
-
-export interface DependencyTreeNode {
-  contract_id: string;
-  name: string;
-  current_version: string;
-  constraint_to_parent: string;
-  dependencies: DependencyTreeNode[];
-}
-
-export interface MaintenanceWindow {
-  message: string;
-  scheduled_end_at?: string;
-}
-
-export type MaturityLevel = "alpha" | "beta" | "stable" | "mature" | "legacy";
-
-export interface ContractSearchParams {
-  query?: string;
-  network?: "mainnet" | "testnet" | "futurenet";
-  networks?: Array<"mainnet" | "testnet" | "futurenet">;
-  verified_only?: boolean;
-  favorites_only?: boolean;
-  favorites_list?: string[];
-  category?: string;
-  categories?: string[];
-  language?: string;
-  languages?: string[];
-  author?: string;
-  tags?: string[];
-  maturity?: "alpha" | "beta" | "stable" | "mature" | "legacy";
-  page?: number;
-  page_size?: number;
-  sort_by?:
-    | "name"
-    | "created_at"
-    | "updated_at"
-    | "popularity"
-    | "deployments"
-    | "interactions"
-    | "relevance"
-    | "downloads"
-    | "rating";
-  sort_order?: "asc" | "desc";
-  date_from?: string;
-  date_to?: string;
-}
-
-export interface SearchSuggestion {
-  text: string;
-  kind: string;
-  score: number;
-}
-
-export interface SearchSuggestionsResponse {
-  items: SearchSuggestion[];
-}
-
-export type SearchIntentType =
-  | "generic"
-  | "category"
-  | "network"
-  | "verification"
-  | "tag"
-  | "author";
-
-export interface SearchIntent {
-  type: SearchIntentType;
-  confidence: number;
-  extracted: {
-    categories: string[];
-    tags: string[];
-    networks: Network[];
-    verified_only: boolean;
-    author?: string;
-  };
-}
-
-export interface SemanticSearchMetadata {
-  raw_query: string;
-  interpreted_query: string;
-  intent: SearchIntent;
-  fallback_used: boolean;
-  query_suggestions: string[];
-}
-
-export interface SemanticContractSearchResponse extends PaginatedResponse<Contract> {
-  semantic: SemanticSearchMetadata;
-}
-
-export interface PublishRequest {
-  contract_id: string;
-  name: string;
-  description?: string;
-  network: "mainnet" | "testnet" | "futurenet";
-  category?: string;
-  tags: string[];
-  source_url?: string;
-  publisher_address: string;
-}
-
-export type CustomMetricType = "counter" | "gauge" | "histogram";
-
-export interface MetricCatalogEntry {
-  metric_name: string;
-  metric_type: CustomMetricType;
-  last_seen: string;
-  sample_count: number;
-}
-
-export interface MetricSeriesPoint {
-  bucket_start: string;
-  bucket_end: string;
-  sample_count: number;
-  sum_value?: number;
-  avg_value?: number;
-  min_value?: number;
-  max_value?: number;
-  p50_value?: number;
-  p95_value?: number;
-  p99_value?: number;
-}
-
-export interface MetricSample {
-  timestamp: string;
-  value: number;
-  unit?: string;
-  metadata?: Record<string, unknown> | null;
-}
-
-export interface MetricSeriesResponse {
-  contract_id: string;
-  metric_name: string;
-  metric_type: CustomMetricType | null;
-  resolution: "hour" | "day" | "raw";
-  points?: MetricSeriesPoint[];
-  samples?: MetricSample[];
-}
-
-export type DeprecationStatus = "active" | "deprecated" | "retired";
-
-export type ReleaseNotesStatus = "draft" | "published";
-
-export interface FunctionChange {
-  name: string;
-  change_type: "added" | "removed" | "modified";
-  old_signature?: string;
-  new_signature?: string;
-  is_breaking: boolean;
-}
-
-export interface DiffSummary {
-  files_changed: number;
-  lines_added: number;
-  lines_removed: number;
-  function_changes: FunctionChange[];
-  has_breaking_changes: boolean;
-  features_count: number;
-  fixes_count: number;
-  breaking_count: number;
-}
-
-export interface ReleaseNotesResponse {
-  id: string;
-  contract_id: string;
-  version: string;
-  previous_version?: string;
-  diff_summary: DiffSummary;
-  changelog_entry?: string;
-  notes_text: string;
-  status: ReleaseNotesStatus;
-  generated_by: string;
-  created_at: string;
-  updated_at: string;
-  published_at?: string;
-}
-
-export interface GenerateReleaseNotesRequest {
-  version: string;
-  previous_version?: string;
-  source_url?: string;
-  changelog_content?: string;
-  contract_address?: string;
-}
-
-export interface UpdateReleaseNotesRequest {
-  notes_text: string;
-}
-
-export interface PublishReleaseNotesRequest {
-  update_version_record?: boolean;
-}
-
-export interface DeprecationInfo {
-  contract_id: string;
-  status: DeprecationStatus;
-  deprecated_at?: string | null;
-  retirement_at?: string | null;
-  replacement_contract_id?: string | null;
-  migration_guide_url?: string | null;
-  notes?: string | null;
-  days_remaining?: number | null;
-  dependents_notified: number;
-}
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
@@ -718,8 +267,13 @@ async function handleApiCall<T>(
   apiCall: () => Promise<Response>,
   endpoint: string,
 ): Promise<T> {
+  // Wrap the API call with a circuit breaker + retries
   try {
-    const response = await apiCall();
+    const rawResponse = await resilientCall(endpoint, async () => {
+      return apiCall();
+    }, { endpoint });
+
+    const response = rawResponse as Response;
 
     if (!response.ok) {
       const errorData = await extractErrorData(response);
@@ -740,6 +294,13 @@ async function handleApiCall<T>(
     // Re-throw if already an ApiError
     if (error instanceof ApiError) {
       throw error;
+    }
+
+    // Circuit open
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    if (error && error.name === 'CircuitOpenError') {
+      throw new NetworkError('Service temporarily unavailable (circuit open)', endpoint);
     }
 
     // Handle network errors
@@ -827,10 +388,28 @@ export const api = {
       };
     }
 
-    return handleApiCall<NetworkListResponse>(
-      () => fetch(`${API_URL}/networks`),
-      "/networks",
-    );
+    try {
+      const resp = await handleApiCall<NetworkListResponse>(
+        () => fetch(`${API_URL}/networks`),
+        "/networks",
+      );
+      try {
+        // cache for fallback
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('soroban_cached_networks', JSON.stringify(resp));
+        }
+      } catch {}
+      return resp;
+    } catch (err) {
+      // On network/circuit failures, fall back to cached networks if available
+      try {
+        if (typeof window !== 'undefined') {
+          const cached = localStorage.getItem('soroban_cached_networks');
+          if (cached) return JSON.parse(cached) as NetworkListResponse;
+        }
+      } catch {}
+      throw err;
+    }
   },
 
   // Contract endpoints
@@ -970,55 +549,45 @@ export const api = {
 
     const queryParams = new URLSearchParams();
     if (params?.query) queryParams.append("query", params.query);
-    if (params?.contract_id)
-      queryParams.append("contract_id", params.contract_id);
+    if (params?.contract_id) queryParams.append("contract_id", params.contract_id);
     if (params?.network) queryParams.append("network", params.network);
-    params?.networks?.forEach((network) =>
-      queryParams.append("networks", network),
-    );
+    params?.networks?.forEach((network) => queryParams.append("networks", network));
     if (params?.verified_only !== undefined)
       queryParams.append("verified_only", String(params.verified_only));
     if (params?.category) queryParams.append("category", params.category);
-    params?.categories?.forEach((category) =>
-      queryParams.append("categories", category),
-    );
-    if (params?.language) queryParams.append("language", params.language);
-    params?.languages?.forEach((language) =>
-      queryParams.append("language", language),
-    );
-    if (params?.author) queryParams.append("author", params.author);
-    params?.tags?.forEach((tag) => queryParams.append("tag", tag));
-    // Backend accepts sort_by as specified (e.g. created_at, updated_at, popularity, deployments).
-    // For legacy UI labels we keep a small compatibility mapping.
-    if (params?.sort_by) {
-      const backendSortBy =
-        params.sort_by === "downloads"
-          ? "interactions"
-          : params.sort_by === "rating"
-            ? "popularity"
-            : params.sort_by;
-      queryParams.append("sort_by", backendSortBy);
-    }
-    if (params?.sort_order) queryParams.append("sort_order", params.sort_order);
-    if (params?.page) queryParams.append("page", String(params.page));
-    if (params?.page_size)
-      queryParams.append("page_size", String(params.page_size));
+    params?.categories?.forEach((category) => queryParams.append("categories", category));
 
-    const data = await handleApiCall<PaginatedResponse<Contract>>(
-      () => fetch(`${API_URL}/api/contracts?${queryParams}`),
-      "/api/contracts",
-    );
-    // Normalize legacy field names from older backend responses
-    const raw = data as unknown as Record<string, unknown>;
-    const normalized = { ...data } as PaginatedResponse<Contract> &
-      Record<string, unknown>;
-    if (Array.isArray(raw.contracts) && !Array.isArray(raw.items)) {
-      normalized.items = raw.contracts as Contract[];
+    try {
+      const resp = await handleApiCall<PaginatedResponse<Contract>>(
+        () => fetch(`${API_URL}/api/contracts?${queryParams}`),
+        "/api/contracts",
+      );
+
+      // Normalize legacy field names from older backend responses
+      const raw = resp as unknown as Record<string, unknown>;
+      const normalized = { ...resp } as PaginatedResponse<Contract> & Record<string, unknown>;
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('soroban_cached_contracts', JSON.stringify(normalized));
+        }
+      } catch {}
+      if (Array.isArray(raw.contracts) && !Array.isArray(raw.items)) {
+        normalized.items = raw.contracts as Contract[];
+      }
+      if (typeof raw.pages === "number" && raw.total_pages === undefined) {
+        normalized.total_pages = raw.pages as number;
+      }
+      return normalized;
+    } catch (err) {
+      // On failure, attempt to return cached contracts list if available
+      try {
+        if (typeof window !== 'undefined') {
+          const cached = localStorage.getItem('soroban_cached_contracts');
+          if (cached) return JSON.parse(cached) as PaginatedResponse<Contract>;
+        }
+      } catch {}
+      throw err;
     }
-    if (typeof raw.pages === "number" && raw.total_pages === undefined) {
-      normalized.total_pages = raw.pages as number;
-    }
-    return normalized;
   },
 
   async semanticSearchContracts(

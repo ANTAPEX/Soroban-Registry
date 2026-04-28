@@ -1,0 +1,299 @@
+// PostgreSQL Full-Text Search Service
+// Uses the tsvector/tsquery infrastructure from database migrations
+
+use anyhow::Result;
+use sqlx::{PgPool, postgres::PgArguments};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use shared::models::{Contract, Network};
+use uuid::Uuid;
+
+use crate::error::ApiError;
+use crate::state::AppState;
+use axum::{extract::State, Json};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchQuery {
+    pub query: String,
+    pub categories: Option<Vec<String>>,
+    pub networks: Option<Vec<Network>>,
+    pub verified_only: Option<bool>,
+    pub tags: Option<Vec<String>>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResult {
+    pub contracts: Vec<ContractSearchResult>,
+    pub total: i64,
+    pub took_ms: u64,
+    pub facets: Option<SearchFacets>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractSearchResult {
+    pub id: uuid::Uuid,
+    pub contract_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub category: Option<String>,
+    pub network: Network,
+    pub is_verified: bool,
+    pub relevance_score: f64,
+    pub matched_terms: Option<Vec<String>>,
+    pub highlighted: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchFacets {
+    pub categories: Vec<FacetCount>,
+    pub networks: Vec<FacetCount>,
+    pub tags: Vec<FacetCount>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FacetCount {
+    pub value: String,
+    pub count: i64,
+}
+
+pub struct PostgresSearchService {
+    db: PgPool,
+}
+
+impl PostgresSearchService {
+    pub fn new(db: PgPool) -> Self {
+        Self { db }
+    }
+
+    /// Search contracts using PostgreSQL full-text search
+    /// Uses the contracts_build_tsquery function for query sanitization
+    pub async fn search(&self, query: SearchQuery) -> Result<SearchResult> {
+        let start_time = std::time::Instant::now();
+        
+        // Build the SQL query with tsquery
+        let mut sql = String::from(r#"
+            SELECT 
+                c.id,
+                c.contract_id,
+                c.name,
+                c.description,
+                c.category,
+                c.network,
+                c.is_verified,
+                c.created_at,
+                c.updated_at,
+                c.slug,
+                c.verification_status,
+                c.current_version,
+                ts_rank(
+                    setweight(c.name_search, 'A') || setweight(c.description_search, 'B'),
+                    contracts_build_tsquery($1)
+                ) as relevance_score
+            FROM contracts c
+            WHERE contracts_build_tsquery($1) IS NOT NULL
+        "#);
+
+        // Add filters
+        let mut param_index = 2;
+        let mut args: Vec<Box<dyn sqlx::postgres::PgArgumentValue + Send>> = Vec::new();
+        args.push(Box::new(query.query.clone()));
+
+        if let Some(ref cats) = query.categories {
+            if !cats.is_empty() {
+                let placeholders: Vec<String> = (param_index..param_index + cats.len() as i64)
+                    .map(|i| format!("${}", i))
+                    .collect();
+                sql.push_str(&format!(" AND c.category = ANY(ARRAY[{}])", placeholders.join(", ")));
+                for cat in cats {
+                    args.push(Box::new(cat.clone()));
+                    param_index += 1;
+                }
+            }
+        }
+
+        if let Some(ref nets) = query.networks {
+            if !nets.is_empty() {
+                let placeholders: Vec<String> = (param_index..param_index + nets.len() as i64)
+                    .map(|i| format!("${}", i))
+                    .collect();
+                sql.push_str(&format!(" AND c.network = ANY(ARRAY[{}, {}]::network_type[])", 
+                    placeholders.join(", ")));
+                for net in nets {
+                    args.push(Box::new(net.to_string()));
+                    param_index += 1;
+                }
+            }
+        }
+
+        if query.verified_only.unwrap_or(false) {
+            sql.push_str(" AND c.is_verified = true");
+        }
+
+        if let Some(ref tags) = query.tags {
+            if !tags.is_empty() {
+                sql.push_str(" AND EXISTS (SELECT 1 FROM contract_tags ct JOIN tags t ON ct.tag_id = t.id WHERE ct.contract_id = c.id AND t.name = ANY($");
+                sql.push_str(&param_index.to_string());
+                sql.push_str("))");
+                let tag_array = tags.clone();
+                args.push(Box::new(tag_array));
+                param_index += 1;
+            }
+        }
+
+        // Order by relevance and limit
+        let limit = query.limit.unwrap_or(20).clamp(1, 100);
+        let offset = query.offset.unwrap_or(0).max(0);
+        
+        sql.push_str(" ORDER BY relevance_score DESC");
+        sql.push_str(&format!(" LIMIT ${} OFFSET ${}", param_index, param_index + 1));
+        args.push(Box::new(limit));
+        args.push(Box::new(offset));
+
+        // Count total for pagination
+        let count_sql = format!(
+            "SELECT COUNT(*) FROM contracts c WHERE {}",
+            sql.split("ORDER BY").next().unwrap_or("").trim()
+        );
+
+        // Execute search query
+        let mut query_builder = sqlx::query_as::<_, ContractSearchRow>(&sql);
+        for arg in &args {
+            query_builder = query_builder.bind(arg.as_ref());
+        }
+
+        let rows = query_builder
+            .fetch_all(&self.db)
+            .await?;
+
+        let total = sqlx::query_scalar::<_, i64>(&count_sql)
+            .bind_all(args.iter().take(args.len() - 2)) // exclude limit/offset for count
+            .fetch_one(&self.db)
+            .await?;
+
+        let took = start_time.elapsed().as_millis() as u64;
+
+        let contracts = rows.into_iter()
+            .map(|row| ContractSearchResult {
+                id: row.id,
+                contract_id: row.contract_id,
+                name: row.name,
+                description: row.description,
+                category: row.category,
+                network: row.network,
+                is_verified: row.is_verified,
+                relevance_score: row.relevance_score,
+                matched_terms: None,
+                highlighted: None,
+            })
+            .collect();
+
+        Ok(SearchResult {
+            contracts,
+            total,
+            took_ms: took,
+            facets: None, // Could add facets via separate query
+        })
+    }
+
+    /// Get search suggestions (autocomplete)
+    pub async fn suggest(&self, query: &str, limit: i32) -> Result<Vec<String>> {
+        let suggestions = sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT name
+            FROM contracts
+            WHERE to_tsvector('english', name) @@ to_tsquery('english', $1 || ':*')
+            ORDER BY ts_rank(to_tsvector('english', name), to_tsquery('english', $1 || ':*')) DESC
+            LIMIT $2
+            "#
+        )
+        .bind(query)
+        .bind(limit)
+        .fetch_all(&self.db)
+        .await?;
+
+        Ok(suggestions)
+    }
+
+    /// Get trending search terms (could be implemented via analytics)
+    pub async fn get_trending(&self, timeframe_hours: i32) -> Result<Vec<String>> {
+        // Use existing search analytics or compute from recent interactions
+        // For now, return top contracts by interactions
+        let results = sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT c.name
+            FROM contracts c
+            JOIN contract_interactions ci ON c.id = ci.contract_id
+            WHERE ci.created_at > NOW() - ($1 || ' hours')::INTERVAL
+            GROUP BY c.id, c.name
+            ORDER BY COUNT(*) DESC
+            LIMIT 10
+            "#
+        )
+        .bind(timeframe_hours)
+        .fetch_all(&self.db)
+        .await?;
+
+        Ok(results)
+    }
+}
+
+#[derive(sqlx::FromRow, Debug)]
+struct ContractSearchRow {
+    id: uuid::Uuid,
+    contract_id: String,
+    name: String,
+    description: Option<String>,
+    category: Option<String>,
+    network: Network,
+    is_verified: bool,
+    relevance_score: f64,
+}
+
+// Handler for full-text search endpoint
+pub async fn fulltext_search_handler(
+    State(state): State<AppState>,
+    Query(params): Query<SearchQueryParams>,
+) -> Result<Json<SearchResult>, ApiError> {
+    let query = params.q.as_deref().unwrap_or("");
+    if query.is_empty() {
+        return Err(ApiError::bad_request("EMPTY_QUERY", "Search query cannot be empty"));
+    }
+
+    let search_req = SearchQuery {
+        query: query.to_string(),
+        categories: params.category.as_ref().map(|c| vec![c.clone()]).flatten(),
+        networks: params.network.as_ref().map(|n| {
+            n.split(',')
+                .filter_map(|s| match s {
+                    "mainnet" => Some(Network::Mainnet),
+                    "testnet" => Some(Network::Testnet),
+                    "futurenet" => Some(Network::Futurenet),
+                    _ => None,
+                })
+                .collect::<Vec<Network>>()
+        }).flatten(),
+        verified_only: params.verified_only,
+        tags: params.tags.as_ref().map(|t| t.split(',').map(|s| s.to_string()).collect()),
+        limit: params.limit,
+        offset: params.offset,
+    };
+
+    let result = state.pg_search.search(search_req)
+        .await
+        .map_err(|e| ApiError::internal_error("SEARCH_ERROR", e.to_string()))?;
+
+    Ok(Json(result))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchQueryParams {
+    pub q: Option<String>,
+    pub category: Option<String>,
+    pub network: Option<String>,
+    pub verified_only: Option<bool>,
+    pub tags: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}

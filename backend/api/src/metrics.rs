@@ -182,8 +182,10 @@ pub static VERIFICATION_CACHE_MISSES: Lazy<IntCounter> = counter!(
     "verification_cache_misses_total",
     "Verification cache misses"
 );
-pub static CONTRACTS_CACHE_HITS: Lazy<IntCounter> = counter!("contracts_cache_hits_total", "Contracts cache hits");
-pub static CONTRACTS_CACHE_MISSES: Lazy<IntCounter> = counter!("contracts_cache_misses_total", "Contracts cache misses");
+pub static CONTRACTS_CACHE_HITS: Lazy<IntCounter> =
+    counter!("contracts_cache_hits_total", "Contracts cache hits");
+pub static CONTRACTS_CACHE_MISSES: Lazy<IntCounter> =
+    counter!("contracts_cache_misses_total", "Contracts cache misses");
 
 pub static REDIS_CACHE_HITS: Lazy<IntCounter> =
     counter!("redis_cache_hits_total", "Redis cache hits");
@@ -263,6 +265,13 @@ pub static PROCESS_START_TIME: Lazy<IntGauge> =
     gauge!("process_start_time_seconds", "Process start time");
 pub static BUILD_INFO: Lazy<IntGaugeVec> =
     gauge_vec!("build_info", "Build information", &["version", "commit"]);
+
+// ── Client-side breaker metrics ─────────────────────────────────────────────
+pub static CLIENT_BREAKER_OPEN: Lazy<IntGaugeVec> = gauge_vec!(
+    "client_breaker_open",
+    "Client-side circuit breaker open state (1=open, 0=closed)",
+    &["endpoint"]
+);
 
 // ── SLO ─────────────────────────────────────────────────────────────────────
 pub static SLO_ERROR_BUDGET: Lazy<GaugeVec> = gauge_f64_vec!(
@@ -355,6 +364,7 @@ pub fn register_all(r: &Registry) -> prometheus::Result<()> {
     r.register(Box::new(MULTISIG_REJECTIONS.clone()))?;
     r.register(Box::new(PROCESS_START_TIME.clone()))?;
     r.register(Box::new(BUILD_INFO.clone()))?;
+    r.register(Box::new(CLIENT_BREAKER_OPEN.clone()))?;
     r.register(Box::new(SLO_ERROR_BUDGET.clone()))?;
     r.register(Box::new(SLO_BURN_RATE.clone()))?;
     r.register(Box::new(SLO_AVAILABILITY.clone()))?;

@@ -4,22 +4,21 @@ use crate::contract_events::ContractEventHub;
 use crate::health_monitor::HealthMonitorStatus;
 use crate::rate_limit::RateLimitState;
 use crate::resource_tracking::ResourceManager;
+use crate::search_client::SearchClient;
+use crate::search_postgres::PostgresSearchService;
+use crate::ai::service::AIService;
+use crate::state_monitor::StateMonitorService;
 use shared::source_storage::SourceStorage;
 
 use prometheus::Registry;
 use sqlx::PgPool;
-use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-use crate::SearchClient;
 
-use tokio::sync::broadcast;
-use shared::models::Network;
-use shared::source_storage::SourceStorage;
-use crate::error::ApiError;
-use crate::contract_events::ContractEventHub;
 use serde_json::Value;
+use shared::models::Network;
+use tokio::sync::broadcast;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -89,7 +88,10 @@ pub struct AppState {
     pub resource_mgr: Arc<RwLock<ResourceManager>>,
     pub source_storage: Arc<SourceStorage>,
     pub event_broadcaster: broadcast::Sender<RealtimeEvent>,
-    /// Rate limiter reference — used by the /api/quota endpoint (issue #727).
+    pub search: Arc<SearchClient>,
+    pub pg_search: Arc<PostgresSearchService>,
+    pub ai_service: Option<Arc<AIService>>,
+    pub state_monitor: Option<Arc<StateMonitorService>>,
     pub rate_limit_state: Arc<RateLimitState>,
 }
 
@@ -100,6 +102,8 @@ impl AppState {
         job_engine: Arc<soroban_batch::engine::JobEngine>,
         is_shutting_down: Arc<AtomicBool>,
         rate_limit_state: Arc<RateLimitState>,
+        ai_service: Option<Arc<AIService>>,
+        event_broadcaster: broadcast::Sender<RealtimeEvent>,
     ) -> Result<Self, shared::error::RegistryError> {
         let config = CacheConfig::from_env();
         let auth_manager = match AuthManager::from_env() {
@@ -108,7 +112,6 @@ impl AppState {
                 #[cfg(test)]
                 {
                     let _ = err;
-                    // Keep tests deterministic when JWT_SECRET is not set in local environments.
                     AuthManager::new("test-jwt-secret-at-least-32-chars".to_string())
                 }
                 #[cfg(not(test))]
@@ -121,9 +124,23 @@ impl AppState {
         let resource_mgr = Arc::new(RwLock::new(ResourceManager::new()));
         let contract_events = Arc::new(ContractEventHub::from_env());
         let source_storage = Arc::new(SourceStorage::new().await?);
-        let (event_broadcaster, _) = broadcast::channel(100);
-        let elasticsearch_url = std::env::var("ELASTICSEARCH_URL").unwrap_or_else(|_| "http://localhost:9200".to_string());
+
+        let elasticsearch_url = std::env::var("ELASTICSEARCH_URL")
+            .unwrap_or_else(|_| "http://localhost:9200".to_string());
         let search = Arc::new(SearchClient::new(&elasticsearch_url).expect("Search client init"));
+        let pg_search = Arc::new(PostgresSearchService::new(db.clone()));
+
+        // Initialize state monitor (optional)
+        let state_monitor = match StateMonitorService::new(db.clone(), event_broadcaster.clone()) {
+            Ok(service) => {
+                info!("State monitor service initialized");
+                Some(Arc::new(service))
+            }
+            Err(e) => {
+                warn!("State monitor service not initialized: {}", e);
+                None
+            }
+        };
 
         Ok(Self {
             db,
@@ -138,6 +155,10 @@ impl AppState {
             resource_mgr,
             source_storage,
             event_broadcaster,
+            search,
+            pg_search,
+            ai_service,
+            state_monitor,
             rate_limit_state,
         })
     }

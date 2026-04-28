@@ -8,12 +8,12 @@ import {
   Filter,
   Save
 } from 'lucide-react';
-import { 
+import type { 
   QueryNode, 
   QueryCondition, 
   QueryOperator, 
   FieldOperator 
-} from '@/lib/api';
+} from '@/types';
 
 interface QueryBuilderProps {
   initialQuery?: QueryNode;

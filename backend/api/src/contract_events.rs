@@ -258,12 +258,16 @@ impl SubscriptionFilter {
             }
         }
 
-        if !self.contract_ids.is_empty() && !self.contract_ids.contains(&event_contract_id.to_ascii_lowercase()) {
+        if !self.contract_ids.is_empty()
+            && !self
+                .contract_ids
+                .contains(&event_contract_id.to_ascii_lowercase())
+        {
             return false;
         }
 
         // Add category/network filtering if we add those fields to RealtimeEvent
-        
+
         if is_private && !self.include_private {
             return false;
         }
@@ -556,7 +560,11 @@ mod tests {
             network: Network::Testnet,
             is_verified: false,
             category: Some("DeFi".to_string()),
-            tags: vec![shared::Tag { id: Uuid::nil(), name: "amm".to_string(), color: "#888888".to_string() }],
+            tags: vec![shared::Tag {
+                id: Uuid::nil(),
+                name: "amm".to_string(),
+                color: "#888888".to_string(),
+            }],
             created_at: Utc::now(),
             updated_at: Utc::now(),
             health_score: 0,

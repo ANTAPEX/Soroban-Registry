@@ -1,24 +1,23 @@
+use crate::{
+    auth::AuthenticatedUser,
+    disaster_recovery_models::SendNotificationRequest,
+    error::{ApiError, ApiResult},
+    notification_handlers,
+    state::AppState,
+};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     Json,
 };
-use uuid::Uuid;
-use crate::{
-    error::{ApiError, ApiResult},
-    state::AppState,
-    notification_handlers,
-    disaster_recovery_models::SendNotificationRequest,
-    auth::AuthenticatedUser,
-};
 use shared::models::{
-    CollaborativeReview, CollaborativeReviewer, CollaborativeComment,
-    CreateCollaborativeReviewRequest, AddCollaborativeCommentRequest,
-    UpdateReviewerStatusRequest, CollaborativeReviewDetails,
-    CollaborativeReviewStatus,
+    AddCollaborativeCommentRequest, CollaborativeComment, CollaborativeReview,
+    CollaborativeReviewDetails, CollaborativeReviewStatus, CollaborativeReviewer,
+    CreateCollaborativeReviewRequest, UpdateReviewerStatusRequest,
 };
 use sqlx::Row;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// POST /api/reviews/collaborative
 /// Starts a new collaborative review session for a contract version.
@@ -54,7 +53,7 @@ pub async fn create_collaborative_review(
         .execute(&mut *tx)
         .await
         .map_err(ApiError::from)?;
-        
+
         // Trigger notification (Email log simulation)
         let _ = notification_handlers::send_notification(
             State(state.clone()),
@@ -70,7 +69,8 @@ pub async fn create_collaborative_review(
                 },
                 priority: Some("normal".to_string()),
             }),
-        ).await;
+        )
+        .await;
     }
 
     tx.commit().await.map_err(ApiError::from)?;
@@ -167,7 +167,7 @@ pub async fn get_collaborative_review(
     Path(review_id): Path<Uuid>,
 ) -> ApiResult<Json<CollaborativeReviewDetails>> {
     let review = sqlx::query_as::<_, CollaborativeReview>(
-        "SELECT * FROM collaborative_reviews WHERE id = $1"
+        "SELECT * FROM collaborative_reviews WHERE id = $1",
     )
     .bind(review_id)
     .fetch_one(&state.db)
@@ -175,7 +175,7 @@ pub async fn get_collaborative_review(
     .map_err(ApiError::from)?;
 
     let reviewers = sqlx::query_as::<_, CollaborativeReviewer>(
-        "SELECT * FROM collaborative_reviewers WHERE review_id = $1"
+        "SELECT * FROM collaborative_reviewers WHERE review_id = $1",
     )
     .bind(review_id)
     .fetch_all(&state.db)
@@ -183,7 +183,7 @@ pub async fn get_collaborative_review(
     .map_err(ApiError::from)?;
 
     let comments = sqlx::query_as::<_, CollaborativeComment>(
-        "SELECT * FROM collaborative_review_comments WHERE review_id = $1 ORDER BY created_at ASC"
+        "SELECT * FROM collaborative_review_comments WHERE review_id = $1 ORDER BY created_at ASC",
     )
     .bind(review_id)
     .fetch_all(&state.db)

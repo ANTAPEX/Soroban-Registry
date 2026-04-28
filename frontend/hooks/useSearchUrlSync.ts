@@ -2,7 +2,7 @@
 
 import { useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { QueryNode } from '@/lib/api';
+import type { QueryNode } from '@/types';
 
 export function useSearchUrlSync(
   query: QueryNode | null,

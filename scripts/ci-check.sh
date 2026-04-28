@@ -7,51 +7,18 @@ set -e
 echo "🔍 Running CI/CD Pre-flight Checks..."
 echo ""
 
-# Check 1: Migration Files
+# Check 1: Migration files
 echo "✓ Check 1: Migration Files"
-if [ -d "database/migrations" ]; then
-    COUNT=$(ls -1 database/migrations/*.sql 2>/dev/null | wc -l)
-    echo "  Found $COUNT migration files"
-    if [ -f "database/migrations/004_maintenance_mode.sql" ]; then
-        echo "  ✅ Maintenance mode migration present"
-    else
-        echo "  ❌ Maintenance mode migration missing"
-        exit 1
-    fi
+if [ -x ".github/scripts/validate-migrations.sh" ]; then
+    bash .github/scripts/validate-migrations.sh
 else
-    echo "  ❌ Migration directory not found"
+    echo "  ❌ Migration validator missing"
     exit 1
 fi
 echo ""
 
-# Check 2: Maintenance Feature Files
-echo "✓ Check 2: Maintenance Feature Files"
-FILES=(
-    "backend/api/src/maintenance_handlers.rs"
-    "backend/api/src/maintenance_middleware.rs"
-    "backend/api/src/maintenance_routes.rs"
-    "backend/api/src/maintenance_scheduler.rs"
-    "frontend/components/MaintenanceBanner.tsx"
-    "docs/MAINTENANCE_MODE.md"
-)
-
-ALL_PRESENT=true
-for file in "${FILES[@]}"; do
-    if [ -f "$file" ]; then
-        echo "  ✅ $file"
-    else
-        echo "  ❌ $file (missing)"
-        ALL_PRESENT=false
-    fi
-done
-
-if [ "$ALL_PRESENT" = false ]; then
-    exit 1
-fi
-echo ""
-
-# Check 3: Frontend Structure
-echo "✓ Check 3: Frontend Structure"
+# Check 2: Frontend Structure
+echo "✓ Check 2: Frontend Structure"
 if [ -f "frontend/package.json" ]; then
     echo "  ✅ package.json present"
 else
@@ -60,13 +27,13 @@ else
 fi
 echo ""
 
-# Check 4: Documentation
-echo "✓ Check 4: Documentation"
+# Check 3: Documentation
+echo "✓ Check 3: Documentation"
 DOCS=(
     "docs/MAINTENANCE_MODE.md"
-    "MAINTENANCE_MODE_IMPLEMENTATION.md"
-    "COMPILATION_STATUS.md"
-    "CI_CD_STATUS.md"
+    "docs/MIGRATIONS.md"
+    "docs/OBSERVABILITY.md"
+    "docs/DEPLOYMENT.md"
 )
 
 for doc in "${DOCS[@]}"; do
@@ -78,8 +45,8 @@ for doc in "${DOCS[@]}"; do
 done
 echo ""
 
-# Check 5: CI Configuration
-echo "✓ Check 5: CI Configuration"
+# Check 4: CI Configuration
+echo "✓ Check 4: CI Configuration"
 if [ -f ".github/workflows/ci.yml" ]; then
     echo "  ✅ GitHub Actions workflow configured"
 else

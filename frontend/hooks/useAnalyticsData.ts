@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchAnalytics } from '@/lib/api/analytics';
-import { AnalyticsResponse, TimePeriod } from '@/types/analytics';
+import type { AnalyticsResponse, TimePeriod } from '@/types';
 
 interface UseAnalyticsDataReturn {
   data: AnalyticsResponse | null;

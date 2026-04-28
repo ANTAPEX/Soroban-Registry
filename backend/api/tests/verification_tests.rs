@@ -44,18 +44,19 @@ mod concurrent_verification_tests {
         let status_b = Arc::clone(&shared_status);
         let version_b = Arc::clone(&version_counter);
 
-        let handle_a = std::thread::spawn(move || {
-            simulate_status_write(&status_a, &version_a, "verified")
-        });
-        let handle_b = std::thread::spawn(move || {
-            simulate_status_write(&status_b, &version_b, "failed")
-        });
+        let handle_a =
+            std::thread::spawn(move || simulate_status_write(&status_a, &version_a, "verified"));
+        let handle_b =
+            std::thread::spawn(move || simulate_status_write(&status_b, &version_b, "failed"));
 
         let (result_a, ver_a) = handle_a.join().unwrap();
         let (result_b, ver_b) = handle_b.join().unwrap();
 
         // Both threads must have seen different versions (no lost update).
-        assert_ne!(ver_a, ver_b, "version counter must differ between the two writers");
+        assert_ne!(
+            ver_a, ver_b,
+            "version counter must differ between the two writers"
+        );
 
         // The final shared state must be one of the two valid terminal outcomes.
         let final_status = shared_status.lock().unwrap().clone();
@@ -140,7 +141,10 @@ mod concurrent_verification_tests {
             verification_version: u32,
         }
 
-        let mut vrow = VerificationRow { status: "pending".to_string(), version: 0 };
+        let mut vrow = VerificationRow {
+            status: "pending".to_string(),
+            version: 0,
+        };
         let mut crow = ContractRow {
             verification_status: "pending".to_string(),
             is_verified: false,
@@ -157,13 +161,28 @@ mod concurrent_verification_tests {
         };
 
         apply(&mut vrow, &mut crow, "verified");
-        assert_eq!(vrow.status, crow.verification_status, "tables must stay in sync");
-        assert_eq!(vrow.version, crow.verification_version, "version counters must match");
-        assert!(crow.is_verified, "is_verified must be true when status is verified");
+        assert_eq!(
+            vrow.status, crow.verification_status,
+            "tables must stay in sync"
+        );
+        assert_eq!(
+            vrow.version, crow.verification_version,
+            "version counters must match"
+        );
+        assert!(
+            crow.is_verified,
+            "is_verified must be true when status is verified"
+        );
 
         apply(&mut vrow, &mut crow, "failed");
-        assert_eq!(vrow.status, crow.verification_status, "tables must stay in sync after second update");
-        assert!(!crow.is_verified, "is_verified must be false when status is failed");
+        assert_eq!(
+            vrow.status, crow.verification_status,
+            "tables must stay in sync after second update"
+        );
+        assert!(
+            !crow.is_verified,
+            "is_verified must be false when status is failed"
+        );
     }
 
     // ── test 5: status always reflects the latest update ─────────────────────
@@ -181,7 +200,10 @@ mod concurrent_verification_tests {
         }
 
         let final_status = shared_status.lock().unwrap().clone();
-        assert_eq!(final_status, last_written, "status must always reflect the latest update");
+        assert_eq!(
+            final_status, last_written,
+            "status must always reflect the latest update"
+        );
     }
 
     // ── test 6: valid status values ───────────────────────────────────────────
@@ -194,13 +216,15 @@ mod concurrent_verification_tests {
         for s in &valid {
             assert!(
                 ["pending", "verified", "failed"].contains(s),
-                "{} should be a valid status", s
+                "{} should be a valid status",
+                s
             );
         }
         for s in &invalid {
             assert!(
                 !["pending", "verified", "failed"].contains(s),
-                "{} should not be a valid status", s
+                "{} should not be a valid status",
+                s
             );
         }
     }
@@ -214,7 +238,11 @@ mod concurrent_verification_tests {
         let current_db_version: u32 = 1;
         let writer_read_version: u32 = 0; // stale snapshot
 
-        let rows_affected = if current_db_version == writer_read_version { 1u32 } else { 0u32 };
+        let rows_affected = if current_db_version == writer_read_version {
+            1u32
+        } else {
+            0u32
+        };
 
         assert_eq!(
             rows_affected, 0,

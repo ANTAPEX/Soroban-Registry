@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api, ContractSearchParams, Contract, SemanticContractSearchResponse } from '@/lib/api';
+import type { ContractSearchParams, Contract, SemanticContractSearchResponse } from '@/types';
+import { api } from '@/lib/api';
 import ContractCard from '@/components/ContractCard';
 import ContractCardSkeleton from '@/components/ContractCardSkeleton';
 import { ActiveFilters } from '@/components/contracts/ActiveFilters';

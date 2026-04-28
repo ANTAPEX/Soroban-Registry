@@ -4,11 +4,11 @@
 //! that need validation when received from clients.
 
 use shared::models::{
-    ChangePublisherRequest, ContractExportRequest, CreateContractVersionRequest,
-    CreateInteractionBatchRequest, CreateInteractionRequest, CreateMigrationRequest,
-    DependencyDeclaration, PublishRequest, Publisher, UpdateContractMetadataRequest,
-    UpdateContractStatusRequest, UpdateMigrationStatusRequest, VerifyRequest,
-    SaveFavoriteSearchRequest, AdvancedSearchRequest,
+    AdvancedSearchRequest, ChangePublisherRequest, ContractExportRequest,
+    CreateContractVersionRequest, CreateInteractionBatchRequest, CreateInteractionRequest,
+    CreateMigrationRequest, DependencyDeclaration, PublishRequest, Publisher,
+    SaveFavoriteSearchRequest, UpdateContractMetadataRequest, UpdateContractStatusRequest,
+    UpdateMigrationStatusRequest, VerifyRequest,
 };
 
 use super::extractors::{FieldError, Validatable, ValidationBuilder};
@@ -588,7 +588,6 @@ impl Validatable for DependencyDeclaration {
         builder.build()
     }
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SaveFavoriteSearchRequest validation

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api, AnalyticsEvent, AnalyticsEventType, ActivityFeedResponse } from '@/lib/api';
+import type { AnalyticsEvent, AnalyticsEventType, ActivityFeedResponse } from '@/types';
+import { api } from '@/lib/api';
 import { useRealtime } from '@/hooks/useRealtime';
 import { formatPublicKey, formatShortenedText } from '@/lib/utils/formatting';
 import {

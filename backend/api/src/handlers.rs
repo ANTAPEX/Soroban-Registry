@@ -149,6 +149,7 @@ use crate::{
     contract_events::{ContractEventEnvelope, ContractEventVisibility},
     dependency,
     error::{ApiError, ApiResult},
+    models::ContractSourceResponse,
     onchain_verification::OnChainVerifier,
     state::AppState,
     type_safety::parser::parse_json_spec,
@@ -2488,6 +2489,20 @@ pub async fn get_contract(
     }
     track_contract_access(&state, contract.id).await;
 
+    // Increment usage counter asynchronously (fire-and-forget)
+    // Failures are logged but never block the main request
+    let contract_id = contract.id;
+    let db_clone = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(err) = crate::usage_counter::increment_usage_counter_with_timeout(contract_id, &db_clone).await {
+            tracing::warn!(
+                contract_id = %contract_id,
+                error = ?err,
+                "Failed to increment usage counter for contract"
+            );
+        }
+    });
+
     Ok(Json(ContractGetResponse {
         contract,
         current_network,
@@ -3685,6 +3700,19 @@ pub async fn create_contract_version(
     }
     state.cache.invalidate_contracts().await;
 
+    // Increment usage counter asynchronously (fire-and-forget)
+    // Failures are logged but never block the main request
+    let db_clone = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(err) = crate::usage_counter::increment_usage_counter_with_timeout(contract_uuid, &db_clone).await {
+            tracing::warn!(
+                contract_id = %contract_uuid,
+                error = ?err,
+                "Failed to increment usage counter for contract"
+            );
+        }
+    });
+
     Ok(Json(version_row))
 }
 
@@ -3967,6 +3995,20 @@ pub async fn publish_contract(
     }
 
     state.cache.invalidate_contracts().await;
+
+    // Increment usage counter asynchronously (fire-and-forget)
+    // Failures are logged but never block the main request
+    let contract_id = contract.id;
+    let db_clone = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(err) = crate::usage_counter::increment_usage_counter_with_timeout(contract_id, &db_clone).await {
+            tracing::warn!(
+                contract_id = %contract_id,
+                error = ?err,
+                "Failed to increment usage counter for contract"
+            );
+        }
+    });
     Ok(Json(contract))
 }
 
@@ -5066,6 +5108,20 @@ pub async fn update_contract_metadata(
     }
 
     state.cache.invalidate_contracts().await;
+
+    // Increment usage counter asynchronously (fire-and-forget)
+    // Failures are logged but never block the main request
+    let contract_id = after.id;
+    let db_clone = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(err) = crate::usage_counter::increment_usage_counter_with_timeout(contract_id, &db_clone).await {
+            tracing::warn!(
+                contract_id = %contract_id,
+                error = ?err,
+                "Failed to increment usage counter for contract"
+            );
+        }
+    });
     Ok(Json(after))
 }
 
@@ -5349,6 +5405,19 @@ pub async fn update_contract_status(
     }
 
     state.cache.invalidate_contracts().await;
+
+    // Increment usage counter asynchronously (fire-and-forget)
+    // Failures are logged but never block the main request
+    let db_clone = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(err) = crate::usage_counter::increment_usage_counter_with_timeout(contract_uuid, &db_clone).await {
+            tracing::warn!(
+                contract_id = %contract_uuid,
+                error = ?err,
+                "Failed to increment usage counter for contract"
+            );
+        }
+    });
     Ok(Json(json!({
         "contract_id": contract_uuid,
         "verification_id": verification_id,
@@ -6158,6 +6227,59 @@ pub async fn route_not_found() -> impl IntoResponse {
     ApiError::not_found("ROUTE_NOT_FOUND", "Route not found")
 }
 
+/// Get usage statistics for a specific contract by UUID or slug.
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/stats",
+    params(
+        ("id" = String, Path, description = "Contract UUID or slug")
+    ),
+    responses(
+        (status = 200, description = "Contract usage statistics", body = ContractStatsResponse),
+        (status = 404, description = "Contract not found"),
+        (status = 400, description = "Invalid contract ID format")
+    ),
+    tag = "Analytics"
+)]
+pub async fn get_contract_stats(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<ContractStatsResponse>> {
+    let contract: Contract = if let Ok(contract_uuid) = Uuid::parse_str(&id) {
+        sqlx::query_as("SELECT * FROM contracts WHERE id = $1")
+            .bind(contract_uuid)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|err| match err {
+                sqlx::Error::RowNotFound => ApiError::not_found(
+                    "ContractNotFound",
+                    format!("No contract found with ID: {}", id),
+                ),
+                _ => db_internal_error("get contract stats by id", err),
+            })?
+    } else {
+        // Fetch by slug (default to mainnet)
+        sqlx::query_as("SELECT * FROM contracts WHERE slug = $1 AND network = $2")
+            .bind(&id)
+            .bind(Network::Mainnet)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|err| match err {
+                sqlx::Error::RowNotFound => ApiError::not_found(
+                    "ContractNotFound",
+                    format!("No contract found with slug: {}", id),
+                ),
+                _ => db_internal_error("get contract stats by slug", err),
+            })?
+    };
+
+    Ok(Json(ContractStatsResponse {
+        contract_id: contract.id,
+        usage_count: contract.usage_count,
+        last_accessed_at: contract.last_accessed_at,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6806,4 +6928,5 @@ pub async fn delete_favorite_search(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
 }

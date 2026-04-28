@@ -100,7 +100,11 @@ impl DatabaseWriter {
         .bind(false)
         .bind(now)
         .bind(now)
-        .bind(chrono::DateTime::parse_from_rfc3339(&deployment.deployed_at).map(|dt| dt.with_timezone(&chrono::Utc)).unwrap_or(now))
+        .bind(
+            chrono::DateTime::parse_from_rfc3339(&deployment.deployed_at)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .unwrap_or(now),
+        )
         .execute(&self.pool)
         .await
         .map_err(|e| {

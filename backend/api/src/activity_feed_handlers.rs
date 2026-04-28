@@ -47,9 +47,8 @@ pub async fn get_activity_feed(
         .map_err(|e| ApiError::internal(format!("fetch activity feed failed: {}", e)))?;
 
     // 2. Count total matches for this filter
-    let mut count_builder: QueryBuilder<sqlx::Postgres> = QueryBuilder::new(
-        "SELECT COUNT(*) FROM analytics_events WHERE 1=1",
-    );
+    let mut count_builder: QueryBuilder<sqlx::Postgres> =
+        QueryBuilder::new("SELECT COUNT(*) FROM analytics_events WHERE 1=1");
 
     if let Some(event_type) = params.event_type {
         count_builder.push(" AND event_type = ");

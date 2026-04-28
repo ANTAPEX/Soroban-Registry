@@ -1,15 +1,15 @@
+use anyhow::Result;
+use chrono::{DateTime, Utc};
 use elasticsearch::{
     http::transport::Transport,
     indices::{IndicesCreateParts, IndicesDeleteParts, IndicesExistsParts},
     params::Refresh,
-    SearchParts, Elasticsearch, IndexParts,
+    Elasticsearch, IndexParts, SearchParts,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use shared::models::{Contract, Network};
 use uuid::Uuid;
-use anyhow::Result;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ContractDocument {
@@ -39,7 +39,8 @@ impl SearchClient {
 
     pub async fn ensure_index(&self) -> Result<()> {
         let index_name = "contracts";
-        let exists = self.client
+        let exists = self
+            .client
             .indices()
             .exists(IndicesExistsParts::Index(&[index_name]))
             .send()
@@ -76,8 +77,8 @@ impl SearchClient {
                     "properties": {
                         "id": { "type": "keyword" },
                         "contract_id": { "type": "keyword" },
-                        "name": { 
-                            "type": "text", 
+                        "name": {
+                            "type": "text",
                             "boost": 3.0,
                             "fields": {
                                 "autocomplete": {
@@ -123,25 +124,31 @@ impl SearchClient {
         };
 
         self.client
-            .index(IndexParts::IndexId("contracts", contract.id.to_string().as_str()))
+            .index(IndexParts::IndexId(
+                "contracts",
+                contract.id.to_string().as_str(),
+            ))
             .body(doc)
             .refresh(Refresh::True)
             .send()
             .await?;
-        
+
         Ok(())
     }
 
-    pub async fn search_contracts(&self, query: &str, categories: Option<Vec<String>>, networks: Option<Vec<Network>>) -> Result<Value> {
-        let mut must_queries = vec![
-            json!({
-                "multi_match": {
-                    "query": query,
-                    "fields": ["name^3", "description^1.5", "tags^2"],
-                    "fuzziness": "AUTO"
-                }
-            })
-        ];
+    pub async fn search_contracts(
+        &self,
+        query: &str,
+        categories: Option<Vec<String>>,
+        networks: Option<Vec<Network>>,
+    ) -> Result<Value> {
+        let mut must_queries = vec![json!({
+            "multi_match": {
+                "query": query,
+                "fields": ["name^3", "description^1.5", "tags^2"],
+                "fuzziness": "AUTO"
+            }
+        })];
 
         let mut filter_queries = Vec::new();
 
@@ -175,7 +182,8 @@ impl SearchClient {
             }
         });
 
-        let response = self.client
+        let response = self
+            .client
             .search(SearchParts::Index(&["contracts"]))
             .body(body)
             .send()
@@ -199,7 +207,8 @@ impl SearchClient {
             "size": 5
         });
 
-        let response = self.client
+        let response = self
+            .client
             .search(SearchParts::Index(&["contracts"]))
             .body(body)
             .send()
@@ -207,7 +216,7 @@ impl SearchClient {
 
         let response_body = response.json::<Value>().await?;
         let mut suggestions = Vec::new();
-        
+
         if let Some(hits) = response_body["hits"]["hits"].as_array() {
             for hit in hits {
                 if let Some(name) = hit["_source"]["name"].as_str() {

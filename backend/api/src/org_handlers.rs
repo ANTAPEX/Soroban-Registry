@@ -1,4 +1,3 @@
-use chrono::Utc;
 use crate::{
     auth::AuthClaims,
     error::{ApiError, ApiResult},
@@ -9,12 +8,13 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use chrono::Utc;
 use shared::{
     CreateOrganizationRequest, InviteMemberRequest, Organization, OrganizationMember,
     OrganizationRole, UpdateOrganizationRequest,
 };
 use sqlx::PgPool;
-use sqlx::{Row, postgres::PgRow};
+use sqlx::{postgres::PgRow, Row};
 use uuid::Uuid;
 
 fn db_internal_error(operation: &str, err: sqlx::Error) -> ApiError {
@@ -270,7 +270,7 @@ pub async fn accept_invitation(
         SELECT id, organization_id, role
         FROM organization_invitations
         WHERE token = $1 AND accepted_at IS NULL AND expires_at > NOW()
-        "#
+        "#,
     )
     .bind(&token)
     .fetch_optional(&mut *tx)

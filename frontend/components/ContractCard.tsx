@@ -1,5 +1,6 @@
-import type { Contract } from '@/lib/api';
+import type { Contract } from '@/types';
 import {
+  Box,
   Check,
   CheckCircle2,
   Clock,
@@ -13,6 +14,7 @@ import {
   Tag,
   Star,
 } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React from 'react';
@@ -20,10 +22,14 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import { useCopy } from '@/hooks/useCopy';
 import { formatContractId } from '@/lib/utils/formatting';
 import { useTranslation } from '@/lib/i18n/client';
+import { generateSolidPlaceholder } from '@/lib/images';
 import VerificationBadge from '@/components/verification/VerificationBadge';
 import HealthWidget from './HealthWidget';
 import ContractQuickViewModal from './contracts/ContractQuickViewModal';
 import FavoriteButton from './FavoriteButton';
+
+const LOGO_SIZE_PX = 40;
+const LOGO_PLACEHOLDER = generateSolidPlaceholder('#e5e7eb');
 
 interface ContractCardProps {
   contract: Contract;
@@ -43,6 +49,7 @@ export default function ContractCard({ contract, sortBy }: ContractCardProps) {
   const router = useRouter();
   const { copy, copied, isCopying } = useCopy();
   const [quickViewOpen, setQuickViewOpen] = React.useState(false);
+  const [logoError, setLogoError] = React.useState(false);
 
   const networkColors = {
     mainnet: 'bg-green-500/10 text-green-500 border-green-500/20',
@@ -127,6 +134,29 @@ export default function ContractCard({ contract, sortBy }: ContractCardProps) {
             )}
 
             <div className="mb-3 flex items-start justify-between gap-3">
+              <div
+                className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-accent"
+                style={{ width: LOGO_SIZE_PX, height: LOGO_SIZE_PX }}
+                aria-hidden="true"
+              >
+                {contract.logo_url && !logoError ? (
+                  <Image
+                    src={contract.logo_url}
+                    alt=""
+                    width={LOGO_SIZE_PX}
+                    height={LOGO_SIZE_PX}
+                    sizes={`${LOGO_SIZE_PX}px`}
+                    placeholder="blur"
+                    blurDataURL={LOGO_PLACEHOLDER}
+                    loading="lazy"
+                    onError={() => setLogoError(true)}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <Box className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
+
               <div className="min-w-0 flex-1">
                 <div className="mb-1 flex items-center gap-2">
                   <h3 className="truncate text-lg font-semibold text-foreground transition-colors group-hover:text-primary">

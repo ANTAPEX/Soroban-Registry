@@ -66,3 +66,5 @@ docker-compose.override.yml
 coverage/
 .nyc_output/
 local-coverage/
+*storybook.log
+storybook-static
