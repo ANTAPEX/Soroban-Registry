@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { Contract } from '@/lib/api';
+import type { Contract } from '@/types';
 import { useRouter } from 'next/navigation';
 import {
   ColumnDef,

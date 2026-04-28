@@ -1,16 +1,20 @@
-use crate::{auth::AuthClaims, error::ApiResult, handlers::db_internal_error, state::AppState};
+use crate::{
+    auth::AuthClaims,
+    error::{ApiError, ApiResult},
+    state::AppState,
+};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     Json,
 };
 use chrono::Utc;
-use chrono::Utc;
 use shared::{
     CreateOrganizationRequest, InviteMemberRequest, Organization, OrganizationMember,
     OrganizationRole, UpdateOrganizationRequest,
 };
 use sqlx::PgPool;
+use sqlx::{postgres::PgRow, Row};
 use uuid::Uuid;
 
 fn db_internal_error(operation: &str, err: sqlx::Error) -> ApiError {
@@ -69,7 +73,7 @@ pub async fn create_organization(
 
     tx.commit()
         .await
-        .map_err(|e| db_internal_error("commit_transaction", e))?;
+        .map_err::<crate::error::ApiError, _>(|e| db_internal_error("commit_transaction", e))?;
 
     Ok((StatusCode::CREATED, Json(org)))
 }
@@ -133,8 +137,8 @@ pub async fn update_organization(
         RETURNING *
         "#,
     )
-    .bind(payload.name)
-    .bind(payload.description)
+    .bind(&payload.name)
+    .bind(&payload.description)
     .bind(payload.is_private)
     .bind(id)
     .fetch_one(&state.db)
@@ -237,7 +241,7 @@ pub async fn invite_member(
     .bind(expires_at)
     .execute(&state.db)
     .await
-    .map_err(|e| db_internal_error("create_invitation", e))?;
+    .map_err::<crate::error::ApiError, _>(|e| db_internal_error("create_invitation", e))?;
 
     Ok(StatusCode::ACCEPTED)
 }
@@ -289,10 +293,10 @@ pub async fn accept_invitation(
         ON CONFLICT (organization_id, publisher_id) DO UPDATE SET role = EXCLUDED.role
         "#,
     )
-    .bind(invite.organization_id)
+    .bind(invite.get::<Uuid, _>("organization_id"))
     .bind(publisher_id)
-    .bind(invite.role)
-    .execute(&mut *tx)
+    .bind(invite.get::<OrganizationRole, _>("role"))
+    .execute::<&mut sqlx::Transaction<'_, sqlx::Postgres>>(&mut *tx)
     .await
     .map_err(|e| db_internal_error("add_member", e))?;
 
@@ -305,7 +309,7 @@ pub async fn accept_invitation(
 
     tx.commit()
         .await
-        .map_err(|e| db_internal_error("commit_transaction", e))?;
+        .map_err::<crate::error::ApiError, _>(|e| db_internal_error("commit_transaction", e))?;
 
     Ok(StatusCode::OK)
 }

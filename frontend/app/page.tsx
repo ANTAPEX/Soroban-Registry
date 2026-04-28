@@ -15,6 +15,7 @@ import Navbar from '@/components/Navbar';
 import ActivityFeed from '@/components/ActivityFeed';
 import { useCopy } from '@/hooks/useCopy';
 import CodeCopyButton from '@/components/CodeCopyButton';
+import { useTranslation } from '@/lib/i18n/client';
 
 export default function Home() {
   const { t } = useTranslation('common');

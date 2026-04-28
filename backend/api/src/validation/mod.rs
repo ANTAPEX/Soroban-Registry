@@ -84,7 +84,14 @@ mod integration_guide;
 
 // Re-export commonly used items
 #[allow(unused_imports)]
-pub use extractors::{FieldError, Validatable, ValidatedJson, ValidationBuilder, ValidationError};
+pub use extractors::{
+    FieldError, Validatable, ValidatedJson, ValidatedPath, ValidatedQuery, ValidationBuilder,
+    ValidationError,
+};
+#[allow(unused_imports)]
+pub use enhanced_extractors::{
+    validate_request, validate_response_schema_dev, ValidationRule,
+};
 #[allow(unused_imports)]
 pub use sanitizers::{
     normalize_contract_id, normalize_stellar_address, sanitize_description,

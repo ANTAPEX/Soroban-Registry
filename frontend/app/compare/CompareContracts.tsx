@@ -9,6 +9,122 @@ import ComparisonTable from '@/components/comparison/ComparisonTable';
 import MobileComparisonCard from '@/components/comparison/MobileComparisonCard';
 import { useCopy } from '@/hooks/useCopy';
 import { exportComparisonToCsv, exportComparisonToPdf } from '@/utils/export';
+import { uniqueMethodsPerContract, type ComparableContract } from '@/utils/comparison';
+
+// ── Statistics section ────────────────────────────────────────────────────────
+
+function StatisticsSection({ contracts }: { contracts: ComparableContract[] }) {
+  const maxDeployments = Math.max(...contracts.map((c) => c.deploymentCount));
+  const maxPopularity = Math.max(...contracts.map((c) => c.popularityScore));
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Statistics</div>
+      <div className="mt-3 overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="border-b border-border">
+              <th className="py-2 pr-4 text-left text-xs font-semibold text-muted-foreground">Metric</th>
+              {contracts.map((c) => (
+                <th key={c.id} className="py-2 px-3 text-left text-xs font-semibold text-foreground min-w-[160px]">
+                  {c.name}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 text-xs text-muted-foreground font-medium">Deployments</td>
+              {contracts.map((c) => (
+                <td key={c.id} className="py-2 px-3">
+                  <span className={`rounded-lg px-2 py-1 text-xs font-semibold ${
+                    c.deploymentCount === maxDeployments && maxDeployments > 0
+                      ? 'bg-green-500/10 text-green-700 dark:text-green-300'
+                      : 'text-foreground'
+                  }`}>
+                    {c.deploymentCount}
+                  </span>
+                </td>
+              ))}
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 text-xs text-muted-foreground font-medium">Popularity score</td>
+              {contracts.map((c) => (
+                <td key={c.id} className="py-2 px-3">
+                  <span className={`rounded-lg px-2 py-1 text-xs font-semibold ${
+                    c.popularityScore === maxPopularity && maxPopularity > 0
+                      ? 'bg-green-500/10 text-green-700 dark:text-green-300'
+                      : 'text-foreground'
+                  }`}>
+                    {c.popularityScore}
+                  </span>
+                </td>
+              ))}
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 text-xs text-muted-foreground font-medium">Versions</td>
+              {contracts.map((c) => (
+                <td key={c.id} className="py-2 px-3 text-xs text-foreground">{c.versionCount}</td>
+              ))}
+            </tr>
+            <tr>
+              <td className="py-2 pr-4 text-xs text-muted-foreground font-medium">ABI methods</td>
+              {contracts.map((c) => (
+                <td key={c.id} className="py-2 px-3 text-xs text-foreground">{c.abiMethods.length}</td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Unique methods section ────────────────────────────────────────────────────
+
+function UniqueMethodsSection({ contracts }: { contracts: ComparableContract[] }) {
+  const uniqueMap = uniqueMethodsPerContract(contracts);
+  const hasAnyUnique = contracts.some((c) => uniqueMap[c.id]?.length > 0);
+
+  if (!hasAnyUnique) {
+    return (
+      <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Unique to each contract</div>
+        <p className="mt-3 text-xs text-muted-foreground">All selected contracts share the same ABI methods — no unique methods found.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Unique to each contract</div>
+      <p className="mt-1 text-xs text-muted-foreground">Methods present in one contract but absent from all others.</p>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {contracts.map((c) => {
+          const methods = uniqueMap[c.id] ?? [];
+          return (
+            <div key={c.id} className="rounded-xl border border-border bg-accent/30 p-3">
+              <div className="mb-2 truncate text-xs font-semibold text-foreground">{c.name}</div>
+              {methods.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">No unique methods</p>
+              ) : (
+                <ul className="space-y-1">
+                  {methods.map((m) => (
+                    <li key={m} className="rounded bg-primary/10 px-2 py-0.5 font-mono text-[11px] text-primary">
+                      {m}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Main page component ───────────────────────────────────────────────────────
 
 const DiffViewer = dynamic(() => import('@/components/comparison/DiffViewer'), {
   ssr: false,
@@ -200,6 +316,7 @@ export default function CompareContracts() {
 
             {selectedContracts.length > 0 && (
               <>
+                {/* Summary cards — version, ABI, tags */}
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                   <div className="rounded-2xl border border-border bg-card p-5">
                     <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Version comparison</div>
@@ -239,7 +356,17 @@ export default function CompareContracts() {
                     </div>
                   </div>
                 </div>
+
+                {/* Statistics card — deployments & popularity */}
+                <StatisticsSection contracts={selectedContracts} />
+
+                {/* Main comparison table (metadata + ABI + deployments) */}
                 <ComparisonTable contracts={selectedContracts} metrics={metrics} tones={metricTones} />
+
+                {/* Unique methods per contract */}
+                <UniqueMethodsSection contracts={selectedContracts} />
+
+                {/* Mobile stacked view */}
                 <div className="grid grid-cols-1 gap-4 lg:hidden">
                   {selectedContracts.map((c) => (
                     <MobileComparisonCard key={c.id} contract={c} metrics={metrics} tones={metricTones} />

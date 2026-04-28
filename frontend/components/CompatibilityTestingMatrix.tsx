@@ -2,13 +2,13 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-    api,
+import type {
     CompatibilityTestMatrixResponse,
     CompatibilityTestEntry,
     CompatibilityTestStatus,
     CompatibilityHistoryEntry,
-} from '@/lib/api';
+} from '@/types';
+import { api } from '@/lib/api';
 import {
     CheckCircle,
     XCircle,

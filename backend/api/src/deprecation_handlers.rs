@@ -165,14 +165,20 @@ async fn notify_dependents(
     contract_id: &str,
     retirement_at: DateTime<Utc>,
 ) -> ApiResult<()> {
-    let has_dep_contract_id =
-        column_exists(state, "contract_dependencies", "dependency_contract_id").await?;
-    let has_dep_name = column_exists(state, "contract_dependencies", "dependency_name").await?;
-    let has_package_name = column_exists(state, "contract_dependencies", "package_name").await?;
+    let has_dep_contract_id = column_exists(
+        state,
+        "contract_static_dependencies",
+        "dependency_contract_id",
+    )
+    .await?;
+    let has_dep_name =
+        column_exists(state, "contract_static_dependencies", "dependency_name").await?;
+    let has_package_name =
+        column_exists(state, "contract_static_dependencies", "package_name").await?;
 
     let dependents: Vec<Uuid> = if has_dep_contract_id {
         sqlx::query_scalar(
-            "SELECT DISTINCT contract_id FROM contract_dependencies WHERE dependency_contract_id = $1",
+            "SELECT DISTINCT contract_id FROM contract_static_dependencies WHERE dependency_contract_id = $1",
         )
         .bind(deprecated_id)
         .fetch_all(&state.db)
@@ -186,7 +192,7 @@ async fn notify_dependents(
         };
         let sql = format!(
             "SELECT DISTINCT cd.contract_id \
-             FROM contract_dependencies cd \
+             FROM contract_static_dependencies cd \
              JOIN contracts c ON c.name = cd.{name_column} \
              WHERE c.contract_id = $1",
         );

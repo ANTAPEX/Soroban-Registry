@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { ExternalLink, Globe, Layers3, Loader2, Tag, X } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { Contract } from '@/lib/api';
+import type { Contract } from '@/types';
 import {
   extractAbiMethodNames,
   getQuickViewVerificationStatus,

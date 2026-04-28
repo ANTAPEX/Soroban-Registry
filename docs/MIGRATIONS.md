@@ -118,6 +118,16 @@ YYYYMMDDHHMMSS_short_description.sql
 
 > **Rule:** Always check `database/migrations/` for the highest existing sequential number **before** creating a new one. If in doubt, use the timestamp format on your branch and let it be renumbered during merge-to-main review.
 
+### Consolidation Rules
+
+When cleaning up old migrations, keep the history deterministic:
+
+1. Keep one canonical file for each schema concern and remove exact duplicate migrations.
+2. Renumber distinct migrations with duplicate prefixes instead of relying on filename tiebreakers.
+3. Prefer additive follow-up migrations for already-shipped databases; only consolidate applied files before a release cut or with an explicit migration plan.
+4. Run `.github/scripts/validate-migrations.sh` before opening a PR.
+5. Add or verify indexes for every new high-cardinality filter, join key, and time-series lookup.
+
 ---
 
 ## 4. Creating a New Migration

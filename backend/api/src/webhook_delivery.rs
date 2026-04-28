@@ -141,16 +141,37 @@ async fn process_delivery(db: &PgPool, client: &reqwest::Client, delivery: Pendi
         Ok(status_code) => {
             let msg = format!("Endpoint returned HTTP {}", status_code);
             warn!(delivery_id = %delivery_id, status_code = status_code, "Webhook delivery failed");
-            retry_or_fail(db, delivery_id, delivery.webhook_id, &msg, Some(status_code), elapsed_ms, attempt).await;
+            retry_or_fail(
+                db,
+                delivery_id,
+                delivery.webhook_id,
+                &msg,
+                Some(status_code),
+                elapsed_ms,
+                attempt,
+            )
+            .await;
         }
         Err(e) => {
             warn!(delivery_id = %delivery_id, error = %e, "Webhook delivery error");
-            retry_or_fail(db, delivery_id, delivery.webhook_id, &e.to_string(), None, elapsed_ms, attempt).await;
+            retry_or_fail(
+                db,
+                delivery_id,
+                delivery.webhook_id,
+                &e.to_string(),
+                None,
+                elapsed_ms,
+                attempt,
+            )
+            .await;
         }
     }
 }
 
-async fn fetch_endpoint(db: &PgPool, webhook_id: Uuid) -> Result<Option<WebhookEndpoint>, sqlx::Error> {
+async fn fetch_endpoint(
+    db: &PgPool,
+    webhook_id: Uuid,
+) -> Result<Option<WebhookEndpoint>, sqlx::Error> {
     sqlx::query_as::<_, WebhookEndpoint>(
         "SELECT url, secret, verify_ssl, custom_headers, is_active FROM webhook_configurations WHERE id = $1",
     )
@@ -171,8 +192,8 @@ fn build_payload(delivery: &PendingDelivery) -> String {
 
 fn sign_payload(payload: &str, secret: Option<&str>) -> String {
     if let Some(secret) = secret.filter(|s| !s.is_empty()) {
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC accepts any key length");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
         mac.update(payload.as_bytes());
         let result = mac.finalize().into_bytes();
         format!("sha256={}", hex::encode(result))

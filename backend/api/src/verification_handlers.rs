@@ -137,11 +137,30 @@ pub async fn submit_contract_verification(
 ) -> ApiResult<Json<VerificationSubmitResponse>> {
     let (contract_uuid, contract_address) = resolve_contract_uuid(&state, &id).await?;
 
+    // Wrap the INSERT + conditional UPDATE in a transaction so that:
+    //   • The verifications row and the contracts.verification_status change
+    //     are committed atomically.
+    //   • SELECT … FOR UPDATE prevents two concurrent submitters from both
+    //     seeing 'unverified' and both transitioning to 'pending'.
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| db_err("begin submit-verification transaction", e))?;
+
+    // Lock the contracts row for the duration of this transaction.
+    sqlx::query("SELECT id FROM contracts WHERE id = $1 FOR UPDATE")
+        .bind(contract_uuid)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| db_err("lock contract row for submit verification", e))?;
+
     let verification_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO verifications
-            (contract_id, status, source_code, build_params, compiler_version, error_message)
-        VALUES ($1, 'pending', $2, $3, $4, NULL)
+            (contract_id, status, source_code, build_params, compiler_version,
+             error_message, version)
+        VALUES ($1, 'pending', $2, $3, $4, NULL, 0)
         RETURNING id
         "#,
     )
@@ -149,30 +168,34 @@ pub async fn submit_contract_verification(
     .bind(&req.source_code)
     .bind(&req.build_params)
     .bind(&req.compiler_version)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| db_err("insert verification record", e))?;
 
-    // Update contract verification_status to pending if it was unverified
+    // Transition contract status to 'pending' only if it is currently
+    // 'unverified'.  The FOR UPDATE lock above ensures no other transaction
+    // can race this conditional update.
     sqlx::query(
         r#"
         UPDATE contracts
-        SET    verification_status = 'pending',
-               updated_at = NOW()
+        SET    verification_status  = 'pending',
+               verification_version = verification_version + 1,
+               updated_at           = NOW()
         WHERE  id = $1
           AND  verification_status = 'unverified'
         "#,
     )
     .bind(contract_uuid)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| db_err("set contract verification_status to pending", e))?;
 
-    // Invalidate cached status so the next GET reflects the pending state
-    state
-        .cache
-        .invalidate("verification_status", &id)
-        .await;
+    tx.commit()
+        .await
+        .map_err(|e| db_err("commit submit-verification transaction", e))?;
+
+    // Invalidate cached status so the next GET reflects the pending state.
+    state.cache.invalidate("verification_status", &id).await;
 
     Ok(Json(VerificationSubmitResponse {
         verification_id,
@@ -215,12 +238,12 @@ pub async fn get_contract_verification_status(
 
     // Fetch current status + latest verification record in one query
     let row: Option<(
-        String,   // verification_status
-        bool,     // is_verified
-        Option<DateTime<Utc>>,  // verified_at
-        Option<Uuid>,           // verified_by
-        Option<String>,         // verification_notes
-        Option<String>,         // compiler_version (used as verification_method)
+        String,                // verification_status
+        bool,                  // is_verified
+        Option<DateTime<Utc>>, // verified_at
+        Option<Uuid>,          // verified_by
+        Option<String>,        // verification_notes
+        Option<String>,        // compiler_version (used as verification_method)
     )> = sqlx::query_as(
         r#"
         SELECT

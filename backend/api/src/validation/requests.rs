@@ -4,10 +4,11 @@
 //! that need validation when received from clients.
 
 use shared::models::{
-    ChangePublisherRequest, ContractExportRequest, CreateContractVersionRequest,
-    CreateInteractionBatchRequest, CreateInteractionRequest, CreateMigrationRequest,
-    DependencyDeclaration, PublishRequest, Publisher, UpdateContractMetadataRequest,
-    UpdateContractStatusRequest, UpdateMigrationStatusRequest, VerifyRequest,
+    AdvancedSearchRequest, ChangePublisherRequest, ContractExportRequest,
+    CreateContractVersionRequest, CreateInteractionBatchRequest, CreateInteractionRequest,
+    CreateMigrationRequest, DependencyDeclaration, PublishRequest, Publisher,
+    SaveFavoriteSearchRequest, UpdateContractMetadataRequest, UpdateContractStatusRequest,
+    UpdateMigrationStatusRequest, VerifyRequest,
 };
 
 use super::extractors::{FieldError, Validatable, ValidationBuilder};
@@ -584,6 +585,45 @@ impl Validatable for DependencyDeclaration {
             validate_length(&self.version_constraint, 1, MAX_VERSION_CONSTRAINT_LENGTH)
         });
 
+        builder.build()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SaveFavoriteSearchRequest validation
+// ─────────────────────────────────────────────────────────────────────────────
+
+impl Validatable for SaveFavoriteSearchRequest {
+    fn sanitize(&mut self) {
+        self.name = sanitize_name(&self.name);
+    }
+
+    fn validate(&self) -> Result<(), Vec<FieldError>> {
+        let mut builder = ValidationBuilder::new();
+        builder.check("name", || validate_length(&self.name, 1, 100));
+        builder.check("name", || validate_no_xss(&self.name));
+        // QueryNode validation could be added here if needed
+        builder.build()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AdvancedSearchRequest validation
+// ─────────────────────────────────────────────────────────────────────────────
+
+impl Validatable for AdvancedSearchRequest {
+    fn sanitize(&mut self) {
+        // No direct sanitization needed for the query tree currently
+    }
+
+    fn validate(&self) -> Result<(), Vec<FieldError>> {
+        let mut builder = ValidationBuilder::new();
+        // Pagination limits
+        if let Some(limit) = self.limit {
+            if limit <= 0 || limit > 100 {
+                builder.add_error("limit", "limit must be between 1 and 100");
+            }
+        }
         builder.build()
     }
 }

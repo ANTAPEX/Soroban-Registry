@@ -9,8 +9,9 @@ export default function ContractCardSkeleton() {
       aria-label="Loading contract"
     >
       <div className="relative h-full flex flex-col">
-        {/* Header: name + network badge */}
-        <div className="flex items-start justify-between mb-3">
+        {/* Header: logo + name + network badge */}
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <LoadingSkeleton width="2.5rem" height="2.5rem" className="rounded-lg shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <LoadingSkeleton width="60%" height="1.5rem" />

@@ -1,3 +1,4 @@
+use crate::net::RequestBuilderExt;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde_json::json;
@@ -104,11 +105,10 @@ pub async fn list_contracts(
 
     log::debug!("Fetching contracts from: {}", url);
 
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
     let response = client
         .get(&url)
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to fetch contracts from API")?;
 
     if !response.status().is_success() {
@@ -332,4 +332,70 @@ fn print_csv(contracts: &[ContractListItem]) {
             tags
         );
     }
+}
+
+pub async fn run_details(
+    api_url: &str,
+    address: &str,
+    network: &str,
+    json_output: bool,
+) -> Result<()> {
+    let url = format!("{}/api/contracts/{}?network={}", api_url, address, network);
+    log::debug!("Fetching contract details from: {}", url);
+
+    let client = crate::net::client();
+    let response = client
+        .get(&url)
+        .send_with_retry().await
+        .context("Failed to fetch contract details from API")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("API request failed with status {}: {}", status, body);
+    }
+
+    let contract: serde_json::Value = response
+        .json()
+        .await
+        .context("Failed to parse contract response")?;
+
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&contract)?);
+        return Ok(());
+    }
+
+    let name = contract.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+    let desc = contract.get("description").and_then(|v| v.as_str()).unwrap_or("No description provided");
+    let publisher = contract.get("publisher_id").and_then(|v| v.as_str()).unwrap_or("Unknown");
+    let category = contract.get("category").and_then(|v| v.as_str()).unwrap_or("—");
+    let verified = contract.get("is_verified").and_then(|v| v.as_bool()).unwrap_or(false);
+    
+    let deployments = contract.get("deployment_count").and_then(|v| v.as_u64()).unwrap_or(0);
+    let interactions = contract.get("interaction_count").and_then(|v| v.as_u64()).unwrap_or(0);
+    let tags = contract.get("tags").and_then(|v| v.as_array()).map(|arr| {
+        arr.iter().filter_map(|t| t.as_str()).collect::<Vec<_>>().join(", ")
+    }).unwrap_or_default();
+
+    println!("\n{}", "Contract Details".bold().underline());
+    println!("{:<15} {}", "Name:".bold(), name.cyan());
+    println!("{:<15} {}", "Address:".bold(), address.cyan());
+    println!("{:<15} {}", "Network:".bold(), network.cyan());
+    println!("{:<15} {}", "Publisher:".bold(), publisher);
+    println!("{:<15} {}", "Category:".bold(), category);
+    println!("{:<15} {}", "Tags:".bold(), tags);
+    
+    let verified_str = if verified { "Yes".green() } else { "No".red() };
+    println!("{:<15} {}", "Verified:".bold(), verified_str);
+    
+    println!("\n{}", "Description".bold().underline());
+    println!("{}", desc);
+    
+    println!("\n{}", "Statistics".bold().underline());
+    println!("{:<15} {}", "Deployments:".bold(), deployments.to_string().yellow());
+    println!("{:<15} {}", "Interactions:".bold(), interactions.to_string().yellow());
+    
+    println!();
+    
+    Ok(())
 }

@@ -93,7 +93,11 @@ fn test_invalid_email_short_domain() {
 #[test]
 fn test_token_none_returns_pending() {
     let status = check_token("user@example.com", None);
-    assert_eq!(status, VerificationBadgeStatus::Pending, "No token → pending");
+    assert_eq!(
+        status,
+        VerificationBadgeStatus::Pending,
+        "No token → pending"
+    );
 }
 
 #[test]

@@ -1,11 +1,15 @@
-import type { Contract } from '@/lib/api';
+import type { Contract } from '@/types';
 
 export type ComparisonMetricKey =
   | 'contract_id'
   | 'network'
   | 'category'
   | 'publisher'
-  | 'verification_status';
+  | 'verification_status'
+  | 'wasm_hash'
+  | 'deployment_count'
+  | 'popularity_score'
+  | 'health_score';
 
 export type CellTone = 'neutral' | 'best' | 'worst' | 'different';
 
@@ -27,6 +31,10 @@ export interface ComparableContract {
   isVerified: boolean;
   tags: string[];
   sourceCode: string;
+  wasmHash: string;
+  deploymentCount: number;
+  popularityScore: number;
+  healthScore: number;
   base?: Pick<Contract, 'contract_id' | 'network' | 'publisher_id' | 'wasm_hash' | 'updated_at'>;
 }
 
@@ -144,6 +152,10 @@ export function toComparableContract(
     isVerified,
     tags: contract.tags,
     sourceCode,
+    wasmHash: contract.wasm_hash,
+    deploymentCount: contract.deployment_count ?? 0,
+    popularityScore: contract.popularity_score ?? 0,
+    healthScore: 0,
     base: {
       contract_id: contract.contract_id,
       network: contract.network,
@@ -168,7 +180,14 @@ export function toneForMetricCell(
     return v ? 'best' : 'worst';
   }
 
-  if (metric === 'contract_id' || metric === 'network' || metric === 'category' || metric === 'publisher') {
+  if (metric === 'deployment_count' || metric === 'popularity_score' || metric === 'health_score') {
+    const nums = allValues.map(Number).filter(isFinite);
+    const max = Math.max(...nums);
+    if (max === 0) return 'neutral';
+    return Number(value) === max ? 'best' : 'different';
+  }
+
+  if (metric === 'wasm_hash') {
     return 'different';
   }
 
@@ -187,7 +206,31 @@ export function getMetricValue(contract: ComparableContract, metric: ComparisonM
       return contract.publisherId;
     case 'verification_status':
       return contract.isVerified;
+    case 'wasm_hash':
+      return contract.wasmHash;
+    case 'deployment_count':
+      return contract.deploymentCount;
+    case 'popularity_score':
+      return contract.popularityScore;
+    case 'health_score':
+      return contract.healthScore;
   }
+}
+
+/**
+ * For each contract in `contracts`, returns the ABI methods that appear in
+ * that contract but in none of the others — i.e. truly unique methods.
+ */
+export function uniqueMethodsPerContract(
+  contracts: ComparableContract[],
+): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  for (const contract of contracts) {
+    const others = contracts.filter((c) => c.id !== contract.id);
+    const otherMethods = new Set(others.flatMap((c) => c.abiMethods));
+    result[contract.id] = contract.abiMethods.filter((m) => !otherMethods.has(m));
+  }
+  return result;
 }
 
 export function diffMethodSets(base: string[], other: string[]) {
@@ -212,90 +255,74 @@ function normalizeNewlines(s: string) {
 function myersDiff(a: string[], b: string[]): DiffLine[] {
   const n = a.length;
   const m = b.length;
-  const max = n + m;
-  const v = new Map<number, number>();
-  v.set(1, 0);
-  const trace: Array<Map<number, number>> = [];
+  const v: Record<number, number> = { 1: 0 };
+  const trace: Record<number, number>[] = [];
 
-  for (let d = 0; d <= max; d += 1) {
-    const snapshot = new Map<number, number>();
+  for (let d = 0; d <= n + m; d++) {
+    const vCopy = { ...v };
     for (let k = -d; k <= d; k += 2) {
-      const down = k === -d;
-      const up = k === d;
-      const kPrev = down ? k + 1 : up ? k - 1 : (v.get(k - 1) ?? 0) < (v.get(k + 1) ?? 0) ? k + 1 : k - 1;
-      const xStart = v.get(kPrev) ?? 0;
-      const x = down || (!up && (v.get(k - 1) ?? 0) < (v.get(k + 1) ?? 0)) ? xStart : xStart + 1;
-      let y = x - k;
-      let xWalk = x;
-      while (xWalk < n && y < m && a[xWalk] === b[y]) {
-        xWalk += 1;
-        y += 1;
+      let x: number;
+      if (k === -d || (k !== d && (v[k - 1] ?? 0) < (v[k + 1] ?? 0))) {
+        x = v[k + 1] ?? 0;
+      } else {
+        x = (v[k - 1] ?? 0) + 1;
       }
-      snapshot.set(k, xWalk);
-      if (xWalk >= n && y >= m) {
-        trace.push(snapshot);
-        return backtrackDiff(a, b, trace);
+      let y = x - k;
+      while (x < n && y < m && a[x] === b[y]) {
+        x++;
+        y++;
+      }
+      v[k] = x;
+      if (x >= n && y >= m) {
+        return backtrackDiff(a, b, [...trace, v]);
       }
     }
-    trace.push(snapshot);
-    v.clear();
-    for (const [k, xVal] of snapshot.entries()) v.set(k, xVal);
+    trace.push({ ...v });
   }
-
-  return backtrackDiff(a, b, trace);
+  return [];
 }
 
-function backtrackDiff(a: string[], b: string[], trace: Array<Map<number, number>>): DiffLine[] {
+function backtrackDiff(a: string[], b: string[], trace: Record<number, number>[]): DiffLine[] {
   let x = a.length;
   let y = b.length;
-  const edits: DiffLine[] = [];
+  const result: DiffLine[] = [];
 
-  for (let d = trace.length - 1; d >= 0; d -= 1) {
+  for (let d = trace.length - 1; d > 0; d--) {
     const v = trace[d];
+    const prevV = trace[d - 1];
     const k = x - y;
 
-    const down = k === -d;
-    const up = k === d;
-
-    const kPrev = down ? k + 1 : up ? k - 1 : (v.get(k - 1) ?? 0) < (v.get(k + 1) ?? 0) ? k + 1 : k - 1;
-    const xPrev = v.get(kPrev) ?? 0;
-    const yPrev = xPrev - kPrev;
-
-    while (x > xPrev && y > yPrev) {
-      edits.push({ type: 'context', value: a[x - 1] ?? '' });
-      x -= 1;
-      y -= 1;
-    }
-
-    if (d === 0) break;
-
-    if (x === xPrev) {
-      edits.push({ type: 'add', value: b[y - 1] ?? '' });
-      y -= 1;
+    let prevK: number;
+    if (k === -d || (k !== d && (prevV[k - 1] ?? 0) < (prevV[k + 1] ?? 0))) {
+      prevK = k + 1;
     } else {
-      edits.push({ type: 'remove', value: a[x - 1] ?? '' });
-      x -= 1;
+      prevK = k - 1;
+    }
+
+    const prevX = prevV[prevK] ?? 0;
+    const prevY = prevX - prevK;
+
+    while (x > prevX && y > prevY) {
+      result.push({ type: 'context', value: a[x - 1] });
+      x--;
+      y--;
+    }
+
+    if (x > prevX) {
+      result.push({ type: 'remove', value: a[x - 1] });
+      x--;
+    } else if (y > prevY) {
+      result.push({ type: 'add', value: b[y - 1] });
+      y--;
     }
   }
 
-  edits.reverse();
-  return coalesceContext(edits);
-}
-
-function coalesceContext(lines: DiffLine[]) {
-  const out: DiffLine[] = [];
-  for (const line of lines) {
-    if (out.length === 0) {
-      out.push(line);
-      continue;
-    }
-    const prev = out[out.length - 1];
-    if (prev.type === 'context' && line.type === 'context') {
-      out.push(line);
-      continue;
-    }
-    out.push(line);
+  while (x > 0 && y > 0) {
+    result.push({ type: 'context', value: a[x - 1] });
+    x--;
+    y--;
   }
-  return out;
+
+  return result.reverse();
 }
 

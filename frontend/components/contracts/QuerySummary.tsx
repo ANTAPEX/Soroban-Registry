@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { QueryNode, FieldOperator } from '@/lib/api';
+import type { QueryNode, FieldOperator } from '@/types';
 import { Info } from 'lucide-react';
 
 interface QuerySummaryProps {

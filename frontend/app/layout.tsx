@@ -78,6 +78,24 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang={lng} dir={dir} suppressHydrationWarning>
       <head>
+        {/* Theme detection script to prevent flash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var theme = localStorage.getItem('soroban-registry-theme');
+                  var supportDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                  if (theme === 'dark' || (theme === 'system' && supportDarkMode) || (!theme && supportDarkMode)) {
+                    document.documentElement.classList.add('dark');
+                  } else {
+                    document.documentElement.classList.remove('dark');
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
         {/* Only load GA script if GA is selected */}
         {GA_PROVIDER === 'ga' && GA_ID && (
           <>

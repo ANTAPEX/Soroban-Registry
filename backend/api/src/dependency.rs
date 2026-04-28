@@ -128,7 +128,7 @@ pub async fn get_transitive_dependencies(pool: &PgPool, root_id: Uuid) -> Result
 
     while let Some(current_id) = queue.pop_front() {
         let deps: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT dependency_contract_id FROM contract_dependencies WHERE contract_id = $1 AND dependency_contract_id IS NOT NULL"
+            "SELECT dependency_contract_id FROM contract_static_dependencies WHERE contract_id = $1 AND dependency_contract_id IS NOT NULL"
         )
         .bind(current_id)
         .fetch_all(pool)
@@ -157,7 +157,7 @@ pub async fn get_transitive_dependents(pool: &PgPool, root_id: Uuid) -> Result<V
 
     while let Some(current_id) = queue.pop_front() {
         let dependents: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT contract_id FROM contract_dependencies WHERE dependency_contract_id = $1",
+            "SELECT contract_id FROM contract_static_dependencies WHERE dependency_contract_id = $1",
         )
         .bind(current_id)
         .fetch_all(pool)
@@ -206,7 +206,7 @@ pub async fn build_dependency_graph(
     } else {
         sqlx::query_as(
             "SELECT contract_id as source, dependency_contract_id as target
-             FROM contract_dependencies
+             FROM contract_static_dependencies
              WHERE dependency_contract_id IS NOT NULL
                AND contract_id = ANY($1)
                AND dependency_contract_id = ANY($1)",
@@ -339,7 +339,7 @@ pub async fn save_dependencies(
     decls: &[DependencyDeclaration],
 ) -> Result<()> {
     // Clear existing dependencies (optional, depends on if we want to merge or replace)
-    sqlx::query("DELETE FROM contract_dependencies WHERE contract_id = $1")
+    sqlx::query("DELETE FROM contract_static_dependencies WHERE contract_id = $1")
         .bind(contract_id)
         .execute(pool)
         .await?;
@@ -361,7 +361,7 @@ pub async fn save_dependencies(
         }
 
         sqlx::query(
-            "INSERT INTO contract_dependencies (contract_id, dependency_name, dependency_contract_id, version_constraint) 
+            "INSERT INTO contract_static_dependencies (contract_id, dependency_name, dependency_contract_id, version_constraint) 
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (contract_id, dependency_name) DO UPDATE SET 
                 dependency_contract_id = EXCLUDED.dependency_contract_id,

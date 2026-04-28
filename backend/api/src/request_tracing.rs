@@ -10,12 +10,15 @@
 //!   timestamp, request_id, method, path, status, duration_ms, user_ip
 
 use axum::{
+    body::to_bytes,
     body::Body,
     extract::ConnectInfo,
     http::{HeaderMap, HeaderName, HeaderValue, Request},
     middleware::Next,
     response::Response,
 };
+use once_cell::sync::Lazy;
+use once_cell::sync::OnceCell;
 use opentelemetry::global;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::TraceContextExt;
@@ -23,14 +26,31 @@ use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::Resource;
+use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::time::Instant;
 use tracing::Instrument;
+use tracing::Level;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
 /// Paths that should never be logged (health checks, readiness probes, etc.)
 const SKIP_LOG_PATHS: &[&str] = &["/health", "/healthz", "/ready", "/ping", "/metrics"];
+const DEFAULT_REQUEST_BODY_LIMIT: usize = 16 * 1024;
+const MAX_CAPTURE_BODY_BYTES: usize = 256 * 1024;
+const REDACTED: &str = "[REDACTED]";
+
+static ENDPOINT_LOG_LEVELS: Lazy<Vec<(String, Level)>> =
+    Lazy::new(|| parse_endpoint_log_levels(std::env::var("REQUEST_LOG_LEVELS").ok()));
+
+static REQUEST_BODY_LIMIT: Lazy<usize> = Lazy::new(|| {
+    std::env::var("REQUEST_LOG_BODY_LIMIT")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_REQUEST_BODY_LIMIT)
+});
+
+static LOG_GUARD: OnceCell<tracing_appender::non_blocking::WorkerGuard> = OnceCell::new();
 
 /// The response header name carrying the request ID back to the caller.
 pub static X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
@@ -44,13 +64,30 @@ tokio::task_local! {
 /// and add the `X-Request-ID` header to the response.
 pub async fn tracing_middleware(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    mut req: Request<Body>,
+    req: Request<Body>,
     next: Next,
 ) -> Response {
+    let (parts, body) = req.into_parts();
+    let mut req_body_bytes = Vec::new();
+    if let Ok(bytes) = to_bytes(body, MAX_CAPTURE_BODY_BYTES).await {
+        req_body_bytes = bytes.to_vec();
+    }
+
+    let mut req = Request::from_parts(parts, Body::from(req_body_bytes.clone()));
     let request_id = request_id_from_headers(req.headers()).unwrap_or_else(generate_request_id);
     let method = req.method().to_string();
     let path = req.uri().path().to_owned();
+    let query = req.uri().query().unwrap_or_default().to_string();
     let user_ip = addr.ip().to_string();
+    let request_headers = sanitize_headers(req.headers());
+    let request_body = sanitize_body(
+        &req_body_bytes,
+        req.headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok()),
+        *REQUEST_BODY_LIMIT,
+    );
+    let user_info = extract_user_identity(req.headers());
 
     // Inject the request ID into extensions so handlers / DB layers can read it
     req.extensions_mut().insert(RequestId(request_id.clone()));
@@ -69,6 +106,7 @@ pub async fn tracing_middleware(
         .scope(request_id.clone(), next.run(req).instrument(span.clone()))
         .await;
     let duration_ms = start.elapsed().as_millis() as u64;
+    let response_size = response_body_size(&response);
 
     attach_request_id_headers(response.headers_mut(), &request_id);
 
@@ -78,19 +116,216 @@ pub async fn tracing_middleware(
     }
 
     let status = response.status().as_u16();
+    let level = endpoint_log_level(&path);
 
-    // Emit a single structured JSON log line per request
-    tracing::info!(
-        request_id = %request_id,
-        method     = %method,
-        path       = %path,
-        status     = status,
-        duration_ms = duration_ms,
-        user_ip    = %user_ip,
-        "request"
+    log_request(
+        level,
+        json!({
+            "request_id": request_id,
+            "method": method,
+            "path": path,
+            "query": query,
+            "status": status,
+            "duration_ms": duration_ms,
+            "response_size": response_size,
+            "user_info": user_info,
+            "request_headers": request_headers,
+            "request_body": request_body,
+            "user_ip": user_ip,
+        }),
     );
 
     response
+}
+
+fn endpoint_log_level(path: &str) -> Level {
+    let mut selected = Level::INFO;
+    let mut selected_len = 0usize;
+
+    for (prefix, level) in ENDPOINT_LOG_LEVELS.iter() {
+        if prefix == "*" {
+            if selected_len == 0 {
+                selected = *level;
+            }
+            continue;
+        }
+
+        if path.starts_with(prefix) && prefix.len() >= selected_len {
+            selected = *level;
+            selected_len = prefix.len();
+        }
+    }
+
+    selected
+}
+
+fn parse_endpoint_log_levels(value: Option<String>) -> Vec<(String, Level)> {
+    let Some(raw) = value else {
+        return vec![("*".to_string(), Level::INFO)];
+    };
+
+    let mut pairs = Vec::new();
+    for segment in raw.split(',') {
+        let trimmed = segment.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let mut split = trimmed.splitn(2, '=');
+        let prefix = split.next().unwrap_or("*").trim();
+        let level_str = split.next().unwrap_or("info").trim().to_ascii_lowercase();
+        let level = match level_str.as_str() {
+            "trace" => Level::TRACE,
+            "debug" => Level::DEBUG,
+            "warn" => Level::WARN,
+            "error" => Level::ERROR,
+            _ => Level::INFO,
+        };
+
+        pairs.push((
+            if prefix.is_empty() { "*" } else { prefix }.to_string(),
+            level,
+        ));
+    }
+
+    if pairs.is_empty() {
+        vec![("*".to_string(), Level::INFO)]
+    } else {
+        pairs
+    }
+}
+
+fn log_request(level: Level, payload: Value) {
+    match level {
+        Level::TRACE => tracing::trace!(request = %payload, "request"),
+        Level::DEBUG => tracing::debug!(request = %payload, "request"),
+        Level::WARN => tracing::warn!(request = %payload, "request"),
+        Level::ERROR => tracing::error!(request = %payload, "request"),
+        Level::INFO => tracing::info!(request = %payload, "request"),
+    }
+}
+
+fn response_body_size(response: &Response) -> usize {
+    response
+        .headers()
+        .get("content-length")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0)
+}
+
+fn extract_user_identity(headers: &HeaderMap) -> Value {
+    let api_key = headers
+        .get("x-api-key")
+        .and_then(|value| value.to_str().ok())
+        .map(mask_secret);
+    let authorization = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .map(mask_authorization);
+
+    json!({
+        "api_key": api_key,
+        "authorization": authorization,
+    })
+}
+
+fn sanitize_headers(headers: &HeaderMap) -> Value {
+    let mut out = serde_json::Map::new();
+    for (name, value) in headers.iter() {
+        let key = name.as_str().to_ascii_lowercase();
+        let value = value.to_str().unwrap_or_default();
+
+        let sanitized = if is_sensitive_key(&key) {
+            REDACTED.to_string()
+        } else {
+            truncate(value, 256)
+        };
+
+        out.insert(key, Value::String(sanitized));
+    }
+    Value::Object(out)
+}
+
+fn sanitize_body(bytes: &[u8], content_type: Option<&str>, limit: usize) -> Value {
+    if bytes.is_empty() {
+        return json!({ "kind": "empty" });
+    }
+
+    if content_type
+        .unwrap_or_default()
+        .contains("application/json")
+    {
+        if let Ok(mut value) = serde_json::from_slice::<Value>(bytes) {
+            redact_value(&mut value);
+            return json!({
+                "kind": "json",
+                "size": bytes.len(),
+                "body": value,
+            });
+        }
+    }
+
+    let text = String::from_utf8_lossy(bytes);
+    json!({
+        "kind": "text",
+        "size": bytes.len(),
+        "body": truncate(&text, limit),
+    })
+}
+
+fn redact_value(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            for (key, val) in map.iter_mut() {
+                if is_sensitive_key(key) {
+                    *val = Value::String(REDACTED.to_string());
+                } else {
+                    redact_value(val);
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items.iter_mut() {
+                redact_value(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let lowered = key.to_ascii_lowercase();
+    lowered.contains("password")
+        || lowered.contains("token")
+        || lowered.contains("secret")
+        || lowered.contains("private_key")
+        || lowered.contains("api_key")
+        || lowered.contains("authorization")
+}
+
+fn truncate(value: &str, limit: usize) -> String {
+    if value.len() <= limit {
+        return value.to_string();
+    }
+    format!("{}...(truncated)", &value[..limit])
+}
+
+fn mask_secret(value: &str) -> String {
+    if value.len() <= 8 {
+        return REDACTED.to_string();
+    }
+    format!("{}...{}", &value[..4], &value[value.len() - 4..])
+}
+
+fn mask_authorization(value: &str) -> String {
+    let mut split = value.split_whitespace();
+    let scheme = split.next().unwrap_or("Bearer");
+    let token = split.next().unwrap_or_default();
+    if token.is_empty() {
+        return REDACTED.to_string();
+    }
+    format!("{} {}", scheme, mask_secret(token))
 }
 
 pub fn generate_request_id() -> String {
@@ -145,9 +380,7 @@ pub fn inject_current_trace_context(headers: &mut reqwest::header::HeaderMap) {
 }
 
 fn extract_remote_context(headers: &HeaderMap) -> opentelemetry::Context {
-    global::get_text_map_propagator(|propagator| {
-        propagator.extract(&AxumHeaderExtractor(headers))
-    })
+    global::get_text_map_propagator(|propagator| propagator.extract(&AxumHeaderExtractor(headers)))
 }
 
 struct AxumHeaderExtractor<'a>(&'a HeaderMap);
@@ -204,8 +437,8 @@ impl RequestId {
 pub fn init_json_tracing() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-    let service_name = std::env::var("OTEL_SERVICE_NAME")
-        .unwrap_or_else(|_| "soroban-registry-api".to_string());
+    let service_name =
+        std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "soroban-registry-api".to_string());
     let otlp_endpoint = std::env::var("OTLP_ENDPOINT")
         .or_else(|_| std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT"))
         .ok();
@@ -214,19 +447,35 @@ pub fn init_json_tracing() {
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "api=info,tower_http=info".into());
+
+    let writer = if let Ok(log_dir) = std::env::var("API_LOG_DIR") {
+        let file_appender = tracing_appender::rolling::daily(log_dir, "api.log");
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+        let _ = LOG_GUARD.set(guard);
+        tracing_subscriber::fmt::writer::BoxMakeWriter::new(non_blocking)
+    } else {
+        tracing_subscriber::fmt::writer::BoxMakeWriter::new(std::io::stdout)
+    };
+
     let fmt_layer = tracing_subscriber::fmt::layer()
         .json()
-        .with_current_span(true);
+        .with_current_span(true)
+        .with_writer(writer);
 
     if let Some(endpoint) = otlp_endpoint {
-        let trace_config = opentelemetry_sdk::trace::Config::default().with_resource(
-            Resource::new(vec![KeyValue::new("service.name", service_name)]),
-        );
+        let trace_config =
+            opentelemetry_sdk::trace::Config::default().with_resource(Resource::new(vec![
+                KeyValue::new("service.name", service_name),
+            ]));
 
         match opentelemetry_otlp::new_pipeline()
             .tracing()
             .with_trace_config(trace_config)
-            .with_exporter(opentelemetry_otlp::new_exporter().tonic().with_endpoint(endpoint))
+            .with_exporter(
+                opentelemetry_otlp::new_exporter()
+                    .tonic()
+                    .with_endpoint(endpoint),
+            )
             .install_batch(opentelemetry_sdk::runtime::Tokio)
         {
             Ok(tracer) => {

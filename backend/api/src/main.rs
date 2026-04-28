@@ -1,37 +1,42 @@
 #![warn(unused_imports)]
 
+mod ai;
+mod state_monitor;
+mod search_postgres;
+mod stats;
+
 mod ab_test_handlers;
+mod abi_versioning_handlers;
 mod aggregation;
 mod analytics;
+mod analytics_handlers;
 mod auth;
 mod auth_handlers;
+mod backup_handlers;
+mod backup_routes;
 mod batch_verify_handlers;
 mod breaking_changes;
 mod cache;
 mod canary_handlers;
+mod collaborative_reviews;
 mod compatibility_testing_handlers;
 mod contract_events;
 mod contributor_handlers;
-mod db_monitoring;
-mod governance_handlers;
-mod graphql;
-mod interoperability;
-mod interoperability_handlers;
-
-mod activity_feed_handlers;
-mod activity_feed_routes;
-mod analytics_handlers;
-mod category_handlers;
 mod custom_metrics_handlers;
-mod dependency;
-mod dependency_handlers;
+mod db_monitoring;
 mod deprecation_handlers;
+mod disaster_recovery_models;
 mod error;
-mod events;
-mod favorites_handlers;
+mod error_logging;
+mod formal_verification;
+mod formal_verification_handlers;
+mod gas_estimation_handlers;
+mod governance_handlers;
+mod graph_analysis;
+mod graph_analysis_handlers;
+mod graphql;
 mod handlers;
-mod health;
-pub mod health_monitor;
+mod health_monitor;
 #[cfg(test)]
 mod health_tests;
 mod incident_handlers;
@@ -42,57 +47,59 @@ mod migration_handlers;
 mod models;
 mod multisig_handlers;
 mod multisig_routes;
-mod mutation_testing_handlers; // Issue #619
+mod mutation_testing_handlers;
+mod notification_handlers;
+mod notification_routes;
 mod onchain_verification;
 #[cfg(feature = "openapi")]
 mod openapi;
 mod org_handlers;
+mod pagination;
 mod patch_handlers;
-mod plugin_marketplace_handlers;
 mod performance_handlers;
-mod rate_limit;
+mod plugin_marketplace_handlers;
+mod post_incident_handlers;
+mod post_incident_routes;
+mod publisher_verification_handlers;
+mod quota_handlers;
 mod recommendation_handlers;
 mod release_notes_handlers;
 mod release_notes_routes;
-pub mod request_tracing;
+mod request_tracing;
 mod resource_handlers;
 mod resource_tracking;
 mod routes;
-pub mod security_log;
-pub mod signing_handlers;
+mod search_client;
+mod security_scan_handlers;
 mod similarity_handlers;
 mod simulation;
 mod simulation_handlers;
-mod state;
-
-mod clone_federation_handlers;
-mod formal_verification;
-mod formal_verification_handlers;
-mod graph_analysis;
-mod graph_analysis_handlers;
-mod pagination;
-mod gas_estimation_handlers;
-mod security_scan_handlers;
 mod subscription_handlers;
 mod type_safety;
+mod usage_counter;
 mod validation;
+mod verification_handlers;
 mod webhook_delivery;
 mod websocket;
-mod verification_handlers;
 mod zk_proof_handlers;
 
 use anyhow::Result;
 use axum::extract::{Request, State};
-use axum::http::{header, HeaderValue, Method, StatusCode};
+use axum::http::{header, HeaderName, HeaderValue, Method, StatusCode};
+use axum::middleware;
 use axum::response::Response;
-use axum::{middleware, Router};
 use dotenv::dotenv;
 use prometheus::Registry;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
+
+use crate::ai::service::AIService;
+use crate::state_monitor::StateMonitorService;
 
 async fn track_in_flight_middleware(
     State(state): State<AppState>,
@@ -106,49 +113,28 @@ async fn track_in_flight_middleware(
             "Service is shutting down and temporarily unavailable",
         ));
     }
-    crate::metrics::HTTP_IN_FLIGHT.inc();
+    api::metrics::HTTP_IN_FLIGHT.inc();
     let res = next.run(req).await;
-    crate::metrics::HTTP_IN_FLIGHT.dec();
+    api::metrics::HTTP_IN_FLIGHT.dec();
     Ok(res)
 }
 
-use crate::error::ApiError;
-use crate::rate_limit::RateLimitState;
-use crate::state::AppState;
-
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load environment variables
-    dotenv().ok();
+    // Load and validate configuration (#768)
+    let config = config::load_config()?;
 
     // Initialize structured JSON tracing (ELK/Splunk compatible)
     request_tracing::init_json_tracing();
-
-    // Fail fast on startup when JWT configuration is invalid.
-    if let Err(err) = auth::AuthManager::from_env() {
-        tracing::error!(
-            error = %err,
-            "JWT authentication configuration is invalid. Set JWT_SECRET to a strong value with at least {} characters.",
-            auth::MIN_JWT_SECRET_LEN
-        );
-        return Err(anyhow::anyhow!(
-            "Invalid JWT authentication configuration: {}",
-            err
-        ));
-    }
-
-    // Database connection with dynamic pool size
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
     let logical_cores = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
 
-    let default_max_pool = (logical_cores * 2).max(10);
     let max_pool_size = std::env::var("DB_MAX_POOL_SIZE")
         .ok()
         .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(default_max_pool as u32);
+        .unwrap_or((logical_cores * 2).max(10) as u32);
 
     tracing::info!(
         max_pool_size = max_pool_size,
@@ -159,7 +145,11 @@ async fn main() -> Result<()> {
     let pool = PgPoolOptions::new()
         .max_connections(max_pool_size)
         .acquire_timeout(std::time::Duration::from_secs(30))
-        .connect(&database_url)
+        .connect_with(
+            config
+                .database_url
+                .parse::<sqlx::postgres::PgConnectOptions>()?,
+        )
         .await?;
 
     // Run migrations (skip if SKIP_MIGRATIONS=true, useful when migrations were applied manually)
@@ -185,7 +175,7 @@ async fn main() -> Result<()> {
 
     // Create prometheus registry for metrics
     let registry = Registry::new();
-    if let Err(e) = crate::metrics::register_all(&registry) {
+    if let Err(e) = api::metrics::register_all(&registry) {
         tracing::error!("Failed to register metrics: {}", e);
     }
 
@@ -202,7 +192,79 @@ async fn main() -> Result<()> {
     let je = job_engine.clone();
     tokio::spawn(async move { je.run_worker(job_rx).await });
 
-    let state = AppState::new(pool.clone(), registry, job_engine, is_shutting_down.clone()).await?;
+    // Issue #727: create rate limiter before AppState so it can be shared
+    let rate_limit_state = std::sync::Arc::new(RateLimitState::from_env());
+    rate_limit_state.spawn_eviction_task();
+
+    // Initialize AI service (optional - graceful if not configured)
+    let ai_service = match AIService::from_env() {
+        Ok(service) => {
+            tracing::info!("AI service initialized successfully");
+            Some(Arc::new(service))
+        }
+        Err(e) => {
+            tracing::warn!("AI service not initialized: {}", e);
+            None
+        }
+    };
+
+    // Create event broadcaster for real-time updates
+    let (event_broadcaster, _) = broadcast::channel(100);
+
+    // Create app state
+    let is_shutting_down = Arc::new(AtomicBool::new(false));
+    // Job engine: initialize for background batch processing
+    let (job_engine, job_rx) = soroban_batch::engine::JobEngine::new();
+    let job_engine = Arc::new(job_engine);
+    let je = job_engine.clone();
+    tokio::spawn(async move { je.run_worker(job_rx).await });
+
+    let state = AppState::new(
+        pool.clone(),
+        registry,
+        job_engine,
+        is_shutting_down.clone(),
+        rate_limit_state.clone(),
+        ai_service.clone(),
+        event_broadcaster.clone(),
+    )
+    .await?;
+
+    // Initialize state monitor service (optional)
+    if let Some(monitor) = state.state_monitor.clone() {
+        // Spawn state monitor background task
+        tokio::spawn(async move {
+            if let Err(e) = monitor.run().await {
+                tracing::error!("State monitor error: {}", e);
+            }
+        });
+    }
+
+    // Initialize state monitor service (optional)
+    let state_monitor = match crate::state_monitor::StateMonitorService::new(
+        pool.clone(),
+        event_broadcaster.clone(),
+    ) {
+        Ok(service) => {
+            info!("State monitor service initialized");
+            let monitor = Arc::new(service);
+            state.state_monitor = Some(monitor.clone());
+            
+            // Spawn state monitor background task
+            let monitor_clone = monitor.clone();
+            tokio::spawn(async move {
+                if let Err(e) = monitor_clone.run().await {
+                    error!("State monitor error: {}", e);
+                }
+            });
+            
+            Some(monitor)
+        }
+        Err(e) => {
+            warn!("State monitor service not initialized: {}", e);
+            None
+        }
+    };
 
     // Initialize GraphQL schema
     let schema = graphql::schema::build_schema(state.clone());
@@ -227,9 +289,6 @@ async fn main() -> Result<()> {
 
     // Warm up the cache
     state.cache.clone().warm_up(pool.clone());
-
-    let rate_limit_state = RateLimitState::from_env();
-    rate_limit_state.spawn_eviction_task();
 
     let allowed_origins = std::env::var("ALLOWED_ORIGINS").unwrap_or_else(|_| {
         "http://localhost:3000,https://soroban-registry.vercel.app".to_string()
@@ -265,49 +324,16 @@ async fn main() -> Result<()> {
         .expose_headers([
             crate::request_tracing::X_REQUEST_ID.clone(),
             crate::request_tracing::X_CORRELATION_ID.clone(),
-        ]);
+            header::RETRY_AFTER,
+            HeaderName::from_static("x-ratelimit-limit"),
+            HeaderName::from_static("x-ratelimit-remaining"),
+            HeaderName::from_static("x-ratelimit-reset"),
+            HeaderName::from_static("x-ratelimit-tier"),
+        ])
+        .max_age(Duration::from_secs(3600));
 
     // Build router
-    let app = Router::new()
-        .merge(routes::auth_routes())
-        .merge(routes::plugin_routes())
-        .merge(routes::organization_routes())
-        .merge(routes::contract_routes())
-        .merge(routes::publisher_routes())
-        .merge(routes::contributor_routes())
-        .merge(routes::health_routes())
-        .merge(routes::migration_routes())
-        .merge(incident_routes::incident_routes())
-        .merge(routes::network_routes())
-        .merge(routes::openapi_routes())
-        .merge(routes::health_monitor_routes())
-        .merge(routes::admin_routes())
-        .merge(routes::category_routes())
-        .merge(routes::compatibility_dashboard_routes())
-        .merge(routes::governance_routes())
-        .merge(routes::canary_routes())
-        .merge(routes::ab_test_routes())
-        .merge(routes::performance_routes())
-        .merge(routes::federation_routes())
-        .merge(routes::mutation_testing_routes()) // Issue #619
-        .merge(multisig_routes::routes())
-        .merge(routes::observability_routes())
-        .merge(routes::websocket_routes())
-        .merge(routes::subscription_routes())
-        .merge(routes::graph_analysis_routes())
-        .merge(routes::formal_verification_routes())
-        .merge(routes::verification_status_routes())
-        .merge(routes::validator_routes())
-        .merge(release_notes_routes::release_notes_routes())
-        .route(
-            "/api/graphql",
-            axum::routing::post(graphql::graphql_handler).with_state(schema),
-        )
-        .route(
-            "/api/graphql/playground",
-            axum::routing::get(graphql::graphql_playground),
-        )
-        .nest("/api", activity_feed_routes::routes())
+    let app = routes::application_routes(schema)
         .fallback(handlers::route_not_found)
         .layer(middleware::from_fn(
             validation::payload_size::payload_size_validation_middleware,
@@ -320,7 +346,7 @@ async fn main() -> Result<()> {
             track_in_flight_middleware,
         ))
         .layer(middleware::from_fn_with_state(
-            rate_limit_state,
+            (*rate_limit_state).clone(),
             rate_limit::rate_limit_middleware,
         ))
         .layer(cors)

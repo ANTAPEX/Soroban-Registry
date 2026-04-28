@@ -1,4 +1,4 @@
-import { StatsResponse, TimePeriod } from '@/types/stats';
+import type { StatsResponse, TimePeriod } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';

@@ -2,7 +2,8 @@
 
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api, AnalyticsEventType, AnalyticsEvent } from '@/lib/api';
+import type { AnalyticsEventType, AnalyticsEvent } from '@/types';
+import { api } from '@/lib/api';
 import { 
   History, 
   Search, 

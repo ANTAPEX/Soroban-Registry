@@ -53,10 +53,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-opentelemetry = "0.24"
 
 # OpenTelemetry
-opentelemetry = { version = "0.23", features = ["trace"] }
-opentelemetry_sdk = { version = "0.23", features = ["rt-tokio", "trace"] }
-opentelemetry-otlp = { version = "0.16", features = ["grpc-tonic", "trace"] }
-opentelemetry-prometheus = "0.16"
+opentelemetry = { version = "0.24", features = ["trace"] }
+opentelemetry_sdk = { version = "0.24", features = ["rt-tokio", "trace"] }
+opentelemetry-otlp = { version = "0.17", features = ["grpc-tonic", "trace"] }
+opentelemetry-prometheus = { version = "0.17" }
 
 # Metrics
 prometheus = { version = "0.13", features = ["process"] }
@@ -66,6 +66,8 @@ once_cell = "1.19"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 dotenv = "0.15"
+elasticsearch = "8.5.0-alpha.1"
+envy = "0.4"
 
 # CLI
 clap = { version = "4.5", features = ["derive"] }

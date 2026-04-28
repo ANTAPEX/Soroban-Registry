@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import { Theme, ThemeContext } from '../hooks/useTheme';
-
-const THEME_STORAGE_KEY = 'soroban-registry-theme';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { setTheme as setThemeAction } from '@/store/slices/themeSlice';
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-    const [theme, setThemeState] = useState<Theme>('system');
+    const dispatch = useAppDispatch();
+    const theme = useAppSelector((s) => s.theme.value) as Theme;
     const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light');
 
     const getSystemTheme = useCallback((): 'light' | 'dark' => {
@@ -17,51 +18,33 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const setTheme = useCallback((newTheme: Theme) => {
-        setThemeState(newTheme);
-        localStorage.setItem(THEME_STORAGE_KEY, newTheme);
-    }, []);
+        dispatch(setThemeAction(newTheme));
+    }, [dispatch]);
 
     useEffect(() => {
-        const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
-        if (savedTheme) {
-            // eslint-disable-next-line react-hooks/set-state-in-effect
-            setThemeState(savedTheme);
-        }
-    }, []);
-
-    useEffect(() => {
+        // Apply theme class to document based on redux state
         const root = window.document.documentElement;
-        const currentResolvedTheme = theme === 'system' ? getSystemTheme() : theme;
+        const isDark = theme === 'dark' || (theme === 'system' && getSystemTheme() === 'dark');
+        setResolvedTheme(isDark ? 'dark' : 'light');
 
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setResolvedTheme(currentResolvedTheme);
-
-        if (currentResolvedTheme === 'dark') {
-            root.classList.add('dark');
-        } else {
-            root.classList.remove('dark');
-        }
+        if (isDark) root.classList.add('dark');
+        else root.classList.remove('dark');
     }, [theme, getSystemTheme]);
 
-    // Listen for system theme changes
+    // Listen for system theme changes only when 'system' selected
     useEffect(() => {
         if (theme !== 'system') return;
-
         const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
         const handleChange = () => {
-            const currentResolvedTheme = getSystemTheme();
-            setResolvedTheme(currentResolvedTheme);
+            const isDark = mediaQuery.matches;
+            setResolvedTheme(isDark ? 'dark' : 'light');
             const root = window.document.documentElement;
-            if (currentResolvedTheme === 'dark') {
-                root.classList.add('dark');
-            } else {
-                root.classList.remove('dark');
-            }
+            if (isDark) root.classList.add('dark');
+            else root.classList.remove('dark');
         };
-
         mediaQuery.addEventListener('change', handleChange);
         return () => mediaQuery.removeEventListener('change', handleChange);
-    }, [theme, getSystemTheme]);
+    }, [theme]);
 
     return (
         <ThemeContext.Provider value={{ theme, setTheme, resolvedTheme }}>

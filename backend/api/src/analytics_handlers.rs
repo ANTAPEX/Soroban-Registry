@@ -11,12 +11,11 @@
 //!                                       trending-by-category identification.
 
 use axum::{
-    extract::{Path, Query, State},
-    http::{header, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
+    extract::{Path, State},
+    http::StatusCode,
     Json,
 };
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{Datelike, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use shared::{DeploymentStats, InteractorStats, Network, TopUser};
 use sqlx::FromRow;
@@ -216,6 +215,50 @@ struct AnalyticsTimeSeriesRow {
     total_events: i64,
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct WebVitalMetric {
+    pub id: String,
+    pub name: String,
+    pub value: f64,
+    pub rating: Option<String>,
+    pub delta: Option<f64>,
+    pub navigation_type: Option<String>,
+}
+
+pub async fn record_web_vitals(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(metric): Json<WebVitalMetric>,
+) -> ApiResult<StatusCode> {
+    let user_agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let referer = headers
+        .get(axum::http::header::REFERER)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    sqlx::query(
+        "INSERT INTO web_vitals (metric_id, name, value, rating, delta, navigation_type, url, user_agent) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+    )
+    .bind(&metric.id)
+    .bind(&metric.name)
+    .bind(metric.value)
+    .bind(metric.rating)
+    .bind(metric.delta)
+    .bind(metric.navigation_type)
+    .bind(referer)
+    .bind(user_agent)
+    .execute(&state.db)
+    .await
+    .map_err(|err| db_err("record web vitals", err))?;
+
+    Ok(StatusCode::OK)
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn db_err(op: &str, err: sqlx::Error) -> ApiError {
@@ -331,7 +374,10 @@ async fn get_contract_analytics_inner(
             .map_err(|err| db_err("fetch view_count", err))?;
 
     let view_count = view_count.ok_or_else(|| {
-        ApiError::not_found("ContractNotFound", format!("No contract found with ID: {}", id))
+        ApiError::not_found(
+            "ContractNotFound",
+            format!("No contract found with ID: {}", id),
+        )
     })?;
 
     // ── Deployment stats (within requested range) ─────────────────────────────
@@ -462,7 +508,7 @@ async fn get_contract_analytics_inner(
     let trunc_expr = match bucket.as_str() {
         "weekly" => "DATE_TRUNC('week', day::TIMESTAMP)::DATE",
         "monthly" => "DATE_TRUNC('month', day::TIMESTAMP)::DATE",
-        _ => "day",  // daily
+        _ => "day", // daily
     };
 
     let timeline_sql = format!(
@@ -726,14 +772,14 @@ pub async fn get_analytics_summary(
 
     let top_publishers: Vec<PublisherAnalytics> = publisher_rows
         .into_iter()
-        .map(|(publisher_id, name, contract_count, total_views)| {
-            PublisherAnalytics {
+        .map(
+            |(publisher_id, name, contract_count, total_views)| PublisherAnalytics {
                 publisher_id,
                 name,
                 contract_count,
                 total_views,
-            }
-        })
+            },
+        )
         .collect();
 
     // ── Registry-wide deployment trends (last 30 days) ─────────────────────────
@@ -766,7 +812,15 @@ pub async fn get_analytics_summary(
         .collect();
 
     // ── Recent additions (last 10) ──────────────────────────────────────────
-    let recent_rows: Vec<(Uuid, String, chrono::DateTime<chrono::Utc>, Option<String>, String, Option<String>, String)> = sqlx::query_as(
+    let recent_rows: Vec<(
+        Uuid,
+        String,
+        chrono::DateTime<chrono::Utc>,
+        Option<String>,
+        String,
+        Option<String>,
+        String,
+    )> = sqlx::query_as(
         r#"
         SELECT
             c.id,
@@ -788,17 +842,19 @@ pub async fn get_analytics_summary(
 
     let recent_additions: Vec<RecentContract> = recent_rows
         .into_iter()
-        .map(|(id, name, created_at, publisher_name, network, category, contract_id)| {
-            RecentContract {
-                id,
-                name,
-                created_at,
-                publisher_name,
-                network,
-                category,
-                contract_id,
-            }
-        })
+        .map(
+            |(id, name, created_at, publisher_name, network, category, contract_id)| {
+                RecentContract {
+                    id,
+                    name,
+                    created_at,
+                    publisher_name,
+                    network,
+                    category,
+                    contract_id,
+                }
+            },
+        )
         .collect();
 
     Ok(Json(AnalyticsSummaryResponse {
@@ -1039,6 +1095,20 @@ mod tests {
 pub struct DashboardParams {
     /// Number of recent additions to return (default: 10, max: 50).
     pub limit: Option<i64>,
+    /// Preset time window: 7d, 30d, 90d, custom (default: 30d).
+    pub timeframe: Option<String>,
+    /// Inclusive start date (YYYY-MM-DD) for custom windows.
+    pub start_date: Option<NaiveDate>,
+    /// Inclusive end date (YYYY-MM-DD), defaults to today (UTC).
+    pub end_date: Option<NaiveDate>,
+    /// Optional network filter.
+    pub network: Option<Network>,
+    /// Optional category filter.
+    pub category: Option<String>,
+    /// Optional verification-status filter.
+    pub verified: Option<bool>,
+    /// Number of top contracts to return (default: 10, max: 50).
+    pub top_limit: Option<i64>,
 }
 
 /// One entry in the network_usage array returned by the dashboard endpoint.
@@ -1062,6 +1132,13 @@ pub struct DeploymentTrendEntry {
     pub count: i64,
 }
 
+/// One entry in the interaction_trends array returned by the dashboard endpoint.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct InteractionTrendEntry {
+    pub date: NaiveDate,
+    pub count: i64,
+}
+
 /// One entry in the recent_additions array returned by the dashboard endpoint.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RecentAdditionEntry {
@@ -1071,6 +1148,18 @@ pub struct RecentAdditionEntry {
     pub network: String,
     pub category: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// One entry in the top_contracts array returned by the dashboard endpoint.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct TopContractEntry {
+    pub id: Uuid,
+    pub contract_id: String,
+    pub name: String,
+    pub network: String,
+    pub category: Option<String>,
+    pub is_verified: bool,
+    pub interaction_count: i64,
 }
 
 /// Response shape for GET /api/analytics/dashboard.
@@ -1083,10 +1172,17 @@ pub struct RecentAdditionEntry {
 /// - `deployment_trends`     → `DeploymentTrendGraph`    (expects `[{date, count}]`)
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct AnalyticsDashboardResponse {
+    pub total_contracts: i64,
+    pub active_deployments: i64,
+    pub this_month_interactions: i64,
+    pub time_range_start: NaiveDate,
+    pub time_range_end: NaiveDate,
     pub recent_additions: Vec<RecentAdditionEntry>,
     pub network_usage: Vec<NetworkUsageEntry>,
     pub category_distribution: Vec<CategoryDistributionEntry>,
     pub deployment_trends: Vec<DeploymentTrendEntry>,
+    pub interaction_trends: Vec<InteractionTrendEntry>,
+    pub top_contracts: Vec<TopContractEntry>,
 }
 
 /// Return the analytics dashboard data consumed by the frontend /analytics page.
@@ -1098,7 +1194,14 @@ pub struct AnalyticsDashboardResponse {
     get,
     path = "/api/analytics/dashboard",
     params(
-        ("limit" = Option<i64>, Query, description = "Number of recent additions (default 10, max 50)")
+        ("limit" = Option<i64>, Query, description = "Number of recent additions (default 10, max 50)"),
+        ("top_limit" = Option<i64>, Query, description = "Number of top contracts to return (default 10, max 50)"),
+        ("timeframe" = Option<String>, Query, description = "Range preset: 7d, 30d, 90d, custom"),
+        ("start_date" = Option<String>, Query, description = "Custom range start (YYYY-MM-DD), used when timeframe=custom"),
+        ("end_date" = Option<String>, Query, description = "Custom range end (YYYY-MM-DD), defaults to current UTC date"),
+        ("network" = Option<String>, Query, description = "Optional network filter: mainnet, testnet, futurenet"),
+        ("category" = Option<String>, Query, description = "Optional category filter"),
+        ("verified" = Option<bool>, Query, description = "Optional verification filter")
     ),
     responses(
         (status = 200, description = "Analytics dashboard data", body = AnalyticsDashboardResponse)
@@ -1110,32 +1213,135 @@ pub async fn get_analytics_dashboard(
     Query(params): Query<DashboardParams>,
 ) -> ApiResult<Json<AnalyticsDashboardResponse>> {
     let limit = params.limit.unwrap_or(10).clamp(1, 50);
+    let top_limit = params.top_limit.unwrap_or(10).clamp(1, 50);
+    let end_date = params.end_date.unwrap_or_else(|| Utc::now().date_naive());
+
+    let timeframe = params.timeframe.unwrap_or_else(|| "30d".to_string());
+    let start_date = match timeframe.as_str() {
+        "7d" => end_date - Duration::days(6),
+        "30d" => end_date - Duration::days(29),
+        "90d" => end_date - Duration::days(89),
+        "custom" => params.start_date.unwrap_or(end_date - Duration::days(29)),
+        _ => {
+            return Err(ApiError::bad_request(
+                "InvalidTimeframe",
+                "timeframe must be one of: 7d, 30d, 90d, custom",
+            ));
+        }
+    };
+
+    if start_date > end_date {
+        return Err(ApiError::bad_request(
+            "InvalidDateRange",
+            "start_date must be less than or equal to end_date",
+        ));
+    }
+
+    if (end_date - start_date).num_days() > 366 {
+        return Err(ApiError::bad_request(
+            "DateRangeTooLarge",
+            "date range cannot exceed 366 days",
+        ));
+    }
+
+    // Summary metrics for cards.
+    let total_contracts: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::BIGINT
+        FROM contracts c
+        WHERE ($1::network_type IS NULL OR c.network = $1)
+          AND ($2::TEXT IS NULL OR c.category = $2)
+          AND ($3::BOOL IS NULL OR c.is_verified = $3)
+        "#,
+    )
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|err| db_err("fetch total contracts", err))?;
+
+    let active_deployments: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(DISTINCT agg.contract_id)::BIGINT
+        FROM contract_interaction_daily_aggregates agg
+        JOIN contracts c ON c.id = agg.contract_id
+        WHERE agg.day BETWEEN $1 AND $2
+          AND agg.interaction_type = 'deploy'
+          AND ($3::network_type IS NULL OR c.network = $3)
+          AND ($4::TEXT IS NULL OR c.category = $4)
+          AND ($5::BOOL IS NULL OR c.is_verified = $5)
+        "#,
+    )
+    .bind(start_date)
+    .bind(end_date)
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|err| db_err("fetch active deployments", err))?;
+
+    let month_start = end_date.with_day(1).unwrap_or(end_date);
+    let this_month_interactions: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(SUM(agg.count), 0)::BIGINT
+        FROM contract_interaction_daily_aggregates agg
+        JOIN contracts c ON c.id = agg.contract_id
+        WHERE agg.day BETWEEN $1 AND $2
+          AND ($3::network_type IS NULL OR c.network = $3)
+          AND ($4::TEXT IS NULL OR c.category = $4)
+          AND ($5::BOOL IS NULL OR c.is_verified = $5)
+        "#,
+    )
+    .bind(month_start)
+    .bind(end_date)
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|err| db_err("fetch this month interactions", err))?;
 
     // ── Recent additions (newest contracts first) ─────────────────────────────
-    let recent_rows: Vec<(Uuid, String, String, String, Option<String>, chrono::DateTime<chrono::Utc>)> =
-        sqlx::query_as(
-            r#"
+    let recent_rows: Vec<(
+        Uuid,
+        String,
+        String,
+        String,
+        Option<String>,
+        chrono::DateTime<chrono::Utc>,
+    )> = sqlx::query_as(
+        r#"
             SELECT id, contract_id, name, network::TEXT, category, created_at
             FROM   contracts
+            WHERE  ($2::network_type IS NULL OR network = $2)
+              AND  ($3::TEXT IS NULL OR category = $3)
+              AND  ($4::BOOL IS NULL OR is_verified = $4)
             ORDER  BY created_at DESC
             LIMIT  $1
             "#,
-        )
-        .bind(limit)
-        .fetch_all(&state.db)
-        .await
-        .map_err(|err| db_err("fetch recent additions", err))?;
+    )
+    .bind(limit)
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| db_err("fetch recent additions", err))?;
 
     let recent_additions: Vec<RecentAdditionEntry> = recent_rows
         .into_iter()
-        .map(|(id, contract_id, name, network, category, created_at)| RecentAdditionEntry {
-            id,
-            contract_id,
-            name,
-            network,
-            category,
-            created_at,
-        })
+        .map(
+            |(id, contract_id, name, network, category, created_at)| RecentAdditionEntry {
+                id,
+                contract_id,
+                name,
+                network,
+                category,
+                created_at,
+            },
+        )
         .collect();
 
     // ── Network usage (contract counts per network) ───────────────────────────
@@ -1143,10 +1349,16 @@ pub async fn get_analytics_dashboard(
         r#"
         SELECT network::TEXT, COUNT(*)::BIGINT AS count
         FROM   contracts
+                WHERE  ($1::network_type IS NULL OR network = $1)
+                    AND  ($2::TEXT IS NULL OR category = $2)
+                    AND  ($3::BOOL IS NULL OR is_verified = $3)
         GROUP  BY network
         ORDER  BY count DESC
         "#,
     )
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
     .fetch_all(&state.db)
     .await
     .map_err(|err| db_err("fetch network usage", err))?;
@@ -1162,11 +1374,17 @@ pub async fn get_analytics_dashboard(
         SELECT COALESCE(category, 'Uncategorized') AS category,
                COUNT(*)::BIGINT AS count
         FROM   contracts
+                WHERE  ($1::network_type IS NULL OR network = $1)
+                    AND  ($2::TEXT IS NULL OR category = $2)
+                    AND  ($3::BOOL IS NULL OR is_verified = $3)
         GROUP  BY category
         ORDER  BY count DESC
         LIMIT  10
         "#,
     )
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
     .fetch_all(&state.db)
     .await
     .map_err(|err| db_err("fetch category distribution", err))?;
@@ -1183,25 +1401,35 @@ pub async fn get_analytics_dashboard(
     // Uses the daily-aggregate rollup for 'deploy' interactions so the query
     // is fast even on large registries.  generate_series fills in zero-count
     // days so the chart always has a continuous 30-day series.
-    let thirty_days_ago = chrono::Utc::now() - chrono::Duration::days(30);
-
     let trend_rows: Vec<(NaiveDate, i64)> = sqlx::query_as(
         r#"
         SELECT d::DATE AS date,
-               COALESCE(SUM(agg.count), 0)::BIGINT AS count
+                             COALESCE(t.count, 0)::BIGINT AS count
         FROM   generate_series(
-                   ($1::TIMESTAMPTZ)::DATE,
-                   CURRENT_DATE,
+                                     $1::DATE,
+                                     $2::DATE,
                    '1 day'::INTERVAL
                ) d
-        LEFT   JOIN contract_interaction_daily_aggregates agg
-               ON  agg.day = d::DATE
-               AND agg.interaction_type = 'deploy'
+                LEFT JOIN (
+                    SELECT agg.day, SUM(agg.count)::BIGINT AS count
+                    FROM contract_interaction_daily_aggregates agg
+                    JOIN contracts c ON c.id = agg.contract_id
+                    WHERE agg.day BETWEEN $1 AND $2
+                        AND agg.interaction_type = 'deploy'
+                        AND ($3::network_type IS NULL OR c.network = $3)
+                        AND ($4::TEXT IS NULL OR c.category = $4)
+                        AND ($5::BOOL IS NULL OR c.is_verified = $5)
+                    GROUP BY agg.day
+                ) t ON t.day = d::DATE
         GROUP  BY d::DATE
         ORDER  BY d::DATE
         "#,
     )
-    .bind(thirty_days_ago)
+    .bind(start_date)
+    .bind(end_date)
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
     .fetch_all(&state.db)
     .await
     .map_err(|err| db_err("fetch deployment trends", err))?;
@@ -1211,10 +1439,103 @@ pub async fn get_analytics_dashboard(
         .map(|(date, count)| DeploymentTrendEntry { date, count })
         .collect();
 
+    let interaction_rows: Vec<(NaiveDate, i64)> = sqlx::query_as(
+        r#"
+        SELECT d::DATE AS date,
+               COALESCE(t.count, 0)::BIGINT AS count
+        FROM   generate_series(
+                   $1::DATE,
+                   $2::DATE,
+                   '1 day'::INTERVAL
+               ) d
+        LEFT JOIN (
+          SELECT agg.day, SUM(agg.count)::BIGINT AS count
+          FROM contract_interaction_daily_aggregates agg
+          JOIN contracts c ON c.id = agg.contract_id
+          WHERE agg.day BETWEEN $1 AND $2
+            AND ($3::network_type IS NULL OR c.network = $3)
+            AND ($4::TEXT IS NULL OR c.category = $4)
+            AND ($5::BOOL IS NULL OR c.is_verified = $5)
+          GROUP BY agg.day
+        ) t ON t.day = d::DATE
+        GROUP  BY d::DATE
+        ORDER  BY d::DATE
+        "#,
+    )
+    .bind(start_date)
+    .bind(end_date)
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| db_err("fetch interaction trends", err))?;
+
+    let interaction_trends: Vec<InteractionTrendEntry> = interaction_rows
+        .into_iter()
+        .map(|(date, count)| InteractionTrendEntry { date, count })
+        .collect();
+
+    let top_rows: Vec<(Uuid, String, String, String, Option<String>, bool, i64)> = sqlx::query_as(
+        r#"
+        SELECT
+          c.id,
+          c.contract_id,
+          c.name,
+          c.network::TEXT,
+          c.category,
+          c.is_verified,
+          COALESCE(SUM(agg.count), 0)::BIGINT AS interaction_count
+        FROM contracts c
+        LEFT JOIN contract_interaction_daily_aggregates agg
+          ON agg.contract_id = c.id
+         AND agg.day BETWEEN $1 AND $2
+        WHERE ($3::network_type IS NULL OR c.network = $3)
+          AND ($4::TEXT IS NULL OR c.category = $4)
+          AND ($5::BOOL IS NULL OR c.is_verified = $5)
+        GROUP BY c.id, c.contract_id, c.name, c.network, c.category, c.is_verified
+        ORDER BY interaction_count DESC, c.created_at DESC
+        LIMIT $6
+        "#,
+    )
+    .bind(start_date)
+    .bind(end_date)
+    .bind(params.network)
+    .bind(params.category.as_deref())
+    .bind(params.verified)
+    .bind(top_limit)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| db_err("fetch top contracts", err))?;
+
+    let top_contracts: Vec<TopContractEntry> = top_rows
+        .into_iter()
+        .map(
+            |(id, contract_id, name, network, category, is_verified, interaction_count)| {
+                TopContractEntry {
+                    id,
+                    contract_id,
+                    name,
+                    network,
+                    category,
+                    is_verified,
+                    interaction_count,
+                }
+            },
+        )
+        .collect();
+
     Ok(Json(AnalyticsDashboardResponse {
+        total_contracts,
+        active_deployments,
+        this_month_interactions,
+        time_range_start: start_date,
+        time_range_end: end_date,
         recent_additions,
         network_usage,
         category_distribution,
         deployment_trends,
+        interaction_trends,
+        top_contracts,
     }))
 }

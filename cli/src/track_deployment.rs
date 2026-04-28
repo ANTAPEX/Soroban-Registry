@@ -3,6 +3,7 @@
 //! Polls the registry API and the Stellar network to track contract deployment
 //! progress and confirm when a deployment is live on-chain.
 
+use crate::net::RequestBuilderExt;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
@@ -230,7 +231,7 @@ async fn poll_registry(
     );
     log::debug!("GET {}", url);
 
-    let res = client.get(&url).send().await.ok()?;
+    let res = client.get(&url).send_with_retry().await.ok()?;
     if !res.status().is_success() {
         return None;
     }
@@ -262,7 +263,7 @@ async fn poll_horizon_tx(
     let url = format!("{}/transactions/{}", horizon_url, tx_hash);
     log::debug!("GET {}", url);
 
-    let res = client.get(&url).send().await.ok()?;
+    let res = client.get(&url).send_with_retry().await.ok()?;
     if !res.status().is_success() {
         return None;
     }
@@ -291,7 +292,7 @@ async fn poll_horizon_contract(
     );
     log::debug!("GET {}", url);
 
-    let res = client.get(&url).send().await.ok()?;
+    let res = client.get(&url).send_with_retry().await.ok()?;
     if !res.status().is_success() {
         return None;
     }
@@ -336,7 +337,7 @@ async fn poll_rpc_tx(
 
     log::debug!("POST {} getTransaction hash={}", rpc_url, tx_hash);
 
-    let res = client.post(rpc_url).json(&body).send().await.ok()?;
+    let res = client.post(rpc_url).json(&body).send_with_retry().await.ok()?;
     if !res.status().is_success() {
         return None;
     }

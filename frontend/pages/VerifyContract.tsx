@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Stepper from '@/components/verification/Stepper';
 import ContractInfoStep from '@/components/verification/ContractInfoStep';
@@ -17,6 +17,8 @@ export const dynamic = 'force-dynamic';
 
 export default function VerifyContractPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const contractIdParam = searchParams?.get('id') || '';
   const { showError, showSuccess, showInfo } = useToast();
 
   const flow = useVerificationFlow();
@@ -53,6 +55,12 @@ export default function VerifyContractPage() {
       })),
     [files]
   );
+
+  React.useEffect(() => {
+    if (contractIdParam && !form.getValues('contractAddress')) {
+      form.setValue('contractAddress', contractIdParam);
+    }
+  }, [contractIdParam, form]);
 
   return (
     <div className="flex flex-col min-h-screen bg-background">

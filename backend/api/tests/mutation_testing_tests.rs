@@ -93,9 +93,10 @@ fn run_test_suite_against(m: &mut Mutation) {
             true,
             "Test failed: expected `true`, got `false` — mutation killed".to_string(),
         ),
-        MutationOperator::BoundarySwap => {
-            (true, "Test failed: off-by-one assertion — mutation killed".to_string())
-        }
+        MutationOperator::BoundarySwap => (
+            true,
+            "Test failed: off-by-one assertion — mutation killed".to_string(),
+        ),
         MutationOperator::ArithmeticChange => (
             true,
             "Test failed: numeric result mismatch — mutation killed".to_string(),
@@ -242,7 +243,10 @@ fn test_mutation_descriptions_reference_function() {
     let funcs = vec!["deposit".to_string()];
     let mutations = generate_mutations(&funcs);
     for m in &mutations {
-        assert!(m.description.contains("deposit"), "description references function");
+        assert!(
+            m.description.contains("deposit"),
+            "description references function"
+        );
     }
 }
 
@@ -250,8 +254,14 @@ fn test_mutation_descriptions_reference_function() {
 fn test_operator_display_strings() {
     assert_eq!(MutationOperator::BooleanFlip.to_string(), "boolean_flip");
     assert_eq!(MutationOperator::BoundarySwap.to_string(), "boundary_swap");
-    assert_eq!(MutationOperator::ArithmeticChange.to_string(), "arithmetic_change");
-    assert_eq!(MutationOperator::ConditionRemoval.to_string(), "condition_removal");
+    assert_eq!(
+        MutationOperator::ArithmeticChange.to_string(),
+        "arithmetic_change"
+    );
+    assert_eq!(
+        MutationOperator::ConditionRemoval.to_string(),
+        "condition_removal"
+    );
 }
 
 #[test]

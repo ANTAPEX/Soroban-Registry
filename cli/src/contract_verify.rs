@@ -3,6 +3,7 @@
 //! Verifies a deployed contract's authenticity against the on-chain registry.
 //! Displays verification status, security scan results, and audit/review info.
 
+use crate::net::RequestBuilderExt;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
@@ -62,7 +63,7 @@ pub async fn run(api_url: &str, address: &str, network: &str, json: bool) -> Res
         api_url
     );
 
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
 
     // ── 1. Fetch contract from registry by on-chain address ──────────────────
     let mut contract = fetch_contract(api_url, &client, address, network, json).await?;
@@ -111,8 +112,7 @@ async fn fetch_contract(
 
     let response = client
         .get(&search_url)
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to connect to registry API. Is the registry running?")?;
 
     let status = response.status();
@@ -187,8 +187,7 @@ async fn initiate_verification(
                 "build_params": build_params,
                 "compiler_version": compiler_version
             }))
-            .send()
-            .await
+            .send_with_retry().await
             .context("Failed to initiate source verification")?;
 
         if response.status().is_success() {
@@ -218,8 +217,7 @@ async fn initiate_verification(
                 }
             ]
         }))
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to initiate verification")?;
 
     if !response.status().is_success() {
@@ -426,7 +424,7 @@ async fn fetch_detail(api_url: &str, client: &reqwest::Client, contract: &Value)
     let url = format!("{}/api/contracts/{}/verification-status", api_url, id);
     log::debug!("GET {}", url);
 
-    let res = client.get(&url).send().await.ok()?;
+    let res = client.get(&url).send_with_retry().await.ok()?;
     if res.status().is_success() {
         res.json::<Value>().await.ok()
     } else {

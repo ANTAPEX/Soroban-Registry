@@ -123,7 +123,10 @@ enum AbstractValue {
     Unknown,
     Constant(i64),
     /// An integer constrained to a known range.
-    BoundedInt { min: i64, max: i64 },
+    BoundedInt {
+        min: i64,
+        max: i64,
+    },
     /// Value produced by an arithmetic operation that was not checked.
     PossiblyOverflowing,
     /// Value that originates from an external (untrusted) source.
@@ -192,7 +195,11 @@ fn classify_import(module: &str, name: &str) -> HostFunction {
         n if n.contains("require_auth") || n.contains("auth") && n.contains("require") => {
             HostFunction::RequireAuth
         }
-        n if n.contains("put") || n.contains("set") || n.contains("write") || n.contains("store") => {
+        n if n.contains("put")
+            || n.contains("set")
+            || n.contains("write")
+            || n.contains("store") =>
+        {
             if module.contains("storage") || module.contains("env") {
                 HostFunction::StorageSet
             } else {
@@ -200,7 +207,11 @@ fn classify_import(module: &str, name: &str) -> HostFunction {
             }
         }
         n if n.contains("remove") || n.contains("delete") => HostFunction::StorageRemove,
-        n if n.contains("get") || n.contains("read") || n.contains("has") || n.contains("contains") => {
+        n if n.contains("get")
+            || n.contains("read")
+            || n.contains("has")
+            || n.contains("contains") =>
+        {
             if module.contains("storage") || module.contains("env") {
                 HostFunction::StorageGet
             } else {
@@ -210,7 +221,9 @@ fn classify_import(module: &str, name: &str) -> HostFunction {
         n if n.contains("invoke") || n.contains("call") && !n.contains("callback") => {
             HostFunction::InvokeContract
         }
-        n if n.contains("panic") || n.contains("abort") || n.contains("trap") => HostFunction::Panic,
+        n if n.contains("panic") || n.contains("abort") || n.contains("trap") => {
+            HostFunction::Panic
+        }
         n if n.contains("ledger") || n.contains("sequence") => HostFunction::GetLedgerSequence,
         _ => HostFunction::Other(format!("{}.{}", module, name)),
     }
@@ -380,8 +393,12 @@ impl WasmBytecodeAnalyzer {
                 }
 
                 // Integer arithmetic — check for unchecked operations
-                Operator::I32Add | Operator::I32Sub | Operator::I32Mul
-                | Operator::I64Add | Operator::I64Sub | Operator::I64Mul => {
+                Operator::I32Add
+                | Operator::I32Sub
+                | Operator::I32Mul
+                | Operator::I64Add
+                | Operator::I64Sub
+                | Operator::I64Mul => {
                     let b = stack.pop().unwrap_or(AbstractValue::Unknown);
                     let a = stack.pop().unwrap_or(AbstractValue::Unknown);
                     let result = match (&a, &b) {
@@ -399,7 +416,9 @@ impl WasmBytecodeAnalyzer {
                         }
                         _ => {
                             // Non-constant operands: the result might overflow.
-                            if matches!(a, AbstractValue::Tainted) || matches!(b, AbstractValue::Tainted) {
+                            if matches!(a, AbstractValue::Tainted)
+                                || matches!(b, AbstractValue::Tainted)
+                            {
                                 analysis.unchecked_arithmetic = true;
                                 AbstractValue::PossiblyOverflowing
                             } else {
@@ -411,17 +430,25 @@ impl WasmBytecodeAnalyzer {
                 }
 
                 // Saturating / checked variants — safe
-                Operator::I32Clz | Operator::I32Ctz | Operator::I32Popcnt
-                | Operator::I64Clz | Operator::I64Ctz | Operator::I64Popcnt => {
+                Operator::I32Clz
+                | Operator::I32Ctz
+                | Operator::I32Popcnt
+                | Operator::I64Clz
+                | Operator::I64Ctz
+                | Operator::I64Popcnt => {
                     let _ = stack.pop();
                     stack.push(AbstractValue::BoundedInt { min: 0, max: 64 });
                 }
 
                 // Integer division — check for zero divisor potential
-                Operator::I32DivS | Operator::I32DivU
-                | Operator::I64DivS | Operator::I64DivU
-                | Operator::I32RemS | Operator::I32RemU
-                | Operator::I64RemS | Operator::I64RemU => {
+                Operator::I32DivS
+                | Operator::I32DivU
+                | Operator::I64DivS
+                | Operator::I64DivU
+                | Operator::I32RemS
+                | Operator::I32RemU
+                | Operator::I64RemS
+                | Operator::I64RemU => {
                     let divisor = stack.pop().unwrap_or(AbstractValue::Unknown);
                     let _ = stack.pop();
                     if !matches!(divisor, AbstractValue::Constant(n) if n != 0) {
@@ -470,35 +497,61 @@ impl WasmBytecodeAnalyzer {
                 }
 
                 // Stack manipulation
-                Operator::Drop => { stack.pop(); }
+                Operator::Drop => {
+                    stack.pop();
+                }
                 Operator::Select => {
                     let _ = stack.pop();
                     let b = stack.pop().unwrap_or(AbstractValue::Unknown);
                     let a = stack.pop().unwrap_or(AbstractValue::Unknown);
                     // Conservatively take the less-known of the two branches.
-                    stack.push(if a == AbstractValue::PossiblyOverflowing || b == AbstractValue::PossiblyOverflowing {
-                        AbstractValue::PossiblyOverflowing
-                    } else {
-                        AbstractValue::Unknown
-                    });
+                    stack.push(
+                        if a == AbstractValue::PossiblyOverflowing
+                            || b == AbstractValue::PossiblyOverflowing
+                        {
+                            AbstractValue::PossiblyOverflowing
+                        } else {
+                            AbstractValue::Unknown
+                        },
+                    );
                 }
 
                 // Loads push tainted values (come from memory, untrusted).
-                Operator::I32Load { .. } | Operator::I64Load { .. }
-                | Operator::I32Load8S { .. } | Operator::I32Load8U { .. }
-                | Operator::I32Load16S { .. } | Operator::I32Load16U { .. }
-                | Operator::I64Load8S { .. } | Operator::I64Load8U { .. } => {
+                Operator::I32Load { .. }
+                | Operator::I64Load { .. }
+                | Operator::I32Load8S { .. }
+                | Operator::I32Load8U { .. }
+                | Operator::I32Load16S { .. }
+                | Operator::I32Load16U { .. }
+                | Operator::I64Load8S { .. }
+                | Operator::I64Load8U { .. } => {
                     let _ = stack.pop(); // address
                     stack.push(AbstractValue::Tainted);
                 }
 
                 // Comparisons produce bounded 0/1.
-                Operator::I32Eqz | Operator::I32Eq | Operator::I32Ne
-                | Operator::I32LtS | Operator::I32LtU | Operator::I32GtS | Operator::I32GtU
-                | Operator::I32LeS | Operator::I32LeU | Operator::I32GeS | Operator::I32GeU
-                | Operator::I64Eqz | Operator::I64Eq | Operator::I64Ne
-                | Operator::I64LtS | Operator::I64LtU | Operator::I64GtS | Operator::I64GtU
-                | Operator::I64LeS | Operator::I64LeU | Operator::I64GeS | Operator::I64GeU => {
+                Operator::I32Eqz
+                | Operator::I32Eq
+                | Operator::I32Ne
+                | Operator::I32LtS
+                | Operator::I32LtU
+                | Operator::I32GtS
+                | Operator::I32GtU
+                | Operator::I32LeS
+                | Operator::I32LeU
+                | Operator::I32GeS
+                | Operator::I32GeU
+                | Operator::I64Eqz
+                | Operator::I64Eq
+                | Operator::I64Ne
+                | Operator::I64LtS
+                | Operator::I64LtU
+                | Operator::I64GtS
+                | Operator::I64GtU
+                | Operator::I64LeS
+                | Operator::I64LeU
+                | Operator::I64GeS
+                | Operator::I64GeU => {
                     // binary comparisons pop two, unary pops one
                     let _ = stack.pop();
                     let _ = stack.pop();
@@ -636,7 +689,9 @@ impl WasmBytecodeAnalyzer {
                 confidence: 0.85,
                 evidence: vec![ProofEvidence {
                     kind: "no_overflow_path".into(),
-                    description: "No arithmetic paths on tainted values detected in state-writing functions".into(),
+                    description:
+                        "No arithmetic paths on tainted values detected in state-writing functions"
+                            .into(),
                     location: None,
                 }],
                 counterexample: None,
@@ -699,7 +754,8 @@ impl WasmBytecodeAnalyzer {
             PropertyResult {
                 id: "P003".into(),
                 name: "Reentrancy Safety".into(),
-                description: "No state writes occur after cross-contract invocations (CEI pattern)".into(),
+                description: "No state writes occur after cross-contract invocations (CEI pattern)"
+                    .into(),
                 status: ProofStatus::Violated,
                 method: ProofMethod::ControlFlowAnalysis,
                 confidence: 0.88,
@@ -707,7 +763,8 @@ impl WasmBytecodeAnalyzer {
                     kind: "write_after_external_call".into(),
                     description: format!(
                         "{} function(s) write to storage after invoking external contracts: {}",
-                        reentrant.len(), names.join(", ")
+                        reentrant.len(),
+                        names.join(", ")
                     ),
                     location: names.first().cloned(),
                 }],
@@ -820,7 +877,10 @@ impl WasmBytecodeAnalyzer {
             .collect();
 
         let auth_fns = exported_fns.iter().filter(|f| f.calls_require_auth).count();
-        let no_auth_fns = exported_fns.iter().filter(|f| !f.calls_require_auth).count();
+        let no_auth_fns = exported_fns
+            .iter()
+            .filter(|f| !f.calls_require_auth)
+            .count();
 
         // If both guarded and unguarded functions exist, check that unguarded ones are read-only.
         let inconsistent: Vec<&&FunctionAnalysis> = exported_fns
@@ -892,7 +952,8 @@ impl WasmBytecodeAnalyzer {
                 confidence: 0.82,
                 evidence: vec![ProofEvidence {
                     kind: "no_interleaved_mutations".into(),
-                    description: "No functions combine storage writes with cross-contract calls".into(),
+                    description: "No functions combine storage writes with cross-contract calls"
+                        .into(),
                     location: None,
                 }],
                 counterexample: None,
@@ -913,12 +974,14 @@ impl WasmBytecodeAnalyzer {
                     kind: "mixed_writes_and_calls".into(),
                     description: format!(
                         "{} function(s) interleave storage writes with cross-contract calls: {}",
-                        non_atomic.len(), names.join(", ")
+                        non_atomic.len(),
+                        names.join(", ")
                     ),
                     location: names.first().cloned(),
                 }],
                 counterexample: Some(
-                    "Partial state update followed by external call — rollback may be impossible".into(),
+                    "Partial state update followed by external call — rollback may be impossible"
+                        .into(),
                 ),
             }
         }
@@ -937,7 +1000,9 @@ impl WasmBytecodeAnalyzer {
         let unauth_writes: Vec<String> = functions
             .iter()
             .filter(|f| {
-                facts.exports.contains_key(&f.index) && f.calls_storage_write && !f.calls_require_auth
+                facts.exports.contains_key(&f.index)
+                    && f.calls_storage_write
+                    && !f.calls_require_auth
             })
             .map(|f| f.name.clone().unwrap_or_else(|| format!("fn_{}", f.index)))
             .collect();
@@ -981,8 +1046,10 @@ impl WasmBytecodeAnalyzer {
                 cwe_id: Some("CWE-841".into()),
                 affected_functions: reentrant,
                 location: None,
-                remediation: "Follow the Checks-Effects-Interactions pattern: complete all storage \
-                              updates before making cross-contract calls.".into(),
+                remediation:
+                    "Follow the Checks-Effects-Interactions pattern: complete all storage \
+                              updates before making cross-contract calls."
+                        .into(),
             });
         }
 
@@ -1009,7 +1076,8 @@ impl WasmBytecodeAnalyzer {
                 affected_functions: overflow_risk,
                 location: None,
                 remediation: "Use Soroban's checked arithmetic primitives (checked_add, \
-                              checked_sub, checked_mul) and handle the Err case explicitly.".into(),
+                              checked_sub, checked_mul) and handle the Err case explicitly."
+                    .into(),
             });
         }
 
@@ -1061,7 +1129,8 @@ impl WasmBytecodeAnalyzer {
                 affected_functions: early_write,
                 location: None,
                 remediation: "Move require_auth to the very start of the function body, before \
-                              any reads or writes to storage.".into(),
+                              any reads or writes to storage."
+                    .into(),
             });
         }
 
@@ -1088,7 +1157,8 @@ impl WasmBytecodeAnalyzer {
                 affected_functions: loop_risk,
                 location: None,
                 remediation: "Cap loop iterations using a compile-time constant upper bound, \
-                              or reject inputs that would exceed it.".into(),
+                              or reject inputs that would exceed it."
+                    .into(),
             });
         }
 
@@ -1187,9 +1257,21 @@ mod tests {
 
     #[test]
     fn classify_imports_recognise_soroban_functions() {
-        assert_eq!(classify_import("env", "require_auth"), HostFunction::RequireAuth);
-        assert_eq!(classify_import("env", "storage_put"), HostFunction::StorageSet);
-        assert_eq!(classify_import("env", "storage_get"), HostFunction::StorageGet);
-        assert_eq!(classify_import("env", "invoke_contract"), HostFunction::InvokeContract);
+        assert_eq!(
+            classify_import("env", "require_auth"),
+            HostFunction::RequireAuth
+        );
+        assert_eq!(
+            classify_import("env", "storage_put"),
+            HostFunction::StorageSet
+        );
+        assert_eq!(
+            classify_import("env", "storage_get"),
+            HostFunction::StorageGet
+        );
+        assert_eq!(
+            classify_import("env", "invoke_contract"),
+            HostFunction::InvokeContract
+        );
     }
 }

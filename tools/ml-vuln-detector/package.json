@@ -1,0 +1,15 @@
+{
+  "name": "ml-vuln-detector",
+  "private": true,
+  "type": "commonjs",
+  "version": "0.1.0",
+  "description": "Explainable baseline ML vulnerability detector for Soroban Registry",
+  "bin": {
+    "ml-vuln-train": "bin/train.js",
+    "ml-vuln-scan": "bin/scan.js"
+  },
+  "scripts": {
+    "train": "node bin/train.js",
+    "scan": "node bin/scan.js"
+  }
+}

@@ -10,15 +10,23 @@ All API errors follow a consistent JSON structure:
 
 ```json
 {
-  "error_code": "BAD_REQUEST",
+  "code": "INVALID_FILTER",
   "message": "Human-readable error description",
+  "request_id": "550e8400-e29b-41d4-a716-446655440000",
   "details": {
-    "reason": "INVALID_CONTRACT_ID",
-    "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
+    "reason": "INVALID_FILTER",
+    "field": "network",
+    "allowed": ["mainnet", "testnet", "futurenet"]
   },
+  "error_code": "BAD_REQUEST",
+  "correlation_id": "550e8400-e29b-41d4-a716-446655440000",
   "timestamp": "2026-02-24T12:34:56Z"
 }
 ```
+
+`code` is the endpoint-specific machine-readable error code (for example `CONTRACT_NOT_FOUND`, `INVALID_FILTER`, `UNAUTHORIZED`, `RATE_LIMITED`).
+
+`error_code` remains available as a coarse-grained class derived from HTTP status.
 
 Supported top-level `error_code` values are standardized and derived from HTTP status classes:
 
@@ -55,9 +63,12 @@ INTERNAL_ERROR
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `error_code` | string | Standardized machine-readable error class |
+| `code` | string | Endpoint-specific machine-readable error code |
 | `message` | string | Human-readable error description |
+| `request_id` | string | Request tracing identifier |
 | `details` | object | Additional context (optional, varies by endpoint) |
+| `error_code` | string | Standardized error class derived from HTTP status |
+| `correlation_id` | string | Backward-compatible alias for request_id |
 | `timestamp` | string | ISO 8601 timestamp when error occurred |
 
 ## HTTP Status Codes

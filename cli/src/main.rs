@@ -1,9 +1,11 @@
 #![allow(unused_variables)]
 
 mod analyze;
+mod analytics;
 mod audit_command;
 mod backup;
 mod batch_register;
+mod batch_ops;
 mod batch_verify;
 mod cicd;
 mod codegen;
@@ -24,6 +26,7 @@ mod io_utils;
 mod manifest;
 mod migration;
 mod multisig;
+mod net;
 mod network;
 mod package_signing;
 mod patch;
@@ -33,18 +36,19 @@ mod shell;
 mod sla;
 mod table_format;
 mod test_framework;
-mod shell;
-mod track_deployment;
 mod track_deployment;
 mod webhook;
 mod wizard;
-mod shell;
 mod plugins;
 mod deploy;
 mod upgrade;
+mod compare;
+mod verification;
+mod user_config;
+mod version;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 use colored::Colorize;
 use patch::Severity;
 
@@ -64,9 +68,23 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub timeout: Option<u64>,
 
-    /// Enable verbose output (shows HTTP requests, responses, and debug info)
-    #[arg(long, short = 'v', global = true)]
-    pub verbose: bool,
+    /// Enable verbose output. Repeat to increase verbosity (-v, -vv, -vvv).
+    #[arg(
+        long,
+        short = 'v',
+        global = true,
+        action = ArgAction::Count,
+        long_help = "Enable verbose output. Repeat the flag to raise the log level:\n  \
+                     (none)  warn   — errors and warnings only (default)\n  \
+                     -v      info   — high-level operations\n  \
+                     -vv     debug  — HTTP requests, responses, and timing\n  \
+                     -vvv+   trace  — full internal tracing"
+    )]
+    pub verbose: u8,
+
+    /// Check for CLI updates before running the command.
+    #[arg(long, global = true)]
+    pub check_updates: bool,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -74,30 +92,36 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    /// Search for contracts in the registry
-    Search {
-        /// Search query
+    /// Query contract analytics and statistics
+    Analytics {
+        /// Query type: top-contracts, trending, by-category, by-network
         query: String,
-        /// Only show verified contracts
+        /// Time period: 7d, 30d, 90d, or RFC3339 range start..end
+        #[arg(long, default_value = "30d")]
+        period: String,
+        /// Output format: table, json, csv
+        #[arg(long, default_value = "table")]
+        format: String,
+        /// Sort mode: value_desc, value_asc, key_asc, key_desc
         #[arg(long)]
-        verified_only: bool,
-        /// Filter by one or more networks (comma-separated: mainnet,testnet,futurenet)
+        sort: Option<String>,
+        /// Export output to a file
         #[arg(long)]
-        network: Option<String>,
-        /// Filter by contract category (e.g. DEX, token, lending, oracle)
-        #[arg(long)]
-        category: Option<String>,
-        /// Maximum number of results to return
-        #[arg(long, default_value = "20")]
-        limit: usize,
-        /// Number of results to skip (for pagination)
-        #[arg(long, default_value = "0")]
-        offset: usize,
-        /// Output results as machine-readable JSON
-        #[arg(long)]
-        json: bool,
+        export: Option<String>,
     },
 
+    /// Get comprehensive registry statistics
+    Stats {
+        /// Timeframe: 7d, 30d, or all (default: all)
+        #[arg(long, default_value = "all")]
+        timeframe: String,
+        /// Output format: table, json, yaml
+        #[arg(long, default_value = "table")]
+        format: String,
+        /// Export to file
+        #[arg(long)]
+        output: Option<String>,
+    },
 
     /// Publish a new contract to the registry
     Publish {
@@ -179,8 +203,37 @@ pub enum Commands {
         id: String,
     },
 
+    /// Compare multiple contracts
+    Compare {
+        /// Contract IDs to compare (2 to 4 contracts)
+        #[arg(required = true, num_args = 2..=4)]
+        ids: Vec<String>,
+        
+        /// Output detailed comparison as JSON
+        #[arg(long)]
+        json: bool,
+        
+        /// Export comparison report to a file (csv or json)
+        #[arg(long)]
+        export: Option<String>,
+        
+        /// Export format (csv or json). Derived from file extension if not provided.
+        #[arg(long)]
+        format: Option<String>,
+    },
+
     /// Check CLI version and update availability
-    Version,
+    Version {
+        /// Check upstream for newer versions
+        #[arg(long, default_value_t = true)]
+        check_updates: bool,
+        /// Print update instructions immediately when newer version exists
+        #[arg(long, default_value_t = false)]
+        auto_update: bool,
+        /// Roll back to a previous version (manual install helper)
+        #[arg(long)]
+        rollback: Option<String>,
+    },
 
     /// Launch an interactive, real-time terminal dashboard
     Dashboard {
@@ -224,29 +277,53 @@ pub enum Commands {
         json: bool,
     },
 
-    /// Export a contract archive (.tar.gz)
+    /// Export contract registry data or a contract archive
     Export {
-        /// Contract registry ID (UUID)
+        /// Contract registry ID (UUID or on-chain address). Omit to export a filtered contract list.
         #[arg(long)]
-        id: String,
+        id: Option<String>,
 
-        /// Output archive path
-        #[arg(long, default_value = "contract-export.tar.gz")]
-        output: String,
+        /// Output file path. Defaults to contracts-export.<format> or contract-export.tar.gz for archive.
+        #[arg(long, short = 'o')]
+        output: Option<String>,
 
         /// Path to contract source directory
         #[arg(long, default_value = ".")]
         contract_dir: String,
+
+        /// Export format: json, csv, markdown, or archive
+        #[arg(long, short = 'f')]
+        format: Option<String>,
+
+        /// Filter to apply to registry exports, e.g. --filter network=mainnet --filter verified_only=true
+        #[arg(long = "filter")]
+        filters: Vec<String>,
+
+        /// Number of contracts to fetch per API page for list exports
+        #[arg(long, default_value_t = 100)]
+        page_size: usize,
     },
 
-    /// Import a contract from an archive
+    /// Import contract data from a file (JSON, CSV, or Archive)
     Import {
-        /// Path to the archive file
-        archive: String,
+        /// Path to the import file
+        file: String,
 
-        /// Directory to extract into
+        /// Format of the file (json | csv | archive). If omitted, inferred from extension.
+        #[arg(long)]
+        format: Option<String>,
+
+        /// Directory to extract into (only for archive format)
         #[arg(long, default_value = "./imported")]
         output_dir: String,
+
+        /// Validate the data before importing
+        #[arg(long)]
+        validate: bool,
+
+        /// Perform a dry run without actually importing
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Generate documentation from a contract WASM
@@ -276,10 +353,31 @@ pub enum Commands {
     /// Start an interactive contract deployment workflow
     Deploy {},
 
-    /// Manage contract versions
-    Version {
+    /// Manage contract semantic versions
+    #[command(name = "versions")]
+    VersionSemver {
         #[command(subcommand)]
         action: VersionCommands,
+    },
+
+    /// Perform batch operations on multiple contracts
+    Batch {
+        /// Operation: tag, categorize, verify, deprecate
+        operation: String,
+        /// Contract IDs
+        contracts: Vec<String>,
+        /// Optional file containing contract IDs (one per line)
+        #[arg(long)]
+        file: Option<String>,
+        /// Optional operation value (required for tag/categorize)
+        #[arg(long)]
+        value: Option<String>,
+        /// Roll back already-applied operations when any item fails
+        #[arg(long)]
+        rollback_on_error: bool,
+        /// Output JSON summary
+        #[arg(long)]
+        json: bool,
     },
 
     /// Manage contract upgrades and rollbacks
@@ -535,7 +633,7 @@ pub enum Commands {
     },
 
     /// Verify a signed contract package
-    Verify {
+    VerifyPackage {
         /// Path to the package file to verify
         package: String,
 
@@ -550,6 +648,41 @@ pub enum Commands {
         /// Signature (base64, optional - will lookup from registry if not provided)
         #[arg(long)]
         signature: Option<String>,
+    },
+
+    /// Verify a contract in the registry (check status, submit for audit, or show history)
+    Verify {
+        /// Contract UUID or on-chain address
+        #[arg(required_unless_present_any = ["history", "check"])]
+        id: Option<String>,
+
+        /// Submit for verification (requires id or local project)
+        #[arg(long, short = 's')]
+        submit: bool,
+
+        /// Check current verification status
+        #[arg(long, short = 'c')]
+        check: bool,
+
+        /// Show verification history
+        #[arg(long)]
+        history: bool,
+
+        /// Verification level: basic, intermediate, advanced
+        #[arg(long, default_value = "basic")]
+        level: String,
+
+        /// Output results as JSON
+        #[arg(long, short = 'j')]
+        json: bool,
+
+        /// Path to contract project directory (defaults to current dir)
+        #[arg(long, default_value = ".")]
+        path: String,
+
+        /// Optional notes for submission
+        #[arg(long)]
+        notes: Option<String>,
     },
 
     /// Verify a contract binary against an Ed25519 signature locally
@@ -843,13 +976,35 @@ pub enum CicdCommands {
 
 #[derive(Debug, Subcommand)]
 pub enum ConfigSubcommands {
-    Get {
+    /// Get a user config value by key
+    #[command(name = "get")]
+    UserGet {
+        key: String,
+    },
+    /// Set a user config value by key
+    #[command(name = "set")]
+    UserSet {
+        key: String,
+        value: String,
+    },
+    /// List all persisted user config values
+    #[command(name = "list")]
+    UserList {},
+    /// Reset user config to defaults
+    #[command(name = "reset")]
+    UserReset {},
+
+    /// Get contract environment configuration
+    #[command(name = "contract-get")]
+    ContractGet {
         #[arg(long)]
         contract_id: String,
         #[arg(long)]
         environment: String,
     },
-    Set {
+    /// Set contract environment configuration
+    #[command(name = "contract-set")]
+    ContractSet {
         #[arg(long)]
         contract_id: String,
         #[arg(long)]
@@ -861,13 +1016,17 @@ pub enum ConfigSubcommands {
         #[arg(long)]
         created_by: String,
     },
-    History {
+    /// Show contract config history
+    #[command(name = "contract-history")]
+    ContractHistory {
         #[arg(long)]
         contract_id: String,
         #[arg(long)]
         environment: String,
     },
-    Rollback {
+    /// Roll back contract config to a previous version
+    #[command(name = "contract-rollback")]
+    ContractRollback {
         #[arg(long)]
         contract_id: String,
         #[arg(long)]
@@ -1271,6 +1430,22 @@ pub enum ContractCommands {
         #[arg(long)]
         json: bool,
     },
+    
+    /// Display detailed information about a contract
+    ///
+    /// Usage: soroban-registry contract details <address> --network <network> [--json]
+    Details {
+        /// On-chain contract address to inspect
+        address: String,
+
+        /// Stellar network (mainnet | testnet | futurenet)
+        #[arg(long, default_value = "mainnet")]
+        network: String,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Sub-commands for the `webhook` group
@@ -1428,6 +1603,15 @@ pub enum UpgradeSubcommands {
 async fn main() -> Result<()> {
     let mut cli = Cli::parse();
 
+    if cli.check_updates {
+        let update_checks_enabled = user_config::load()
+            .map(|cfg| cfg.update_checks_enabled)
+            .unwrap_or(true);
+        if update_checks_enabled {
+            let _ = version::check_version(true, false, None).await;
+        }
+    }
+
     let cli_api_base = if cli.api_url.trim().is_empty() {
         None
     } else {
@@ -1439,13 +1623,17 @@ async fn main() -> Result<()> {
     cli.timeout = Some(runtime.timeout);
 
     // ── Initialise logger ─────────────────────────────────────────────────────
-    // --verbose / -v  →  DEBUG level (shows HTTP calls, payloads, timing)
-    // default         →  WARN level  (only errors and warnings)
-    let log_level = if cli.verbose { "debug" } else { "warn" };
+    // -v counts; each level raises verbosity by one step.
+    let log_level = match cli.verbose {
+        0 => "warn",
+        1 => "info",
+        2 => "debug",
+        _ => "trace",
+    };
     env_logger::Builder::new()
         .parse_filters(log_level)
         .format_timestamp(None) // no timestamps in CLI output
-        .format_module_path(cli.verbose) // show module path only in verbose
+        .format_module_path(cli.verbose > 0) // show module path only when verbose
         .init();
 
     log::debug!("Verbose mode enabled");
@@ -1484,6 +1672,26 @@ pub async fn dispatch_command(
             // We could call shell::run here again but to break recursion we don't.
             println!("{}", "Warning: REPL already running".yellow());
             return Ok(());
+        }
+        Commands::TrackDeployment {
+            contract_id,
+            network,
+            tx_hash,
+            wait_timeout,
+            json,
+        } => {
+            log::debug!(
+                "Command: track-deployment | contract_id={} network={} tx_hash={:?} wait_timeout={} json={}",
+                contract_id, network, tx_hash, wait_timeout, json
+            );
+            track_deployment::run(
+                &cli.api_url,
+                &contract_id,
+                &network,
+                tx_hash.as_deref(),
+                wait_timeout,
+                json,
+            ).await?;
         }
         Commands::Plugins { action } => match action {
             PluginCommands::List { json } => {
@@ -1597,6 +1805,7 @@ pub async fn dispatch_command(
             verified_only,
             network: filter_networks,
             category,
+            sort,
             limit,
             offset,
             json,
@@ -1605,11 +1814,12 @@ pub async fn dispatch_command(
                 .map(|n| n.split(',').map(|s| s.trim().to_string()).collect())
                 .unwrap_or_default();
             log::debug!(
-                "Command: search | query={:?} verified_only={} networks={:?} category={:?}",
+                "Command: search | query={:?} verified_only={} networks={:?} category={:?} sort={:?}",
                 query,
                 verified_only,
                 networks_vec,
-                category
+                category,
+                sort
             );
             commands::search(
                 &cli.api_url,
@@ -1618,6 +1828,7 @@ pub async fn dispatch_command(
                 verified_only,
                 networks_vec,
                 category.as_deref(),
+                sort.as_deref(),
                 limit,
                 offset,
                 json,
@@ -1627,8 +1838,33 @@ pub async fn dispatch_command(
         Commands::Info { id } => {
             commands::contract_info(&cli.api_url, &id).await?;
         }
-        Commands::Version => {
-            version::check_version().await?;
+        Commands::Compare { ids, json, export, format } => {
+            compare::run(&cli.api_url, ids, json, export.as_deref(), format.as_deref()).await?;
+        }
+        Commands::Analytics {
+            query,
+            period,
+            format,
+            sort,
+            export,
+        } => {
+            let parsed_query = analytics::AnalyticsQuery::parse(&query)?;
+            analytics::run(
+                &cli.api_url,
+                parsed_query,
+                &period,
+                &format,
+                sort.as_deref(),
+                export.as_deref(),
+            )
+            .await?;
+        }
+        Commands::Version {
+            check_updates,
+            auto_update,
+            rollback,
+        } => {
+            version::check_version(check_updates, auto_update, rollback).await?;
         }
         Commands::Publish {
             contract_id,
@@ -1779,20 +2015,40 @@ pub async fn dispatch_command(
             id,
             output,
             contract_dir,
-        } => {
-            log::debug!("Command: export | id={} output={}", id, output);
-            commands::export(&cli.api_url, &id, &output, &contract_dir).await?;
-        }
-        Commands::Import {
-            archive,
-            output_dir,
+            format,
+            filters,
+            page_size,
         } => {
             log::debug!(
-                "Command: import | archive={} output_dir={}",
-                archive,
-                output_dir
+                "Command: export | id={:?} output={:?} format={:?}",
+                id,
+                output,
+                format
             );
-            commands::import(&cli.api_url, &archive, network, &output_dir).await?;
+            commands::export(
+                &cli.api_url,
+                id.as_deref(),
+                output.as_deref(),
+                &contract_dir,
+                format.as_deref(),
+                filters,
+                page_size,
+            )
+            .await?;
+        }
+        Commands::Import {
+            file,
+            format,
+            output_dir,
+            validate,
+            dry_run,
+        } => {
+            let network = cli.network.as_deref();
+            log::debug!(
+                "Command: import | file={} format={:?} output_dir={} validate={} dry_run={}",
+                file, format, output_dir, validate, dry_run
+            );
+            crate::import::run(&cli.api_url, &file, format.as_deref(), network, &output_dir, validate, dry_run).await?;
         }
         Commands::Doc {
             contract_path,
@@ -1822,7 +2078,7 @@ pub async fn dispatch_command(
             log::debug!("Command: deploy");
             deploy::run_interactive().await?;
         }
-        Commands::Version { action } => match action {
+        Commands::VersionSemver { action } => match action {
             VersionCommands::List { contract_id } => {
                 log::debug!("Command: version list | contract_id={}", contract_id);
                 upgrade::version::list(&contract_id)?;
@@ -2122,13 +2378,34 @@ pub async fn dispatch_command(
             }
         },
         Commands::Config { action } => match action {
-            ConfigSubcommands::Get {
+            ConfigSubcommands::UserGet { key } => {
+                user_config::validate_key(&key)?;
+                let value = user_config::get_key(&key)?;
+                match value {
+                    Some(v) => println!("{}", v),
+                    None => anyhow::bail!("Key '{}' was not found in user config.", key),
+                }
+            }
+            ConfigSubcommands::UserSet { key, value } => {
+                user_config::set_key(&key, &value)?;
+                println!("Updated '{}' in user config.", key);
+            }
+            ConfigSubcommands::UserList {} => {
+                let cfg = user_config::list()?;
+                println!("{}", serde_json::to_string_pretty(&cfg)?);
+            }
+            ConfigSubcommands::UserReset {} => {
+                let cfg = user_config::reset_to_defaults()?;
+                println!("User config reset to defaults:");
+                println!("{}", serde_json::to_string_pretty(&cfg)?);
+            }
+            ConfigSubcommands::ContractGet {
                 contract_id,
                 environment,
             } => {
                 commands::config_get(&cli.api_url, &contract_id, &environment).await?;
             }
-            ConfigSubcommands::Set {
+            ConfigSubcommands::ContractSet {
                 contract_id,
                 environment,
                 config_data,
@@ -2145,13 +2422,13 @@ pub async fn dispatch_command(
                 )
                 .await?;
             }
-            ConfigSubcommands::History {
+            ConfigSubcommands::ContractHistory {
                 contract_id,
                 environment,
             } => {
                 commands::config_history(&cli.api_url, &contract_id, &environment).await?;
             }
-            ConfigSubcommands::Rollback {
+            ConfigSubcommands::ContractRollback {
                 contract_id,
                 environment,
                 version,
@@ -2257,14 +2534,14 @@ pub async fn dispatch_command(
             )
             .await?;
         }
-        Commands::Verify {
+        Commands::VerifyPackage {
             package,
             contract_id,
             version,
             signature,
         } => {
             log::debug!(
-                "Command: verify | package={} contract_id={}",
+                "Command: verify-package | package={} contract_id={}",
                 package,
                 contract_id
             );
@@ -2276,6 +2553,19 @@ pub async fn dispatch_command(
                 signature.as_deref(),
             )
             .await?;
+        }
+        Commands::Verify {
+            id,
+            submit,
+            check,
+            history,
+            level,
+            json,
+            path,
+            notes,
+        } => {
+            log::debug!("Command: verify | id={:?} submit={} check={}", id, submit, check);
+            verification::run(&cli.api_url, id, submit, check, history, level, json, &path, notes).await?;
         }
         Commands::VerifyContract {
             wasm_path,
@@ -2406,6 +2696,19 @@ pub async fn dispatch_command(
                     json
                 );
                 contract_verify::run(&cli.api_url, &address, &network, json).await?;
+            }
+            ContractCommands::Details {
+                address,
+                network,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract details | address={} network={} json={}",
+                    address,
+                    network,
+                    json
+                );
+                contracts::run_details(&cli.api_url, &address, &network, json).await?;
             }
         },
         // ── Release Notes commands ───────────────────────────────────────────
@@ -2576,7 +2879,73 @@ pub async fn dispatch_command(
             )
             .await?;
         }
+        Commands::Batch {
+            operation,
+            contracts,
+            file,
+            value,
+            rollback_on_error,
+            json,
+        } => {
+            let op = batch_ops::BatchOperation::parse(&operation)?;
+            batch_ops::run(
+                &cli.api_url,
+                op,
+                contracts,
+                file.as_deref(),
+                value.as_deref(),
+                rollback_on_error,
+                json,
+            )
+            .await?;
+        }
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod verbose_flag_tests {
+    use super::*;
+    use clap::Parser;
+
+    fn parse(args: &[&str]) -> Cli {
+        Cli::try_parse_from(args).expect("CLI should parse")
+    }
+
+    #[test]
+    fn no_flag_yields_zero() {
+        let cli = parse(&["soroban-registry", "version"]);
+        assert_eq!(cli.verbose, 0);
+    }
+
+    #[test]
+    fn single_short_flag_yields_one() {
+        let cli = parse(&["soroban-registry", "-v", "version"]);
+        assert_eq!(cli.verbose, 1);
+    }
+
+    #[test]
+    fn repeated_short_flags_count() {
+        let cli = parse(&["soroban-registry", "-v", "-v", "-v", "version"]);
+        assert_eq!(cli.verbose, 3);
+    }
+
+    #[test]
+    fn stacked_short_flag_counts() {
+        let cli = parse(&["soroban-registry", "-vvv", "version"]);
+        assert_eq!(cli.verbose, 3);
+    }
+
+    #[test]
+    fn long_flag_counts_too() {
+        let cli = parse(&["soroban-registry", "--verbose", "--verbose", "version"]);
+        assert_eq!(cli.verbose, 2);
+    }
+
+    #[test]
+    fn verbose_works_after_subcommand_when_global() {
+        let cli = parse(&["soroban-registry", "version", "-vv"]);
+        assert_eq!(cli.verbose, 2);
+    }
 }

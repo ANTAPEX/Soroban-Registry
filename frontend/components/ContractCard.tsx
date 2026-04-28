@@ -1,14 +1,20 @@
-import type { Contract } from '@/lib/api';
+import type { Contract } from '@/types';
 import {
+  Box,
   Check,
   CheckCircle2,
   Clock,
   Copy,
   ExternalLink,
   Eye,
+  Flame,
   Layers3,
+  RefreshCw,
+  Sparkles,
   Tag,
+  Star,
 } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React from 'react';
@@ -16,31 +22,44 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import { useCopy } from '@/hooks/useCopy';
 import { formatContractId } from '@/lib/utils/formatting';
 import { useTranslation } from '@/lib/i18n/client';
+import { generateSolidPlaceholder } from '@/lib/images';
 import VerificationBadge from '@/components/verification/VerificationBadge';
 import HealthWidget from './HealthWidget';
 import ContractQuickViewModal from './contracts/ContractQuickViewModal';
 import FavoriteButton from './FavoriteButton';
 
+const LOGO_SIZE_PX = 40;
+const LOGO_PLACEHOLDER = generateSolidPlaceholder('#e5e7eb');
+
 interface ContractCardProps {
   contract: Contract;
+  sortBy?: 'created_at' | 'updated_at' | 'popularity' | 'relevance';
 }
 
-export default function ContractCard({ contract }: ContractCardProps) {
+const SORT_ICON_META = {
+  created_at: { icon: Clock, label: 'Sorted by newest' },
+  updated_at: { icon: RefreshCw, label: 'Sorted by last updated' },
+  popularity: { icon: Flame, label: 'Sorted by popularity' },
+  relevance: { icon: Sparkles, label: 'Sorted by relevance' },
+} as const;
+
+export default function ContractCard({ contract, sortBy }: ContractCardProps) {
   const { t } = useTranslation('common');
   const { logEvent } = useAnalytics();
   const router = useRouter();
   const { copy, copied, isCopying } = useCopy();
   const [quickViewOpen, setQuickViewOpen] = React.useState(false);
+  const [logoError, setLogoError] = React.useState(false);
 
   const networkColors = {
-    mainnet: 'bg-green-500/10 text-green-600 border-green-500/20',
-    testnet: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
-    futurenet: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
+    mainnet: 'bg-green-500/10 text-green-500 border-green-500/20',
+    testnet: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+    futurenet: 'bg-purple-500/10 text-purple-500 border-purple-500/20',
   };
   const networkDots = {
-    mainnet: 'bg-green-500',
-    testnet: 'bg-blue-500',
-    futurenet: 'bg-purple-500',
+    mainnet: 'bg-green-400',
+    testnet: 'bg-blue-400',
+    futurenet: 'bg-purple-400',
   };
 
   const address = formatContractId(contract.contract_id);
@@ -104,13 +123,46 @@ export default function ContractCard({ contract }: ContractCardProps) {
           <div className="absolute inset-0 bg-linear-to-br from-primary/5 to-secondary/5 opacity-0 transition-opacity group-hover:opacity-100" />
 
           <div className="relative flex h-full flex-col p-6">
+            {sortBy && SORT_ICON_META[sortBy] && (
+              <span
+                className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-border bg-background/95 px-2 py-1 text-[10px] font-semibold text-muted-foreground"
+                aria-label={SORT_ICON_META[sortBy].label}
+                title={SORT_ICON_META[sortBy].label}
+              >
+                {React.createElement(SORT_ICON_META[sortBy].icon, { className: 'h-3 w-3' })}
+              </span>
+            )}
+
             <div className="mb-3 flex items-start justify-between gap-3">
+              <div
+                className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-accent"
+                style={{ width: LOGO_SIZE_PX, height: LOGO_SIZE_PX }}
+                aria-hidden="true"
+              >
+                {contract.logo_url && !logoError ? (
+                  <Image
+                    src={contract.logo_url}
+                    alt=""
+                    width={LOGO_SIZE_PX}
+                    height={LOGO_SIZE_PX}
+                    sizes={`${LOGO_SIZE_PX}px`}
+                    placeholder="blur"
+                    blurDataURL={LOGO_PLACEHOLDER}
+                    loading="lazy"
+                    onError={() => setLogoError(true)}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <Box className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
+
               <div className="min-w-0 flex-1">
                 <div className="mb-1 flex items-center gap-2">
                   <h3 className="truncate text-lg font-semibold text-foreground transition-colors group-hover:text-primary">
                     {contract.name}
                   </h3>
-                  {contract.is_verified && <VerificationBadge status="approved" />}
+                  <VerificationBadge status={contract.is_verified ? 'approved' : 'unverified'} level={contract.verification_level} />
                 </div>
                 <p className="font-mono text-xs text-muted-foreground">
                   {address}
@@ -130,16 +182,7 @@ export default function ContractCard({ contract }: ContractCardProps) {
                 <Tag className="h-3 w-3 shrink-0" />
                 <span className="truncate">{categoryLabel}</span>
               </span>
-              <span
-                className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                  contract.is_verified
-                    ? 'bg-green-500/10 text-green-500 border-green-500/20'
-                    : 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20'
-                }`}
-              >
-                <CheckCircle2 className="h-3 w-3" />
-                {contract.is_verified ? t('contractCard.verified') : t('contractCard.pending')}
-              </span>
+              <VerificationBadge status={contract.is_verified ? 'approved' : 'unverified'} level={contract.verification_level} />
             </div>
 
             {contract.description && (
@@ -200,7 +243,14 @@ export default function ContractCard({ contract }: ContractCardProps) {
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                 <span>{copied ? t('contractCard.copied') : t('contractCard.copyAddress')}</span>
               </button>
-              <FavoriteButton contractId={contract.id} size="sm" />
+              <div className="ml-auto flex items-center gap-1">
+                <FavoriteButton contractId={contract.id} size="sm" />
+                {contract.favorites_count !== undefined && (
+                  <span className="text-xs text-muted-foreground ml-1 font-medium bg-accent px-1.5 py-0.5 rounded-md">
+                    {contract.favorites_count}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>

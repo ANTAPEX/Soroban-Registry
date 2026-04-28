@@ -11,7 +11,10 @@ use uuid::Uuid;
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Represents a tag that can be attached to a contract
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema, PartialEq)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema, PartialEq, sqlx::Type,
+)]
+#[sqlx(type_name = "tag")]
 pub struct Tag {
     pub id: Uuid,
     pub name: String,
@@ -50,6 +53,7 @@ pub struct Contract {
     /// Overall verification status for the contract (unverified, pending, verified, failed)
     pub verification_status: VerificationStatus,
     pub category: Option<String>,
+    #[sqlx(skip)]
     #[serde(default)]
     pub tags: Vec<Tag>,
     pub created_at: DateTime<Utc>,
@@ -61,17 +65,18 @@ pub struct Contract {
     /// Optional notes attached to the verification
     pub verification_notes: Option<String>,
     pub last_accessed_at: Option<DateTime<Utc>>,
-    #[serde(default)]
+    #[sqlx(default)]
     pub health_score: i32,
-    #[serde(default)]
+    #[sqlx(default)]
     pub is_maintenance: bool,
     /// Groups rows that represent the same logical contract across networks (Issue #43)
-    #[serde(default)]
+    #[sqlx(default)]
     pub logical_id: Option<Uuid>,
     /// Per-network config: { "mainnet": { contract_id, is_verified, min_version, max_version }, ... }
-    #[serde(default)]
+    #[sqlx(default)]
     pub network_configs: Option<serde_json::Value>,
     /// Search relevance score (calculated at runtime)
+    #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relevance_score: Option<f64>,
     /// Organization that owns this contract (for private registries)
@@ -81,6 +86,9 @@ pub struct Contract {
     /// The currently active version string for this contract (Issue #486)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_version: Option<String>,
+    /// Number of times this contract has been accessed via API
+    #[serde(default)]
+    pub usage_count: i64,
 }
 
 #[derive(
@@ -298,6 +306,44 @@ pub enum UpgradeStrategy {
     ShadowContract,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq)]
+#[sqlx(type_name = "source_format_type", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum SourceFormat {
+    Rust,
+    Wasm,
+}
+
+/// Supported source storage backends
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StorageBackend {
+    Local,
+    S3,
+    Gcs,
+}
+
+impl std::fmt::Display for StorageBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StorageBackend::Local => write!(f, "local"),
+            StorageBackend::S3 => write!(f, "s3"),
+            StorageBackend::Gcs => write!(f, "gcs"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct ContractSource {
+    pub id: Uuid,
+    pub contract_version_id: Uuid,
+    pub source_format: SourceFormat,
+    pub storage_backend: String,
+    pub storage_key: String,
+    pub source_hash: String,
+    pub source_size: i64,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Contract version information
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct ContractVersion {
@@ -309,15 +355,19 @@ pub struct ContractVersion {
     pub commit_hash: Option<String>,
     pub release_notes: Option<String>,
     pub created_at: DateTime<Utc>,
+    #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state_schema: Option<serde_json::Value>,
     /// Optional Ed25519 signature over "{contract_id}:{version}:{wasm_hash}"
+    #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
     /// Publisher's public key corresponding to the signature (base64-encoded ed25519 key)
+    #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publisher_key: Option<String>,
     /// Signature algorithm identifier (e.g. "ed25519")
+    #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature_algorithm: Option<String>,
     /// Structured notes describing what changed in this version (Issue #486)
@@ -329,6 +379,35 @@ pub struct ContractVersion {
     /// The version string that was reverted to, when is_revert = true (Issue #486)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reverted_from: Option<String>,
+}
+
+/// Represents a historical version of contract metadata (#729)
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct ContractMetadataVersion {
+    pub id: Uuid,
+    pub contract_id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub name: String,
+    pub description: Option<String>,
+    pub category: Option<String>,
+    pub tags: Vec<String>,
+    pub change_summary: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Represents a difference in a single field of metadata (#729)
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct MetadataDiff {
+    pub field: String,
+    pub old_value: Option<serde_json::Value>,
+    pub new_value: Option<serde_json::Value>,
+}
+
+/// Response containing the metadata history for a contract (#729)
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct MetadataHistoryResponse {
+    pub contract_id: Uuid,
+    pub versions: Vec<ContractMetadataVersion>,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -511,6 +590,7 @@ pub struct GraphNode {
     pub network: Network,
     pub is_verified: bool,
     pub category: Option<String>,
+    #[sqlx(skip)]
     pub tags: Vec<Tag>,
 }
 
@@ -977,6 +1057,12 @@ pub struct ContractSearchParams {
     pub verified_to: Option<DateTime<Utc>>,
     pub last_accessed_from: Option<DateTime<Utc>>,
     pub last_accessed_to: Option<DateTime<Utc>>,
+    // Weights for ranking
+    pub w_text: Option<f64>,
+    pub w_pop: Option<f64>,
+    pub w_rec: Option<f64>,
+    pub w_rat: Option<f64>,
+    pub user_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
@@ -1020,6 +1106,7 @@ pub struct ContractMetadataExportRecord {
     pub network: String,
     pub is_verified: bool,
     pub category: Option<String>,
+    #[sqlx(skip)]
     pub tags: Vec<Tag>,
     pub maturity: Option<String>,
     pub health_score: i32,
@@ -1134,10 +1221,9 @@ mod tests {
 
     #[test]
     fn parses_comma_separated_networks() {
-        let params: ContractSearchParams = serde_json::from_str(
-            r#"{"networks":"mainnet,testnet"}"#,
-        )
-        .expect("query params should deserialize");
+        let params: ContractSearchParams =
+            serde_json::from_str(r#"{"networks":"mainnet,testnet"}"#)
+                .expect("query params should deserialize");
 
         assert_eq!(
             params.networks,
@@ -1147,10 +1233,9 @@ mod tests {
 
     #[test]
     fn parses_sequence_networks() {
-        let params: ContractSearchParams = serde_json::from_str(
-            r#"{"networks":["mainnet","futurenet"]}"#,
-        )
-        .expect("query params should deserialize");
+        let params: ContractSearchParams =
+            serde_json::from_str(r#"{"networks":["mainnet","futurenet"]}"#)
+                .expect("query params should deserialize");
 
         assert_eq!(
             params.networks,
@@ -1173,18 +1258,6 @@ pub struct SaveFavoriteSearchRequest {
     pub user_address: String,
     pub name: String,
     pub query_json: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
-pub struct ContractSource {
-    pub id: Uuid,
-    pub contract_version_id: Uuid,
-    pub source_format: String,
-    pub storage_backend: String,
-    pub storage_key: String,
-    pub source_hash: String,
-    pub source_size: i64,
-    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -1924,10 +1997,10 @@ pub struct ContractPerformanceSummaryResponse {
     pub contract_id: Uuid,
     pub latest_benchmarks: Vec<PerformanceBenchmark>,
     pub metric_snapshots: Vec<PerformanceMetricSnapshot>,
-    pub trend_points: Vec<PerformanceTrendPoint>,
+    pub trends: Vec<PerformanceTrendPoint>,
     pub regressions: Vec<PerformanceRegression>,
-    pub recent_anomalies: Vec<PerformanceAnomaly>,
-    pub recent_alerts: Vec<PerformanceAlert>,
+    pub comparisons: Vec<PerformanceComparisonEntry>,
+    pub unresolved_alerts: Vec<PerformanceAlert>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -2253,6 +2326,7 @@ pub struct TrendingContract {
     pub network: Network,
     pub is_verified: bool,
     pub category: Option<String>,
+    #[sqlx(skip)]
     #[serde(default)]
     pub tags: Vec<Tag>,
     pub created_at: DateTime<Utc>,
@@ -2923,6 +2997,81 @@ pub struct ContractRecommendationsResponse {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// COLLABORATIVE REVIEWS (Issue #502)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq, utoipa::ToSchema)]
+#[sqlx(type_name = "collaborative_review_status", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum CollaborativeReviewStatus {
+    Pending,
+    Approved,
+    ChangesRequested,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct CollaborativeReview {
+    pub id: Uuid,
+    pub contract_id: Uuid,
+    pub version: String,
+    pub status: CollaborativeReviewStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct CollaborativeReviewer {
+    pub id: Uuid,
+    pub review_id: Uuid,
+    pub user_id: Uuid,
+    pub status: CollaborativeReviewStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct CollaborativeComment {
+    pub id: Uuid,
+    pub review_id: Uuid,
+    pub user_id: Uuid,
+    pub content: String,
+    pub line_number: Option<i32>,
+    pub file_path: Option<String>,
+    pub abi_path: Option<String>,
+    pub parent_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateCollaborativeReviewRequest {
+    pub contract_id: Uuid,
+    pub version: String,
+    pub reviewer_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AddCollaborativeCommentRequest {
+    pub content: String,
+    pub line_number: Option<i32>,
+    pub file_path: Option<String>,
+    pub abi_path: Option<String>,
+    pub parent_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateReviewerStatusRequest {
+    pub status: CollaborativeReviewStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CollaborativeReviewDetails {
+    pub review: CollaborativeReview,
+    pub reviewers: Vec<CollaborativeReviewer>,
+    pub comments: Vec<CollaborativeComment>,
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ADVANCED CONTRACT DEPENDENCIES (issue #417)
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -3021,46 +3170,6 @@ pub struct DiffSummary {
     pub features_count: i32,
     pub fixes_count: i32,
     pub breaking_count: i32,
-}
-
-/// Stored release notes generation record
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct ReleaseNotesGenerated {
-    pub id: Uuid,
-    pub contract_id: Uuid,
-    pub version: String,
-    pub previous_version: Option<String>,
-    pub diff_summary: serde_json::Value,
-    pub changelog_entry: Option<String>,
-    pub notes_text: String,
-    pub status: ReleaseNotesStatus,
-    pub generated_by: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub published_at: Option<DateTime<Utc>>,
-}
-
-/// Request to auto-generate release notes for a contract version
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GenerateReleaseNotesRequest {
-    pub version: String,
-    pub previous_version: Option<String>,
-    pub source_url: Option<String>,
-    pub changelog_content: Option<String>,
-    pub contract_address: Option<String>,
-}
-
-/// Request to manually edit release notes before publishing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateReleaseNotesRequest {
-    pub notes_text: String,
-}
-
-/// Request to publish (finalize) release notes
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PublishReleaseNotesRequest {
-    #[serde(default = "default_true")]
-    pub update_version_record: bool,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3221,51 +3330,9 @@ pub struct BatchGasEstimateResponse {
     pub not_found: Vec<String>,
 }
 
-fn default_true() -> bool {
-    true
-}
-
-/// Full response for generated release notes
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReleaseNotesResponse {
-    pub id: Uuid,
-    pub contract_id: Uuid,
-    pub version: String,
-    pub previous_version: Option<String>,
-    pub diff_summary: DiffSummary,
-    pub changelog_entry: Option<String>,
-    pub notes_text: String,
-    pub status: ReleaseNotesStatus,
-    pub generated_by: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub published_at: Option<DateTime<Utc>>,
-}
-
 // ────────────────────────────────────────────────────────────────────────────
 // Contract changelog (release history)
 // ────────────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct ContractChangelogEntry {
-    pub version: String,
-    pub created_at: DateTime<Utc>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub commit_hash: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub release_notes: Option<String>,
-    pub breaking: bool,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub breaking_changes: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct ContractChangelogResponse {
-    pub contract_id: Uuid,
-    pub entries: Vec<ContractChangelogEntry>,
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ANALYTICS DASHBOARD (issue #430)
@@ -3773,6 +3840,17 @@ pub enum IssueSeverity {
     Critical,
 }
 
+impl std::fmt::Display for IssueSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Low => write!(f, "low"),
+            Self::Medium => write!(f, "medium"),
+            Self::High => write!(f, "high"),
+            Self::Critical => write!(f, "critical"),
+        }
+    }
+}
+
 /// Security issue status
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq)]
 #[sqlx(type_name = "issue_status_type", rename_all = "snake_case")]
@@ -3898,7 +3976,7 @@ pub struct ContractSecuritySummary {
 }
 
 /// Summary of a single security scan
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct SecurityScanSummary {
     pub id: Uuid,
     pub status: ScanStatus,
@@ -3953,6 +4031,16 @@ pub enum NotificationFrequency {
     Realtime,
     DailyDigest,
     WeeklyDigest,
+}
+
+impl std::fmt::Display for NotificationFrequency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Realtime => write!(f, "realtime"),
+            Self::DailyDigest => write!(f, "daily_digest"),
+            Self::WeeklyDigest => write!(f, "weekly_digest"),
+        }
+    }
 }
 
 /// Subscription status
@@ -4047,6 +4135,9 @@ pub struct WebhookConfiguration {
     pub last_success_at: Option<DateTime<Utc>>,
     pub last_failure_at: Option<DateTime<Utc>>,
     pub consecutive_failures: i32,
+    /// Signing secret — only populated in the creation response, never in reads.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -4090,7 +4181,7 @@ pub struct UserSubscriptionsResponse {
 }
 
 /// Summary of a contract subscription
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct ContractSubscriptionSummary {
     pub id: Uuid,
     pub contract_id: Uuid,
@@ -4144,10 +4235,10 @@ impl std::fmt::Display for ZkProofSystem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             ZkProofSystem::Groth16 => "groth16",
-            ZkProofSystem::Plonk   => "plonk",
-            ZkProofSystem::Stark   => "stark",
-            ZkProofSystem::Marlin  => "marlin",
-            ZkProofSystem::Fflonk  => "fflonk",
+            ZkProofSystem::Plonk => "plonk",
+            ZkProofSystem::Stark => "stark",
+            ZkProofSystem::Marlin => "marlin",
+            ZkProofSystem::Fflonk => "fflonk",
         };
         write!(f, "{}", s)
     }
@@ -4180,9 +4271,9 @@ impl std::fmt::Display for ZkProofStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             ZkProofStatus::Pending => "pending",
-            ZkProofStatus::Valid   => "valid",
+            ZkProofStatus::Valid => "valid",
             ZkProofStatus::Invalid => "invalid",
-            ZkProofStatus::Error   => "error",
+            ZkProofStatus::Error => "error",
         };
         write!(f, "{}", s)
     }
@@ -4323,4 +4414,131 @@ pub struct ZkCircuitSummary {
     pub num_constraints: Option<i64>,
     pub compiled_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_contract_usage_count_serialization() {
+        // Test that Contract can be serialized with usage_count
+        let contract = Contract {
+            id: Uuid::new_v4(),
+            contract_id: "C123".to_string(),
+            wasm_hash: "hash123".to_string(),
+            name: "Test Contract".to_string(),
+            slug: "test-contract".to_string(),
+            description: Some("A test contract".to_string()),
+            publisher_id: Uuid::new_v4(),
+            network: Network::Mainnet,
+            is_verified: true,
+            verification_status: VerificationStatus::Verified,
+            category: Some("DeFi".to_string()),
+            tags: vec![],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            verified_at: Some(Utc::now()),
+            deployed_at: None,
+            verified_by: Some(Uuid::new_v4()),
+            verification_notes: None,
+            last_accessed_at: Some(Utc::now()),
+            health_score: 100,
+            is_maintenance: false,
+            logical_id: None,
+            network_configs: None,
+            relevance_score: None,
+            organization_id: None,
+            visibility: VisibilityType::Public,
+            current_version: Some("1.0.0".to_string()),
+            usage_count: 42,
+        };
+
+        let json = serde_json::to_string(&contract).expect("Failed to serialize contract");
+        assert!(json.contains("\"usage_count\":42"));
+
+        let deserialized: Contract = serde_json::from_str(&json).expect("Failed to deserialize contract");
+        assert_eq!(deserialized.usage_count, 42);
+    }
+
+    #[test]
+    fn test_contract_usage_count_backward_compatibility() {
+        // Test that Contract can be deserialized from JSON without usage_count field
+        // This simulates backward compatibility with existing API responses
+        let json_without_usage_count = r#"{
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "contract_id": "C123",
+            "wasm_hash": "hash123",
+            "name": "Test Contract",
+            "slug": "test-contract",
+            "description": "A test contract",
+            "publisher_id": "550e8400-e29b-41d4-a716-446655440001",
+            "network": "mainnet",
+            "is_verified": true,
+            "verification_status": "Verified",
+            "category": "DeFi",
+            "tags": [],
+            "created_at": "2023-10-27T10:00:00Z",
+            "updated_at": "2023-10-27T10:00:00Z",
+            "verified_at": "2023-10-27T10:00:00Z",
+            "verified_by": "550e8400-e29b-41d4-a716-446655440002",
+            "verification_notes": null,
+            "last_accessed_at": "2023-10-27T10:00:00Z",
+            "health_score": 100,
+            "is_maintenance": false,
+            "logical_id": null,
+            "network_configs": null,
+            "relevance_score": null,
+            "organization_id": null,
+            "visibility": "public",
+            "current_version": "1.0.0"
+        }"#;
+
+        let contract: Contract = serde_json::from_str(json_without_usage_count)
+            .expect("Failed to deserialize contract without usage_count");
+        
+        // usage_count should default to 0 due to #[serde(default)]
+        assert_eq!(contract.usage_count, 0);
+        assert_eq!(contract.name, "Test Contract");
+        assert_eq!(contract.contract_id, "C123");
+    }
+
+    #[test]
+    fn test_contract_usage_count_with_explicit_zero() {
+        // Test that explicit zero value works correctly
+        let json_with_zero_usage = r#"{
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "contract_id": "C123",
+            "wasm_hash": "hash123",
+            "name": "Test Contract",
+            "slug": "test-contract",
+            "description": "A test contract",
+            "publisher_id": "550e8400-e29b-41d4-a716-446655440001",
+            "network": "mainnet",
+            "is_verified": true,
+            "verification_status": "Verified",
+            "category": "DeFi",
+            "tags": [],
+            "created_at": "2023-10-27T10:00:00Z",
+            "updated_at": "2023-10-27T10:00:00Z",
+            "verified_at": "2023-10-27T10:00:00Z",
+            "verified_by": "550e8400-e29b-41d4-a716-446655440002",
+            "verification_notes": null,
+            "last_accessed_at": "2023-10-27T10:00:00Z",
+            "health_score": 100,
+            "is_maintenance": false,
+            "logical_id": null,
+            "network_configs": null,
+            "relevance_score": null,
+            "organization_id": null,
+            "visibility": "public",
+            "current_version": "1.0.0",
+            "usage_count": 0
+        }"#;
+
+        let contract: Contract = serde_json::from_str(json_with_zero_usage)
+            .expect("Failed to deserialize contract with zero usage_count");
+        
+        assert_eq!(contract.usage_count, 0);
+    }
 }

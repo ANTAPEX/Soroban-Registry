@@ -6,8 +6,18 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import Navbar from "@/components/Navbar";
-import ContractDiffViewer from "@/components/ContractDiffViewer";
+import dynamic from "next/dynamic";
 import { ArrowLeft, GitCompare } from "lucide-react";
+
+const ContractDiffViewer = dynamic(() => import("@/components/ContractDiffViewer"), {
+  ssr: false,
+  loading: () => (
+    <div className="rounded-2xl border border-border bg-card p-6 animate-pulse">
+      <div className="h-5 w-40 rounded bg-border mb-3" />
+      <div className="h-3 w-64 rounded bg-border" />
+    </div>
+  ),
+});
 
 function DiffPageContent() {
   const params = useParams<{ id?: string | string[] }>();

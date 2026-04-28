@@ -32,13 +32,12 @@ pub async fn get_favorites(
 ) -> ApiResult<Json<UserFavoritesPreferences>> {
     let publisher_id = auth_user.publisher_id;
 
-    let row: Option<(serde_json::Value,)> = sqlx::query_as(
-        "SELECT favorites FROM user_preferences WHERE publisher_id = $1",
-    )
-    .bind(publisher_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let row: Option<(serde_json::Value,)> =
+        sqlx::query_as("SELECT favorites FROM user_preferences WHERE publisher_id = $1")
+            .bind(publisher_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let favorites = match row {
         Some((val,)) => parse_favorites_json(val),

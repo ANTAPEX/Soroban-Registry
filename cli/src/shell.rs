@@ -14,8 +14,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::Cli;
-
 pub struct ShellContext {
     pub api_url: String,
     pub contract_id: Option<String>,
@@ -76,6 +74,7 @@ pub async fn run(api_url: &str, initial_network: Option<String>) -> Result<()> {
         helper.update_vars(&context);
     }
     let _ = rl.load_history(&history_path);
+    rl.set_max_history_size(1000);
 
     println!("\n{}", "Soroban Registry REPL".bold().cyan());
     println!("Start with 'help' or run any CLI command.");

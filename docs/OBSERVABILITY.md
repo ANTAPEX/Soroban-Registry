@@ -205,6 +205,18 @@ soroban_sli_availability > 0.999
 1 - soroban_slo_burn_rate{slo="availability"}
 ```
 
+## Error Logging
+
+Structured error reporting is available for both API and frontend failures.
+
+- Backend `ApiError` responses emit structured logs with request/correlation IDs.
+- Frontend error boundaries normalize errors, redact common secrets, and POST reports to `POST /api/errors/report`.
+- Error reports are stored in `error_logs` with indexes for `created_at`, `severity`, `category`, and `request_id`.
+- `GET /api/errors/dashboard` returns a 24-hour summary by severity/category plus recent critical errors.
+- Critical reports emit an `alert=true` structured log field so log pipelines can route them to Alertmanager, Slack, or PagerDuty.
+
+Sensitive keys containing `password`, `secret`, `token`, `api_key`, `authorization`, or `cookie` are replaced with `[REDACTED]` before persistence.
+
 ## Logging
 
 ### Structured JSON Logging

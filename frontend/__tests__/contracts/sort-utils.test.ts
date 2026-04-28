@@ -31,22 +31,22 @@ describe('contracts sort utils', () => {
   });
 
   test('resolveInitialSortPreference prefers persisted sort when URL does not override it', () => {
-    persistSortPreference({ sort_by: 'rating', sort_order: 'asc' }, window.localStorage);
+    persistSortPreference({ sort_by: 'updated_at', sort_order: 'asc' }, window.localStorage);
 
     const preference = resolveInitialSortPreference(new URLSearchParams(''), window.localStorage);
 
-    expect(preference).toEqual({ sort_by: 'rating', sort_order: 'asc' });
+    expect(preference).toEqual({ sort_by: 'updated_at', sort_order: 'asc' });
   });
 
   test('resolveInitialSortPreference prefers URL over persisted sort', () => {
-    persistSortPreference({ sort_by: 'rating', sort_order: 'asc' }, window.localStorage);
+    persistSortPreference({ sort_by: 'updated_at', sort_order: 'asc' }, window.localStorage);
 
     const preference = resolveInitialSortPreference(
-      new URLSearchParams('sort_by=name&sort_order=desc'),
+      new URLSearchParams('sort_by=updated_at&sort_order=desc'),
       window.localStorage,
     );
 
-    expect(preference).toEqual({ sort_by: 'name', sort_order: 'desc' });
+    expect(preference).toEqual({ sort_by: 'updated_at', sort_order: 'desc' });
   });
 
   test('persistSortPreference writes a stable JSON payload', () => {
@@ -73,7 +73,7 @@ describe('contracts sort utils', () => {
       makeContract({ id: '1', name: 'Alpha' }),
     ];
 
-    expect(sortContracts(contracts, { sort_by: 'name', sort_order: 'asc' }).map((c) => c.name)).toEqual([
+    expect(sortContracts(contracts, { sort_by: 'created_at', sort_order: 'asc' }).map((c) => c.name)).toEqual([
       'Alpha',
       'Zeta',
     ]);
@@ -103,17 +103,15 @@ describe('contracts sort utils', () => {
     ]);
   });
 
-  test('sortContracts reorders by rating and uses review count as a tie-breaker', () => {
+  test('sortContracts reorders by updated timestamp', () => {
     const contracts = [
-      makeContract({ id: 'few', name: 'Few', average_rating: 4.5, review_count: 2 }),
-      makeContract({ id: 'many', name: 'Many', average_rating: 4.5, review_count: 10 }),
-      makeContract({ id: 'best', name: 'Best', average_rating: 4.9, review_count: 1 }),
-    ] as Array<Contract & { average_rating?: number; review_count?: number }>;
+      makeContract({ id: 'older', name: 'Older', updated_at: '2026-01-01T00:00:00.000Z' }),
+      makeContract({ id: 'newer', name: 'Newer', updated_at: '2026-03-01T00:00:00.000Z' }),
+    ];
 
-    expect(sortContracts(contracts, { sort_by: 'rating', sort_order: 'desc' }).map((c) => c.id)).toEqual([
-      'best',
-      'many',
-      'few',
+    expect(sortContracts(contracts, { sort_by: 'updated_at', sort_order: 'desc' }).map((c) => c.id)).toEqual([
+      'newer',
+      'older',
     ]);
   });
 });

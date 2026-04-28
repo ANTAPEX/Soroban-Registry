@@ -1,13 +1,18 @@
+pub mod deps;
 // Contract verification engine
+pub mod engine;
 // Compiles source code and compares with on-chain bytecode
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use shared::RegistryError;
-use std::{fs, process::Stdio, time::Duration};
+use std::process::Stdio;
+use std::time::Duration;
 use tempfile::TempDir;
-use tokio::{process::Command, time::timeout};
+use tokio::fs;
+use tokio::process::Command;
+use tokio::time::timeout;
 use tracing::instrument;
 
 const DEFAULT_SOROBAN_SDK_VERSION: &str = "21.7.7";
@@ -82,8 +87,9 @@ pub async fn compile_contract(
         });
     }
 
-    let temp_dir = TempDir::new()?;
-    bootstrap_project(temp_dir.path(), source_code, compiler_version)?;
+    let temp_dir = TempDir::new()
+        .map_err(|e| RegistryError::Internal(format!("Failed to create temp dir: {}", e)))?;
+    bootstrap_project(temp_dir.path(), source_code, compiler_version).await?;
 
     let mut command = Command::new("cargo");
     command
@@ -101,7 +107,8 @@ pub async fn compile_contract(
 
     let output = timeout(BUILD_TIMEOUT, command.output())
         .await
-        .map_err(|_| RegistryError::VerificationFailed("Compilation timed out".to_string()))??;
+        .map_err(|_| RegistryError::VerificationFailed("Compilation timed out".to_string()))?
+        .map_err(|e| RegistryError::Internal(format!("Failed to execute cargo build: {}", e)))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -121,17 +128,36 @@ pub async fn compile_contract(
         .join("release")
         .join("verify_contract.wasm");
 
-    // Reading the compiled wasm artifact; io errors convert via `From` implementation
-    Ok(fs::read(&wasm_path)?)
+    if !wasm_path.exists() {
+        // Try to find any wasm file if the standard name doesn't exist
+        let release_dir = temp_dir
+            .path()
+            .join("target")
+            .join("wasm32-unknown-unknown")
+            .join("release");
+        if let Ok(mut entries) = fs::read_dir(release_dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+                    return Ok(fs::read(path).await?);
+                }
+            }
+        }
+        return Err(RegistryError::Internal(
+            "No WASM file found after build".to_string(),
+        ));
+    }
+
+    Ok(fs::read(&wasm_path).await?)
 }
 
-fn bootstrap_project(
+async fn bootstrap_project(
     root: &std::path::Path,
     source_code: &str,
     compiler_version: Option<&str>,
 ) -> Result<(), RegistryError> {
     let src_dir = root.join("src");
-    fs::create_dir_all(&src_dir)?;
+    fs::create_dir_all(&src_dir).await?;
 
     let sdk_version = compiler_version
         .filter(|v| !v.trim().is_empty())
@@ -142,10 +168,10 @@ fn bootstrap_project(
     );
 
     let cargo_path = root.join("Cargo.toml");
-    fs::write(&cargo_path, cargo_toml)?;
+    fs::write(&cargo_path, cargo_toml).await?;
 
     let lib_path = src_dir.join("lib.rs");
-    fs::write(&lib_path, source_code)?;
+    fs::write(&lib_path, source_code).await?;
 
     Ok(())
 }
@@ -194,6 +220,13 @@ fn truncate_for_error(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_verify_contract_invalid_hash() {
+        let result = verify_contract("fn main() {}", "invalid_hash", None, None).await;
+
+        assert!(result.is_err());
+    }
 
     #[tokio::test]
     async fn verify_contract_matches_known_good_wasm_pair() {

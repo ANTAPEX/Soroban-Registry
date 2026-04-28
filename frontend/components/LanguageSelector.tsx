@@ -18,14 +18,14 @@ export default function LanguageSelector({ lng }: { lng: string }) {
     <div className="relative inline-block text-left group">
       <button
         type="button"
-        className="inline-flex justify-center w-full px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600"
+        className="inline-flex justify-center w-full px-3 py-1.5 text-[13px] font-medium text-foreground bg-background border border-border rounded-md shadow-sm hover:bg-accent focus:outline-none transition-all"
         id="language-menu-button"
         aria-expanded="true"
         aria-haspopup="true"
       >
         {lng.toUpperCase()}
         <svg
-          className="w-5 h-5 ml-2 -mr-1"
+          className="w-4 h-4 ml-2 -mr-1"
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 20 20"
           fill="currentColor"
@@ -40,7 +40,7 @@ export default function LanguageSelector({ lng }: { lng: string }) {
       </button>
 
       <div
-        className="absolute right-0 w-32 mt-2 origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none hidden group-hover:block z-50 dark:bg-gray-800 dark:border-gray-600"
+        className="absolute right-0 w-32 mt-2 origin-top-right bg-card border border-border rounded-xl shadow-xl focus:outline-none hidden group-hover:block z-50 overflow-hidden"
         role="menu"
         aria-orientation="vertical"
         aria-labelledby="language-menu-button"
@@ -52,8 +52,8 @@ export default function LanguageSelector({ lng }: { lng: string }) {
               key={l}
               onClick={() => i18n.changeLanguage(l)}
               className={`${
-                lng === l ? 'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-white' : 'text-gray-700 dark:text-gray-300'
-              } block px-4 py-2 text-sm w-full text-left hover:bg-gray-100 dark:hover:bg-gray-700`}
+                lng === l ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground'
+              } block px-4 py-2 text-sm w-full text-left hover:bg-accent transition-colors`}
               role="menuitem"
               tabIndex={-1}
             >

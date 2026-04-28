@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::net::RequestBuilderExt;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
@@ -402,8 +403,7 @@ async fn register_one(
     let response = client
         .post(url)
         .json(&entry.payload)
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to reach registry API")?;
 
     if response.status() == reqwest::StatusCode::CONFLICT {

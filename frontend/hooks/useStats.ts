@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchStats } from '@/lib/api/stats';
-import { StatsResponse, TimePeriod } from '@/types/stats';
+import type { StatsResponse, TimePeriod } from '@/types';
 
 interface UseStatsReturn {
   data: StatsResponse | null;

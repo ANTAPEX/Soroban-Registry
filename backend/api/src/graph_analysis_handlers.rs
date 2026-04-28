@@ -58,7 +58,9 @@ const ANALYSIS_CACHE_TTL_SECS: u64 = 600; // 10 minutes
 fn analysis_cache_key(network: Option<&shared::Network>) -> String {
     format!(
         "graph_analysis:{}",
-        network.map(|n| n.to_string()).unwrap_or_else(|| "all".to_string())
+        network
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "all".to_string())
     )
 }
 
@@ -213,8 +215,7 @@ pub async fn get_vulnerability_propagation(
         )
     })?;
 
-    let result =
-        graph_analysis::propagate_vulnerability(&g, &[(source_idx, effective_severity)]);
+    let result = graph_analysis::propagate_vulnerability(&g, &[(source_idx, effective_severity)]);
 
     Ok(Json(result))
 }

@@ -191,6 +191,22 @@ services:
     volumes:
       - /:/host:ro,rslave
 
+  elasticsearch:
+    image: elasticsearch:8.12.0
+    container_name: soroban-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+
 volumes:
   postgres_data:
   cargo_cache:
@@ -198,4 +214,5 @@ volumes:
   alertmanager_data:
   loki_data:
   grafana_data:
+  es_data:
 

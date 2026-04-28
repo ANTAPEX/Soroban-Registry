@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::net::RequestBuilderExt;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
@@ -79,15 +80,14 @@ pub async fn generate(
         "contract_address": contract_address,
     });
 
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
     let resp = client
         .post(format!(
             "{}/api/contracts/{}/release-notes/generate",
             api_url, contract_id
         ))
         .json(&body)
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to connect to registry API")?;
 
     if !resp.status().is_success() {
@@ -114,14 +114,13 @@ pub async fn view(
     version: &str,
     json_output: bool,
 ) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
     let resp = client
         .get(format!(
             "{}/api/contracts/{}/release-notes/{}",
             api_url, contract_id, version
         ))
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to connect to registry API")?;
 
     if !resp.status().is_success() {
@@ -164,15 +163,14 @@ pub async fn edit(
         "notes_text": text,
     });
 
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
     let resp = client
         .put(format!(
             "{}/api/contracts/{}/release-notes/{}",
             api_url, contract_id, version
         ))
         .json(&body)
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to connect to registry API")?;
 
     if !resp.status().is_success() {
@@ -211,15 +209,14 @@ pub async fn publish(
         "update_version_record": !skip_version_update,
     });
 
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
     let resp = client
         .post(format!(
             "{}/api/contracts/{}/release-notes/{}/publish",
             api_url, contract_id, version
         ))
         .json(&body)
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to connect to registry API")?;
 
     if !resp.status().is_success() {
@@ -248,14 +245,13 @@ pub async fn publish(
 
 /// List all release notes for a contract
 pub async fn list(api_url: &str, contract_id: &str, json_output: bool) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
     let resp = client
         .get(format!(
             "{}/api/contracts/{}/release-notes",
             api_url, contract_id
         ))
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to connect to registry API")?;
 
     if !resp.status().is_success() {

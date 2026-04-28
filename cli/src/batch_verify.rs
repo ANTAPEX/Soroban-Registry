@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::net::RequestBuilderExt;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
@@ -117,8 +118,7 @@ pub async fn run_batch_verify(
     let response = client
         .post(format!("{}/api/contracts/batch-verify", api_url))
         .json(&request)
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to reach registry API — is the server running?")?;
 
     if !response.status().is_success() {

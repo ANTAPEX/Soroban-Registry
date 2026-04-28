@@ -1,6 +1,7 @@
 'use client';
 
-import { Contract, api } from '@/lib/api';
+import type { Contract } from '@/types';
+import { api } from '@/lib/api';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, AlertTriangle, Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
 

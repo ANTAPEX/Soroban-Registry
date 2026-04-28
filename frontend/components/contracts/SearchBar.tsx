@@ -1,8 +1,9 @@
-﻿'use client';
+'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
-import { api, SearchSuggestion } from '@/lib/api';
+import type { SearchSuggestion } from '@/types';
+import { api } from '@/lib/api';
 
 interface SearchBarProps {
   value: string;

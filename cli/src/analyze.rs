@@ -3,6 +3,7 @@
 //! Advanced contract analysis: complexity, security patterns, dependency graph,
 //! performance estimates, and actionable optimisation suggestions.
 
+use crate::net::RequestBuilderExt;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
@@ -171,8 +172,7 @@ async fn fetch_contract(
 
     let res = client
         .get(&url)
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to connect to registry API")?;
 
     let status = res.status();
@@ -220,7 +220,7 @@ async fn fetch_detail(client: &reqwest::Client, api_url: &str, contract: &Value)
         .or(contract["contract_id"].as_str())?;
     let url = format!("{}/api/contracts/{}/verification-status", api_url, id);
     log::debug!("GET {}", url);
-    let res = client.get(&url).send().await.ok()?;
+    let res = client.get(&url).send_with_retry().await.ok()?;
     if res.status().is_success() {
         res.json::<Value>().await.ok()
     } else {
@@ -235,7 +235,7 @@ async fn fetch_dependencies(
 ) -> Vec<Value> {
     let url = format!("{}/api/contracts/{}/dependencies", api_url, contract_id);
     log::debug!("GET {}", url);
-    let res = match client.get(&url).send().await {
+    let res = match client.get(&url).send_with_retry().await {
         Ok(r) => r,
         Err(_) => return vec![],
     };

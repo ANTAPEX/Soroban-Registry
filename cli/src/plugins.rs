@@ -1,3 +1,4 @@
+use crate::net::RequestBuilderExt;
 use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
@@ -326,7 +327,7 @@ pub async fn install_from_registry(api_url: &str, name: &str, version: Option<&s
         }
     };
 
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
     let resp = client
         .get(format!(
             "{}/api/plugins/{}/{}",
@@ -334,8 +335,7 @@ pub async fn install_from_registry(api_url: &str, name: &str, version: Option<&s
             name,
             resolved_version
         ))
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to fetch plugin manifest")?;
 
     if !resp.status().is_success() {
@@ -388,14 +388,13 @@ pub fn uninstall(name: &str, version: Option<&str>) -> Result<()> {
 }
 
 pub async fn fetch_marketplace(api_url: &str) -> Result<MarketplaceIndexResponse> {
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
     let resp = client
         .get(format!(
             "{}/api/plugins/marketplace",
             api_url.trim_end_matches('/')
         ))
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to fetch plugin marketplace")?;
     if !resp.status().is_success() {
         anyhow::bail!(
@@ -467,8 +466,8 @@ async fn execute_command_steps(ctx: &TemplateContext, steps: &[PluginStep]) -> R
                     runtime_ctx.api_url.trim_end_matches('/'),
                     rendered_path
                 );
-                let client = reqwest::Client::new();
-                let resp = client.get(url).send().await.context("HTTP GET failed")?;
+                let client = crate::net::client();
+                let resp = client.get(url).send_with_retry().await.context("HTTP GET failed")?;
                 let status = resp.status();
                 let body = resp.text().await.context("Failed reading HTTP response body")?;
 

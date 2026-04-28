@@ -1,6 +1,6 @@
 'use client';
 
-import { MaintenanceWindow } from '@/lib/api';
+import type { MaintenanceWindow } from '@/types';
 
 interface MaintenanceBannerProps {
   window: MaintenanceWindow;

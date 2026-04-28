@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ContractVersion } from '@/lib/api';
 import { useSearchParams } from 'next/navigation';
-import { api, type Contract } from '@/lib/api';
+import { api } from '@/lib/api';
+import type { Contract, ContractVersion } from '@/types';
 import { toComparableContract, getMetricValue, toneForMetricCell, type ComparableContract, type ComparisonMetricKey, type CellTone } from '@/utils/comparison';
 import { parseContractIdsFromSearch, replaceUrlContractIds } from '@/utils/urlState';
 
@@ -159,9 +159,27 @@ export function useComparison() {
       },
       {
         key: 'verification_status',
-        label: 'Verification status',
+        label: 'Verification',
         getDisplayValue: (c) => (c.isVerified ? 'Verified' : 'Unverified'),
         getRawValue: (c) => c.isVerified,
+      },
+      {
+        key: 'wasm_hash',
+        label: 'WASM hash',
+        getDisplayValue: (c) => c.wasmHash ? `${c.wasmHash.slice(0, 12)}…` : '—',
+        getRawValue: (c) => c.wasmHash,
+      },
+      {
+        key: 'deployment_count',
+        label: 'Deployments',
+        getDisplayValue: (c) => String(c.deploymentCount),
+        getRawValue: (c) => c.deploymentCount,
+      },
+      {
+        key: 'popularity_score',
+        label: 'Popularity score',
+        getDisplayValue: (c) => String(c.popularityScore),
+        getRawValue: (c) => c.popularityScore,
       },
     ],
     [],

@@ -1,4 +1,5 @@
-export type VerificationStatus = 'draft' | 'submitted' | 'under_review' | 'approved' | 'rejected';
+export type VerificationStatus = 'unverified' | 'draft' | 'submitted' | 'under_review' | 'approved' | 'rejected';
+export type VerificationLevel = 'basic' | 'intermediate' | 'advanced';
 export type VerificationLogLevel = 'info' | 'warn' | 'error' | 'debug';
 
 export type SorobanNetwork = 'mainnet' | 'testnet' | 'futurenet';

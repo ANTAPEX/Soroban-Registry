@@ -16,6 +16,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};
+use shared::source_storage::SourceFormat;
 use shared::{
     pagination::Cursor, AdvancedSearchRequest, AnalyticsEventType, AuditActionType,
     ChangePublisherRequest, Contract, ContractAuditLog, ContractChangelogEntry,
@@ -119,7 +120,7 @@ pub struct ContractDeployment {
     pub deployed_at: chrono::DateTime<chrono::Utc>,
     pub transaction_hash: Option<String>,
 }
-use sqlx::QueryBuilder;
+use sqlx::{Postgres, QueryBuilder};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path as StdPath, PathBuf};
 use std::time::Duration;
@@ -148,6 +149,7 @@ use crate::{
     contract_events::{ContractEventEnvelope, ContractEventVisibility},
     dependency,
     error::{ApiError, ApiResult},
+    models::ContractSourceResponse,
     onchain_verification::OnChainVerifier,
     state::AppState,
     type_safety::parser::parse_json_spec,
@@ -697,7 +699,7 @@ fn validate_contract_list_pagination(
     Ok((limit, offset, page))
 }
 
-fn extract_ip_address(headers: &HeaderMap) -> String {
+pub(crate) fn extract_ip_address(headers: &HeaderMap) -> String {
     if let Some(forwarded_for) = headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
@@ -772,7 +774,7 @@ fn contract_to_filtered_value(contract: &Contract, fields: Option<&HashSet<Strin
     Value::Object(out)
 }
 
-async fn write_contract_audit_log(
+pub(crate) async fn write_contract_audit_log(
     db: &sqlx::PgPool,
     action_type: AuditActionType,
     contract_id: Uuid,
@@ -1497,6 +1499,24 @@ pub async fn list_contracts(
         Err(err) => return err.into_response(),
     };
 
+    let cursor = if let Some(cursor_str) = &params.cursor {
+        match shared::pagination::Cursor::decode(cursor_str) {
+            Ok(c) => Some(c),
+            Err(err) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "InvalidPaginationCursor",
+                        "message": format!("The provided pagination cursor is invalid: {}", err)
+                    })),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        None
+    };
+
     let sort_by = params.sort_by.clone().unwrap_or(shared::SortBy::CreatedAt);
     let sort_order = params.sort_order.clone().unwrap_or(shared::SortOrder::Desc);
     let direction = if sort_order == shared::SortOrder::Asc {
@@ -1504,6 +1524,7 @@ pub async fn list_contracts(
     } else {
         "DESC"
     };
+
 
     let mut qb: QueryBuilder<'_, sqlx::Postgres> = QueryBuilder::new(
         "SELECT c.* FROM contracts c LEFT JOIN contract_interactions ci ON c.id = ci.contract_id ",
@@ -1578,26 +1599,55 @@ pub async fn list_contracts(
         qb.push(")");
     }
 
+    // Cursor pagination condition
+    if let Some(cursor) = &cursor {
+        let op = if sort_order == shared::SortOrder::Asc { ">" } else { "<" };
+        qb.push(" AND (c.created_at ");
+        qb.push(op);
+        qb.push(" ");
+        qb.push_bind(cursor.timestamp);
+        qb.push(" OR (c.created_at = ");
+        qb.push_bind(cursor.timestamp);
+        qb.push(" AND c.id ");
+        qb.push(op);
+        qb.push(" ");
+        qb.push_bind(cursor.id);
+        qb.push("))");
+    }
+
     qb.push(" GROUP BY c.id");
     qb.push(" ORDER BY ");
-    match sort_by {
-        shared::SortBy::UpdatedAt => qb.push("c.updated_at "),
-        shared::SortBy::VerifiedAt => qb.push("c.verified_at "),
-        shared::SortBy::LastAccessedAt => qb.push("c.last_accessed_at "),
-        shared::SortBy::Popularity | shared::SortBy::Interactions => qb.push("COUNT(ci.id) "),
-        shared::SortBy::Deployments => {
-            qb.push("SUM(CASE WHEN ci.interaction_type = 'deploy' THEN 1 ELSE 0 END) ")
+    if cursor.is_some() {
+        qb.push("c.created_at ");
+    } else {
+        match sort_by {
+            shared::SortBy::UpdatedAt => qb.push("c.updated_at "),
+            shared::SortBy::VerifiedAt => qb.push("c.verified_at "),
+            shared::SortBy::LastAccessedAt => qb.push("c.last_accessed_at "),
+            shared::SortBy::Popularity | shared::SortBy::Interactions => qb.push("COUNT(ci.id) "),
+            shared::SortBy::Deployments => {
+                qb.push("SUM(CASE WHEN ci.interaction_type = 'deploy' THEN 1 ELSE 0 END) ")
+            }
+            shared::SortBy::Relevance if params.query.is_some() => qb.push("c.created_at "),
+            _ => qb.push("c.created_at "),
         }
-        shared::SortBy::Relevance if params.query.is_some() => qb.push("c.created_at "),
-        _ => qb.push("c.created_at "),
-    };
+    }
     qb.push(direction);
+
     qb.push(", c.id ");
     qb.push(direction);
+
+    // Fetch one extra item to check for next page
+    let fetch_limit = limit + 1;
     qb.push(" LIMIT ");
-    qb.push_bind(limit);
-    qb.push(" OFFSET ");
-    qb.push_bind(offset);
+    qb.push_bind(fetch_limit);
+
+
+    if cursor.is_none() {
+        qb.push(" OFFSET ");
+        qb.push_bind(offset);
+    }
+
 
     let mut contracts: Vec<Contract> = match qb.build_query_as().fetch_all(&state.db).await {
         Ok(rows) => rows,
@@ -1712,7 +1762,20 @@ pub async fn list_contracts(
         Err(err) => return db_internal_error("count contracts", err).into_response(),
     };
 
-    let response = PaginatedResponse::new(contracts, total, page, limit);
+    let mut has_more = contracts.len() > limit as usize;
+    if has_more {
+        contracts.truncate(limit as usize);
+    }
+
+    let mut response = PaginatedResponse::new(contracts, total, page, limit);
+    
+    if has_more {
+        if let Some(last_item) = response.items.last() {
+             let next_cursor = shared::pagination::Cursor::new(last_item.created_at, last_item.id);
+             response.next_cursor = Some(next_cursor.encode());
+        }
+    }
+
     observe_search_query(
         "contracts",
         search_started_at,
@@ -1722,6 +1785,18 @@ pub async fn list_contracts(
     Json(response).into_response()
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts",
+    params(ContractSearchParams),
+    responses(
+        (status = 200, description = "List of contracts", body = PaginatedResponse<Contract>),
+        (status = 400, description = "Invalid query parameters")
+    ),
+    tag = "Contracts"
+)]
+pub async fn list_contracts_openapi_marker() {}
+
 fn csv_escape(value: &str) -> String {
     let needs_quotes = value.contains(',') || value.contains('\"') || value.contains('\n');
     if needs_quotes {
@@ -1730,8 +1805,6 @@ fn csv_escape(value: &str) -> String {
     } else {
         value.to_string()
     }
-
-    Json(response).into_response()
 }
 
 fn optional_json_string(value: &Option<serde_json::Value>) -> String {
@@ -2415,6 +2488,20 @@ pub async fn get_contract(
         .await;
     }
     track_contract_access(&state, contract.id).await;
+
+    // Increment usage counter asynchronously (fire-and-forget)
+    // Failures are logged but never block the main request
+    let contract_id = contract.id;
+    let db_clone = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(err) = crate::usage_counter::increment_usage_counter_with_timeout(contract_id, &db_clone).await {
+            tracing::warn!(
+                contract_id = %contract_id,
+                error = ?err,
+                "Failed to increment usage counter for contract"
+            );
+        }
+    });
 
     Ok(Json(ContractGetResponse {
         contract,
@@ -3613,6 +3700,19 @@ pub async fn create_contract_version(
     }
     state.cache.invalidate_contracts().await;
 
+    // Increment usage counter asynchronously (fire-and-forget)
+    // Failures are logged but never block the main request
+    let db_clone = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(err) = crate::usage_counter::increment_usage_counter_with_timeout(contract_uuid, &db_clone).await {
+            tracing::warn!(
+                contract_id = %contract_uuid,
+                error = ?err,
+                "Failed to increment usage counter for contract"
+            );
+        }
+    });
+
     Ok(Json(version_row))
 }
 
@@ -3895,6 +3995,20 @@ pub async fn publish_contract(
     }
 
     state.cache.invalidate_contracts().await;
+
+    // Increment usage counter asynchronously (fire-and-forget)
+    // Failures are logged but never block the main request
+    let contract_id = contract.id;
+    let db_clone = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(err) = crate::usage_counter::increment_usage_counter_with_timeout(contract_id, &db_clone).await {
+            tracing::warn!(
+                contract_id = %contract_id,
+                error = ?err,
+                "Failed to increment usage counter for contract"
+            );
+        }
+    });
     Ok(Json(contract))
 }
 
@@ -4994,6 +5108,20 @@ pub async fn update_contract_metadata(
     }
 
     state.cache.invalidate_contracts().await;
+
+    // Increment usage counter asynchronously (fire-and-forget)
+    // Failures are logged but never block the main request
+    let contract_id = after.id;
+    let db_clone = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(err) = crate::usage_counter::increment_usage_counter_with_timeout(contract_id, &db_clone).await {
+            tracing::warn!(
+                contract_id = %contract_id,
+                error = ?err,
+                "Failed to increment usage counter for contract"
+            );
+        }
+    });
     Ok(Json(after))
 }
 
@@ -5277,6 +5405,19 @@ pub async fn update_contract_status(
     }
 
     state.cache.invalidate_contracts().await;
+
+    // Increment usage counter asynchronously (fire-and-forget)
+    // Failures are logged but never block the main request
+    let db_clone = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(err) = crate::usage_counter::increment_usage_counter_with_timeout(contract_uuid, &db_clone).await {
+            tracing::warn!(
+                contract_id = %contract_uuid,
+                error = ?err,
+                "Failed to increment usage counter for contract"
+            );
+        }
+    });
     Ok(Json(json!({
         "contract_id": contract_uuid,
         "verification_id": verification_id,
@@ -6086,6 +6227,59 @@ pub async fn route_not_found() -> impl IntoResponse {
     ApiError::not_found("ROUTE_NOT_FOUND", "Route not found")
 }
 
+/// Get usage statistics for a specific contract by UUID or slug.
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/stats",
+    params(
+        ("id" = String, Path, description = "Contract UUID or slug")
+    ),
+    responses(
+        (status = 200, description = "Contract usage statistics", body = ContractStatsResponse),
+        (status = 404, description = "Contract not found"),
+        (status = 400, description = "Invalid contract ID format")
+    ),
+    tag = "Analytics"
+)]
+pub async fn get_contract_stats(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<ContractStatsResponse>> {
+    let contract: Contract = if let Ok(contract_uuid) = Uuid::parse_str(&id) {
+        sqlx::query_as("SELECT * FROM contracts WHERE id = $1")
+            .bind(contract_uuid)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|err| match err {
+                sqlx::Error::RowNotFound => ApiError::not_found(
+                    "ContractNotFound",
+                    format!("No contract found with ID: {}", id),
+                ),
+                _ => db_internal_error("get contract stats by id", err),
+            })?
+    } else {
+        // Fetch by slug (default to mainnet)
+        sqlx::query_as("SELECT * FROM contracts WHERE slug = $1 AND network = $2")
+            .bind(&id)
+            .bind(Network::Mainnet)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|err| match err {
+                sqlx::Error::RowNotFound => ApiError::not_found(
+                    "ContractNotFound",
+                    format!("No contract found with slug: {}", id),
+                ),
+                _ => db_internal_error("get contract stats by slug", err),
+            })?
+    };
+
+    Ok(Json(ContractStatsResponse {
+        contract_id: contract.id,
+        usage_count: contract.usage_count,
+        last_accessed_at: contract.last_accessed_at,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6734,4 +6928,5 @@ pub async fn delete_favorite_search(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueries } from '@tanstack/react-query';
-import { Star, BookmarkX, ArrowRight } from 'lucide-react';
+import { Star, BookmarkX, ArrowRight, Share2, FolderPlus } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '@/lib/api';
@@ -9,10 +9,12 @@ import ContractCard from '@/components/ContractCard';
 import ContractCardSkeleton from '@/components/ContractCardSkeleton';
 import Navbar from '@/components/Navbar';
 import { useFavorites } from '@/hooks/useFavorites';
+import { useCopy } from '@/hooks/useCopy';
 
 export default function FavoritesPage() {
   const { favorites, isLoading: favoritesLoading, clearAllFavorites } = useFavorites();
   const [confirmingClear, setConfirmingClear] = useState(false);
+  const { copy, copied } = useCopy();
 
   // Fetch contract data for each favorited UUID in parallel
   const contractQueries = useQueries({
@@ -68,7 +70,34 @@ export default function FavoritesPage() {
           </div>
 
           {favorites.length > 0 && !isLoading && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+                disabled
+                title="Coming soon"
+              >
+                <FolderPlus className="w-4 h-4" />
+                Collections
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('list', favorites.join(','));
+                    copy(url.toString(), {
+                      successMessage: 'Favorites list link copied!',
+                      failureMessage: 'Failed to copy link',
+                    });
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Share2 className="w-4 h-4" />
+                {copied ? 'Copied Link' : 'Share'}
+              </button>
+              <div className="w-px h-6 bg-border mx-1 hidden sm:block"></div>
               {confirmingClear ? (
                 <>
                   <span className="text-sm text-muted-foreground">Remove all {favorites.length} favorites?</span>

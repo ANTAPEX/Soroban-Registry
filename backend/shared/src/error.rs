@@ -9,6 +9,7 @@ pub enum RegistryError {
     VerificationFailed(String),
     StellarRpc(String),
     Internal(String),
+    S3(String),
 }
 
 impl fmt::Display for RegistryError {
@@ -20,6 +21,7 @@ impl fmt::Display for RegistryError {
             RegistryError::VerificationFailed(msg) => write!(f, "Verification failed: {}", msg),
             RegistryError::StellarRpc(msg) => write!(f, "Stellar RPC error: {}", msg),
             RegistryError::Internal(msg) => write!(f, "Internal error: {}", msg),
+            RegistryError::S3(msg) => write!(f, "S3 error: {}", msg),
         }
     }
 }
@@ -47,6 +49,18 @@ impl From<std::io::Error> for RegistryError {
 impl From<anyhow::Error> for RegistryError {
     fn from(err: anyhow::Error) -> Self {
         RegistryError::Internal(format!("{}", err))
+    }
+}
+
+impl From<s3::error::S3Error> for RegistryError {
+    fn from(err: s3::error::S3Error) -> Self {
+        RegistryError::S3(format!("{}", err))
+    }
+}
+
+impl From<s3::creds::error::CredentialsError> for RegistryError {
+    fn from(err: s3::creds::error::CredentialsError) -> Self {
+        RegistryError::S3(format!("Credentials error: {}", err))
     }
 }
 

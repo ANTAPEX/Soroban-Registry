@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::net::RequestBuilderExt;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use hmac::{Hmac, Mac};
@@ -156,8 +157,7 @@ pub async fn deliver_with_retry(
             .header("X-Soroban-Signature", format!("sha256={}", &signature))
             .header("X-Soroban-Delivery-Id", &delivery_id)
             .body(payload_bytes.clone())
-            .send()
-            .await;
+            .send_with_retry().await;
 
         match result {
             Ok(resp) => {
@@ -211,7 +211,7 @@ pub async fn create_webhook(
     events: Vec<String>,
     secret_key: Option<&str>,
 ) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
 
     // Generate a secret key if not provided
     let secret = secret_key.map(|s| s.to_string()).unwrap_or_else(|| {
@@ -230,8 +230,7 @@ pub async fn create_webhook(
     let response = client
         .post(format!("{}/api/webhooks", api_url))
         .json(&body)
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to reach registry API")?;
 
     if !response.status().is_success() {
@@ -266,12 +265,11 @@ pub async fn create_webhook(
 
 /// List all webhook subscriptions.
 pub async fn list_webhooks(api_url: &str) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
 
     let response = client
         .get(format!("{}/api/webhooks", api_url))
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to reach registry API")?;
 
     if !response.status().is_success() {
@@ -306,12 +304,11 @@ pub async fn list_webhooks(api_url: &str) -> Result<()> {
 
 /// Delete a webhook by ID.
 pub async fn delete_webhook(api_url: &str, webhook_id: &str) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
 
     let response = client
         .delete(format!("{}/api/webhooks/{}", api_url, webhook_id))
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to reach registry API")?;
 
     if !response.status().is_success() {
@@ -330,12 +327,11 @@ pub async fn delete_webhook(api_url: &str, webhook_id: &str) -> Result<()> {
 
 /// Send a test event to a webhook.
 pub async fn test_webhook(api_url: &str, webhook_id: &str) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
 
     let response = client
         .post(format!("{}/api/webhooks/{}/test", api_url, webhook_id))
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to reach registry API")?;
 
     if !response.status().is_success() {
@@ -355,15 +351,14 @@ pub async fn test_webhook(api_url: &str, webhook_id: &str) -> Result<()> {
 
 /// View delivery logs for a webhook, including dead-letter entries.
 pub async fn webhook_logs(api_url: &str, webhook_id: &str, limit: usize) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
 
     let response = client
         .get(format!(
             "{}/api/webhooks/{}/deliveries?limit={}",
             api_url, webhook_id, limit
         ))
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to reach registry API")?;
 
     if !response.status().is_success() {
@@ -421,15 +416,14 @@ pub async fn webhook_logs(api_url: &str, webhook_id: &str, limit: usize) -> Resu
 
 /// Manually retry a dead-letter delivery.
 pub async fn retry_delivery(api_url: &str, delivery_id: &str) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = crate::net::client();
 
     let response = client
         .post(format!(
             "{}/api/webhook-deliveries/{}/retry",
             api_url, delivery_id
         ))
-        .send()
-        .await
+        .send_with_retry().await
         .context("Failed to reach registry API")?;
 
     if !response.status().is_success() {

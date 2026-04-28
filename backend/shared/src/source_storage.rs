@@ -6,29 +6,7 @@ use std::path::PathBuf;
 use tokio::fs;
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
-pub enum SourceFormat {
-    Rust,
-    Wasm,
-}
-
-/// Supported source storage backends
-#[derive(Debug, Clone)]
-pub enum StorageBackend {
-    Local,
-    S3,
-    Gcs,
-}
-
-impl fmt::Display for StorageBackend {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            StorageBackend::Local => write!(f, "local"),
-            StorageBackend::S3 => write!(f, "s3"),
-            StorageBackend::Gcs => write!(f, "gcs"),
-        }
-    }
-}
+use crate::models::{SourceFormat, StorageBackend};
 
 #[derive(Debug, Clone)]
 pub struct SourceStorageConfig {
