@@ -144,7 +144,10 @@ async fn fetch_wasm_bytes(
     };
 
     let (wasm_hash, source_url) = row.ok_or_else(|| {
-        ApiError::not_found("contract_version", "No verified version found for this contract")
+        ApiError::not_found(
+            "contract_version",
+            "No verified version found for this contract",
+        )
     })?;
 
     // Attempt to fetch from source storage using the wasm hash as the key.
@@ -216,8 +219,8 @@ async fn persist_report(
 
     // Insert property results.
     for prop in &report.properties {
-        let evidence_json = serde_json::to_value(&prop.evidence)
-            .unwrap_or(serde_json::Value::Array(vec![]));
+        let evidence_json =
+            serde_json::to_value(&prop.evidence).unwrap_or(serde_json::Value::Array(vec![]));
         sqlx::query(
             r#"
             INSERT INTO formal_verification_properties
@@ -337,14 +340,12 @@ pub async fn trigger_formal_verification(
     Json(req): Json<TriggerVerificationRequest>,
 ) -> ApiResult<(StatusCode, Json<TriggerVerificationResponse>)> {
     // Confirm contract exists and is verified.
-    let is_verified: bool = sqlx::query_scalar(
-        "SELECT is_verified FROM contracts WHERE id = $1",
-    )
-    .bind(contract_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| ApiError::internal(format!("DB error: {}", e)))?
-    .ok_or_else(|| ApiError::not_found("contract", "Contract not found"))?;
+    let is_verified: bool = sqlx::query_scalar("SELECT is_verified FROM contracts WHERE id = $1")
+        .bind(contract_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(format!("DB error: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("contract", "Contract not found"))?;
 
     if !is_verified {
         return Err(ApiError::bad_request(

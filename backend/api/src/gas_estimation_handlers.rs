@@ -10,9 +10,7 @@
 //!
 //! Results are cached for 1 hour in the generic cache under the namespace "gas_est".
 
-use axum::{
-    extract::{Json, Path, Query, State},
-};
+use axum::extract::{Json, Path, Query, State};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::json;
@@ -306,7 +304,10 @@ pub async fn batch_gas_estimate(
 
     // Load all historical estimates for this contract in one query, then look
     // up each requested method without hitting the DB per-method.
-    let all_hist: Vec<(String, CostEstimateRow)> = sqlx::query_as::<_, (String, i64, Option<i64>, Option<i64>, i32, DateTime<Utc>)>(
+    let all_hist: Vec<(String, CostEstimateRow)> = sqlx::query_as::<
+        _,
+        (String, i64, Option<i64>, Option<i64>, i32, DateTime<Utc>),
+    >(
         "SELECT method_name, avg_gas_cost, min_gas_cost, max_gas_cost, sample_count, last_updated \
          FROM cost_estimates WHERE contract_id = $1",
     )
@@ -401,12 +402,11 @@ async fn resolve_contract_uuid(state: &AppState, id: &str) -> ApiResult<Uuid> {
         return Ok(uuid);
     }
 
-    let row: Option<(Uuid,)> =
-        sqlx::query_as("SELECT id FROM contracts WHERE contract_id = $1")
-            .bind(id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| db_err("lookup contract by contract_id", e))?;
+    let row: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM contracts WHERE contract_id = $1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| db_err("lookup contract by contract_id", e))?;
 
     row.map(|(uuid,)| uuid).ok_or_else(|| {
         ApiError::not_found(

@@ -7,7 +7,7 @@ license.workspace = true
 
 [features]
 default = []
-openapi = ["utoipa-swagger-ui"]
+openapi = ["dep:utoipa-swagger-ui"]
 
 [lib]
 name = "api"

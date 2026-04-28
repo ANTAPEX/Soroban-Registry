@@ -5,8 +5,8 @@
 
 use axum::{
     async_trait,
-    extract::{FromRequest, Request},
-    http::StatusCode,
+    extract::{FromRequest, FromRequestParts, Request},
+    http::{request::Parts, StatusCode},
     Json,
 };
 use chrono::{SecondsFormat, Utc};
@@ -222,6 +222,142 @@ impl<T> std::ops::Deref for ValidatedJson<T> {
 impl<T> std::ops::DerefMut for ValidatedJson<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+/// Custom Path extractor that validates path parameters implementing `Validatable`.
+pub struct ValidatedPath<T>(pub T);
+
+#[async_trait]
+impl<S, T> FromRequestParts<S> for ValidatedPath<T>
+where
+    T: serde::de::DeserializeOwned + Validatable + Send,
+    S: Send + Sync,
+{
+    type Rejection = ValidationError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let correlation_id = parts
+            .extensions
+            .get::<crate::request_tracing::RequestId>()
+            .map(|r| r.0.clone())
+            .unwrap_or_else(crate::request_tracing::generate_request_id);
+        let path = parts
+            .extensions
+            .get::<axum::extract::MatchedPath>()
+            .map(|p| p.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let axum::extract::Path(mut data) =
+            axum::extract::Path::<T>::from_request_parts(parts, state)
+                .await
+                .map_err(|err| {
+                    let message = format!("Invalid path parameters: {}", err);
+                    crate::security_log::log_validation_failure(
+                        std::net::IpAddr::from([127, 0, 0, 1]),
+                        "path",
+                        &message,
+                        &path,
+                        parts.method.as_str(),
+                        &correlation_id,
+                        1,
+                    );
+                    ValidationError::single("path", message)
+                })?;
+
+        data.sanitize();
+        data.validate().map_err(|errors| {
+            for error in &errors {
+                crate::security_log::log_validation_failure(
+                    std::net::IpAddr::from([127, 0, 0, 1]),
+                    &error.field,
+                    &error.message,
+                    &path,
+                    parts.method.as_str(),
+                    &correlation_id,
+                    1,
+                );
+            }
+            ValidationError::new(errors)
+        })?;
+
+        Ok(ValidatedPath(data))
+    }
+}
+
+impl<T> std::ops::Deref for ValidatedPath<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// Custom Query extractor that validates query parameters implementing `Validatable`.
+pub struct ValidatedQuery<T>(pub T);
+
+#[async_trait]
+impl<S, T> FromRequestParts<S> for ValidatedQuery<T>
+where
+    T: serde::de::DeserializeOwned + Validatable + Send,
+    S: Send + Sync,
+{
+    type Rejection = ValidationError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let correlation_id_q = parts
+            .extensions
+            .get::<crate::request_tracing::RequestId>()
+            .map(|r| r.0.clone())
+            .unwrap_or_else(crate::request_tracing::generate_request_id);
+        let path_q = parts
+            .extensions
+            .get::<axum::extract::MatchedPath>()
+            .map(|p| p.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let axum::extract::Query(mut data) =
+            axum::extract::Query::<T>::from_request_parts(parts, state)
+                .await
+                .map_err(|err| {
+                    let message = format!("Invalid query parameters: {}", err);
+                    crate::security_log::log_validation_failure(
+                        std::net::IpAddr::from([127, 0, 0, 1]),
+                        "query",
+                        &message,
+                        &path_q,
+                        parts.method.as_str(),
+                        &correlation_id_q,
+                        1,
+                    );
+                    ValidationError::single("query", message)
+                })?;
+
+        data.sanitize();
+        data.validate().map_err(|errors| {
+            for error in &errors {
+                crate::security_log::log_validation_failure(
+                    std::net::IpAddr::from([127, 0, 0, 1]),
+                    &error.field,
+                    &error.message,
+                    &path_q,
+                    parts.method.as_str(),
+                    &correlation_id_q,
+                    1,
+                );
+            }
+            ValidationError::new(errors)
+        })?;
+
+        Ok(ValidatedQuery(data))
+    }
+}
+
+impl<T> std::ops::Deref for ValidatedQuery<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

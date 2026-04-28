@@ -17,18 +17,23 @@ pub fn init_tracing(service_name: &str) {
     let otlp_endpoint = std::env::var("OTLP_ENDPOINT")
         .or_else(|_| std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT"))
         .ok();
-    let service_name = std::env::var("OTEL_SERVICE_NAME")
-        .unwrap_or_else(|_| service_name.to_string());
+    let service_name =
+        std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| service_name.to_string());
 
     if let Some(endpoint) = otlp_endpoint {
-        let trace_config = opentelemetry_sdk::trace::Config::default().with_resource(
-            Resource::new(vec![KeyValue::new("service.name", service_name)]),
-        );
+        let trace_config =
+            opentelemetry_sdk::trace::Config::default().with_resource(Resource::new(vec![
+                KeyValue::new("service.name", service_name),
+            ]));
 
         match opentelemetry_otlp::new_pipeline()
             .tracing()
             .with_trace_config(trace_config)
-            .with_exporter(opentelemetry_otlp::new_exporter().tonic().with_endpoint(endpoint))
+            .with_exporter(
+                opentelemetry_otlp::new_exporter()
+                    .tonic()
+                    .with_endpoint(endpoint),
+            )
             .install_batch(opentelemetry_sdk::runtime::Tokio)
         {
             Ok(tracer) => {

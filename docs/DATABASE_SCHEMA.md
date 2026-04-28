@@ -46,6 +46,7 @@
 13. [Entity Relationship Diagram](#13-entity-relationship-diagram)
 14. [Indexes Reference](#14-indexes-reference)
 15. [Shared Database Functions & Triggers](#15-shared-database-functions--triggers)
+16. [contract_metadata_versions](#83-contract_metadata_versions)
 
 ---
 
@@ -513,6 +514,31 @@ Full serialised snapshots of a contract row at each audited change point, refere
 
 ---
 
+### 8.3 `contract_metadata_versions`
+
+Tracks changes to contract metadata (name, description, category, tags).
+
+**Migration:** `20260426000000_contract_metadata_versions.sql`
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `contract_id` | `UUID` | FK → `contracts.id` (CASCADE DELETE) |
+| `user_id` | `UUID` | Optional: track which user made the change |
+| `name` | `VARCHAR(255)` | Contract name at the time of version |
+| `description` | `TEXT` | Contract description |
+| `category` | `VARCHAR(100)` | Contract category |
+| `tags` | `TEXT[]` | Array of tags |
+| `change_summary` | `TEXT` | Summary of what changed |
+| `created_at` | `TIMESTAMPTZ` | When this version was captured |
+
+**Indexes:**
+- `idx_contract_metadata_versions_contract_id`
+- `idx_contract_metadata_versions_created_at`
+- `idx_contract_metadata_versions_category` (added in `20260428101500_add_network_category_indexes.sql`)
+
+---
+
 ## 9. Package Signing
 
 ### 9.1 `package_signatures`
@@ -829,6 +855,7 @@ Below is a consolidated list of all non-primary-key indexes grouped by table.
 | `contracts` | `idx_contracts_popularity_score` | `popularity_score DESC` | B-tree | Trending sort |
 | `contracts` | `idx_contracts_trending` | `popularity_score DESC` WHERE verified or score>0 | Partial B-tree | Trending filter |
 | `contracts` | `idx_contracts_maturity` | `maturity` | B-tree | |
+| `contracts` | `idx_contracts_network_category` | `(network, category)` | B-tree | Combined filter (added 2026-04-28) |
 | `contracts` | `idx_contracts_name_search` | `name_search` | GIN | Full-text |
 | `contracts` | `idx_contracts_description_search` | `description_search` | GIN | Full-text |
 | `contracts` | `idx_contracts_fts_combined` | weighted `name_search \|\| description_search` | GIN | Ranked FTS |
@@ -872,6 +899,8 @@ Below is a consolidated list of all non-primary-key indexes grouped by table.
 | `indexer_state` | `idx_indexer_state_updated_at` | `updated_at` | B-tree | |
 | `maturity_changes` | `idx_maturity_changes_contract_id` | `contract_id` | B-tree | |
 | `maturity_changes` | `idx_maturity_changes_changed_at` | `changed_at` | B-tree | |
+| `contract_metadata_versions` | `idx_contract_metadata_versions_category` | `category` | B-tree | Added 2026-04-28 |
+| `contract_interaction_daily_aggregates` | `idx_interaction_daily_network` | `network` | B-tree | Added 2026-04-28 |
 
 ---
 

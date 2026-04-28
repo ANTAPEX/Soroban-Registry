@@ -337,7 +337,10 @@ mod tests {
         assert_eq!(decoded.version.as_deref(), Some("1.0.0"));
         assert!(decoded.has_function("balance"));
         assert_eq!(decoded.functions[0].return_type.display_name(), "i128");
-        assert_eq!(decoded.events[0].topics[0].param_type.display_name(), "Address");
+        assert_eq!(
+            decoded.events[0].topics[0].param_type.display_name(),
+            "Address"
+        );
         assert_eq!(decoded.errors[0].code, 1);
     }
 }

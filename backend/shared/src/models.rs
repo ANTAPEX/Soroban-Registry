@@ -11,15 +11,15 @@ use uuid::Uuid;
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Represents a tag that can be attached to a contract
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema, PartialEq)]
-#[derive(sqlx::Type)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema, PartialEq, sqlx::Type,
+)]
 #[sqlx(type_name = "tag")]
 pub struct Tag {
     pub id: Uuid,
     pub name: String,
     pub color: String,
 }
-
 
 /// Represents a smart contract in the registry
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
@@ -86,6 +86,9 @@ pub struct Contract {
     /// The currently active version string for this contract (Issue #486)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_version: Option<String>,
+    /// Number of times this contract has been accessed via API
+    #[serde(default)]
+    pub usage_count: i64,
 }
 
 #[derive(
@@ -156,7 +159,6 @@ pub struct NetworkInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status_message: Option<String>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NetworkListResponse {
@@ -1219,10 +1221,9 @@ mod tests {
 
     #[test]
     fn parses_comma_separated_networks() {
-        let params: ContractSearchParams = serde_json::from_str(
-            r#"{"networks":"mainnet,testnet"}"#,
-        )
-        .expect("query params should deserialize");
+        let params: ContractSearchParams =
+            serde_json::from_str(r#"{"networks":"mainnet,testnet"}"#)
+                .expect("query params should deserialize");
 
         assert_eq!(
             params.networks,
@@ -1232,10 +1233,9 @@ mod tests {
 
     #[test]
     fn parses_sequence_networks() {
-        let params: ContractSearchParams = serde_json::from_str(
-            r#"{"networks":["mainnet","futurenet"]}"#,
-        )
-        .expect("query params should deserialize");
+        let params: ContractSearchParams =
+            serde_json::from_str(r#"{"networks":["mainnet","futurenet"]}"#)
+                .expect("query params should deserialize");
 
         assert_eq!(
             params.networks,
@@ -1259,8 +1259,6 @@ pub struct SaveFavoriteSearchRequest {
     pub name: String,
     pub query_json: serde_json::Value,
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchSuggestion {
@@ -2013,7 +2011,6 @@ pub struct CreateAlertConfigRequest {
     pub threshold_value: f64,
     pub severity: Option<AlertSeverity>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
 #[sqlx(type_name = "similarity_match_type", rename_all = "snake_case")]
@@ -3175,8 +3172,6 @@ pub struct DiffSummary {
     pub breaking_count: i32,
 }
 
-
-
 // ═══════════════════════════════════════════════════════════════════════════
 // CONTRACT DEPLOYMENT SIMULATION (Issue #256)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3335,17 +3330,9 @@ pub struct BatchGasEstimateResponse {
     pub not_found: Vec<String>,
 }
 
-fn default_true() -> bool {
-    true
-}
-
-
-
 // ────────────────────────────────────────────────────────────────────────────
 // Contract changelog (release history)
 // ────────────────────────────────────────────────────────────────────────────
-
-
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ANALYTICS DASHBOARD (issue #430)
@@ -4148,6 +4135,9 @@ pub struct WebhookConfiguration {
     pub last_success_at: Option<DateTime<Utc>>,
     pub last_failure_at: Option<DateTime<Utc>>,
     pub consecutive_failures: i32,
+    /// Signing secret — only populated in the creation response, never in reads.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -4245,10 +4235,10 @@ impl std::fmt::Display for ZkProofSystem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             ZkProofSystem::Groth16 => "groth16",
-            ZkProofSystem::Plonk   => "plonk",
-            ZkProofSystem::Stark   => "stark",
-            ZkProofSystem::Marlin  => "marlin",
-            ZkProofSystem::Fflonk  => "fflonk",
+            ZkProofSystem::Plonk => "plonk",
+            ZkProofSystem::Stark => "stark",
+            ZkProofSystem::Marlin => "marlin",
+            ZkProofSystem::Fflonk => "fflonk",
         };
         write!(f, "{}", s)
     }
@@ -4281,9 +4271,9 @@ impl std::fmt::Display for ZkProofStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             ZkProofStatus::Pending => "pending",
-            ZkProofStatus::Valid   => "valid",
+            ZkProofStatus::Valid => "valid",
             ZkProofStatus::Invalid => "invalid",
-            ZkProofStatus::Error   => "error",
+            ZkProofStatus::Error => "error",
         };
         write!(f, "{}", s)
     }
@@ -4424,4 +4414,131 @@ pub struct ZkCircuitSummary {
     pub num_constraints: Option<i64>,
     pub compiled_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_contract_usage_count_serialization() {
+        // Test that Contract can be serialized with usage_count
+        let contract = Contract {
+            id: Uuid::new_v4(),
+            contract_id: "C123".to_string(),
+            wasm_hash: "hash123".to_string(),
+            name: "Test Contract".to_string(),
+            slug: "test-contract".to_string(),
+            description: Some("A test contract".to_string()),
+            publisher_id: Uuid::new_v4(),
+            network: Network::Mainnet,
+            is_verified: true,
+            verification_status: VerificationStatus::Verified,
+            category: Some("DeFi".to_string()),
+            tags: vec![],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            verified_at: Some(Utc::now()),
+            deployed_at: None,
+            verified_by: Some(Uuid::new_v4()),
+            verification_notes: None,
+            last_accessed_at: Some(Utc::now()),
+            health_score: 100,
+            is_maintenance: false,
+            logical_id: None,
+            network_configs: None,
+            relevance_score: None,
+            organization_id: None,
+            visibility: VisibilityType::Public,
+            current_version: Some("1.0.0".to_string()),
+            usage_count: 42,
+        };
+
+        let json = serde_json::to_string(&contract).expect("Failed to serialize contract");
+        assert!(json.contains("\"usage_count\":42"));
+
+        let deserialized: Contract = serde_json::from_str(&json).expect("Failed to deserialize contract");
+        assert_eq!(deserialized.usage_count, 42);
+    }
+
+    #[test]
+    fn test_contract_usage_count_backward_compatibility() {
+        // Test that Contract can be deserialized from JSON without usage_count field
+        // This simulates backward compatibility with existing API responses
+        let json_without_usage_count = r#"{
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "contract_id": "C123",
+            "wasm_hash": "hash123",
+            "name": "Test Contract",
+            "slug": "test-contract",
+            "description": "A test contract",
+            "publisher_id": "550e8400-e29b-41d4-a716-446655440001",
+            "network": "mainnet",
+            "is_verified": true,
+            "verification_status": "Verified",
+            "category": "DeFi",
+            "tags": [],
+            "created_at": "2023-10-27T10:00:00Z",
+            "updated_at": "2023-10-27T10:00:00Z",
+            "verified_at": "2023-10-27T10:00:00Z",
+            "verified_by": "550e8400-e29b-41d4-a716-446655440002",
+            "verification_notes": null,
+            "last_accessed_at": "2023-10-27T10:00:00Z",
+            "health_score": 100,
+            "is_maintenance": false,
+            "logical_id": null,
+            "network_configs": null,
+            "relevance_score": null,
+            "organization_id": null,
+            "visibility": "public",
+            "current_version": "1.0.0"
+        }"#;
+
+        let contract: Contract = serde_json::from_str(json_without_usage_count)
+            .expect("Failed to deserialize contract without usage_count");
+        
+        // usage_count should default to 0 due to #[serde(default)]
+        assert_eq!(contract.usage_count, 0);
+        assert_eq!(contract.name, "Test Contract");
+        assert_eq!(contract.contract_id, "C123");
+    }
+
+    #[test]
+    fn test_contract_usage_count_with_explicit_zero() {
+        // Test that explicit zero value works correctly
+        let json_with_zero_usage = r#"{
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "contract_id": "C123",
+            "wasm_hash": "hash123",
+            "name": "Test Contract",
+            "slug": "test-contract",
+            "description": "A test contract",
+            "publisher_id": "550e8400-e29b-41d4-a716-446655440001",
+            "network": "mainnet",
+            "is_verified": true,
+            "verification_status": "Verified",
+            "category": "DeFi",
+            "tags": [],
+            "created_at": "2023-10-27T10:00:00Z",
+            "updated_at": "2023-10-27T10:00:00Z",
+            "verified_at": "2023-10-27T10:00:00Z",
+            "verified_by": "550e8400-e29b-41d4-a716-446655440002",
+            "verification_notes": null,
+            "last_accessed_at": "2023-10-27T10:00:00Z",
+            "health_score": 100,
+            "is_maintenance": false,
+            "logical_id": null,
+            "network_configs": null,
+            "relevance_score": null,
+            "organization_id": null,
+            "visibility": "public",
+            "current_version": "1.0.0",
+            "usage_count": 0
+        }"#;
+
+        let contract: Contract = serde_json::from_str(json_with_zero_usage)
+            .expect("Failed to deserialize contract with zero usage_count");
+        
+        assert_eq!(contract.usage_count, 0);
+    }
 }

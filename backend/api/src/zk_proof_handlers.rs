@@ -15,7 +15,6 @@
 /// registry falls back to a deterministic internal verifier that checks structural
 /// validity (format, length, public input count) while making the result
 /// privacy-preserving by recording only aggregate statistics.
-
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -66,10 +65,16 @@ pub async fn register_circuit(
 
     // ── Validate required fields ───────────────────────────────────────────
     if req.name.trim().is_empty() {
-        return Err(ApiError::bad_request("MissingField", "circuit name is required"));
+        return Err(ApiError::bad_request(
+            "MissingField",
+            "circuit name is required",
+        ));
     }
     if req.circuit_source.trim().is_empty() {
-        return Err(ApiError::bad_request("MissingField", "circuit_source is required"));
+        return Err(ApiError::bad_request(
+            "MissingField",
+            "circuit_source is required",
+        ));
     }
     if req.verification_key.trim().is_empty() {
         return Err(ApiError::bad_request(
@@ -198,7 +203,10 @@ pub async fn get_circuit(
     .map_err(|e| db_internal_error("get zk_circuit", e))?;
 
     row.map(Json).ok_or_else(|| {
-        ApiError::not_found("CircuitNotFound", format!("No circuit with id: {}", circuit_id))
+        ApiError::not_found(
+            "CircuitNotFound",
+            format!("No circuit with id: {}", circuit_id),
+        )
     })
 }
 
@@ -221,10 +229,16 @@ pub async fn submit_proof(
 
     // ── Validate inputs ────────────────────────────────────────────────────
     if req.proof_data.trim().is_empty() {
-        return Err(ApiError::bad_request("MissingField", "proof_data is required"));
+        return Err(ApiError::bad_request(
+            "MissingField",
+            "proof_data is required",
+        ));
     }
     if req.prover_address.trim().is_empty() {
-        return Err(ApiError::bad_request("MissingField", "prover_address is required"));
+        return Err(ApiError::bad_request(
+            "MissingField",
+            "prover_address is required",
+        ));
     }
 
     // ── Fetch the circuit ──────────────────────────────────────────────────
@@ -256,8 +270,8 @@ pub async fn submit_proof(
     }
 
     // ── Record the submission as pending ──────────────────────────────────
-    let public_inputs_json = serde_json::to_value(&req.public_inputs)
-        .unwrap_or(serde_json::Value::Array(vec![]));
+    let public_inputs_json =
+        serde_json::to_value(&req.public_inputs).unwrap_or(serde_json::Value::Array(vec![]));
 
     let submission: ZkProofSubmission = sqlx::query_as(
         r#"
@@ -436,17 +450,19 @@ pub async fn get_proof(
 ) -> ApiResult<Json<ZkProofSubmission>> {
     let contract_uuid = resolve_contract_uuid(&state, &contract_id).await?;
 
-    let row: Option<ZkProofSubmission> = sqlx::query_as(
-        "SELECT * FROM zk_proof_submissions WHERE id = $1 AND contract_id = $2",
-    )
-    .bind(proof_id)
-    .bind(contract_uuid)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| db_internal_error("get zk_proof_submission", e))?;
+    let row: Option<ZkProofSubmission> =
+        sqlx::query_as("SELECT * FROM zk_proof_submissions WHERE id = $1 AND contract_id = $2")
+            .bind(proof_id)
+            .bind(contract_uuid)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| db_internal_error("get zk_proof_submission", e))?;
 
     let mut proof = row.ok_or_else(|| {
-        ApiError::not_found("ProofNotFound", format!("No proof submission with id: {}", proof_id))
+        ApiError::not_found(
+            "ProofNotFound",
+            format!("No proof submission with id: {}", proof_id),
+        )
     })?;
 
     // Mask address in single-proof response too
@@ -519,7 +535,11 @@ pub async fn get_zk_analytics(
     let circuits: Vec<ZkCircuitStats> = circuit_rows
         .into_iter()
         .map(|(cid, cname, ps_str, ct, cv, avg)| {
-            let sr = if ct > 0 { (cv as f64 / ct as f64) * 100.0 } else { 0.0 };
+            let sr = if ct > 0 {
+                (cv as f64 / ct as f64) * 100.0
+            } else {
+                0.0
+            };
             ZkCircuitStats {
                 circuit_id: cid,
                 circuit_name: cname,
@@ -573,13 +593,8 @@ async fn verify_proof_internal(
         circuit.proof_system.to_string().to_uppercase()
     );
     if let Ok(verifier_url) = std::env::var(&env_key) {
-        return delegate_to_external_verifier(
-            &verifier_url,
-            circuit,
-            proof_data,
-            public_inputs,
-        )
-        .await;
+        return delegate_to_external_verifier(&verifier_url, circuit, proof_data, public_inputs)
+            .await;
     }
 
     // ── Structural (offline) validation ───────────────────────────────────
@@ -645,10 +660,7 @@ async fn delegate_to_external_verifier(
         .map_err(|e| format!("External verifier request failed: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format!(
-            "External verifier returned HTTP {}",
-            resp.status()
-        ));
+        return Err(format!("External verifier returned HTTP {}", resp.status()));
     }
 
     let json: serde_json::Value = resp
@@ -754,8 +766,7 @@ fn decode_proof_bytes(encoded: &str) -> Result<Vec<u8>, String> {
     let trimmed = encoded.trim();
     // Try hex first (64-char blocks are common for field elements)
     if trimmed.len() % 2 == 0 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
-        return hex::decode(trimmed)
-            .map_err(|e| format!("Hex decode error: {}", e));
+        return hex::decode(trimmed).map_err(|e| format!("Hex decode error: {}", e));
     }
     // Fallback to base64
     use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -809,7 +820,9 @@ mod tests {
     fn sha256_hex_produces_64_char_lowercase_hex() {
         let h = sha256_hex(b"hello");
         assert_eq!(h.len(), 64);
-        assert!(h.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+        assert!(h
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
     }
 
     #[test]
@@ -854,8 +867,7 @@ mod tests {
             proof_system: ZkProofSystem::Groth16,
             circuit_source: "// test circuit".to_string(),
             circuit_hash: sha256_hex(b"// test circuit"),
-            verification_key: base64::engine::general_purpose::STANDARD
-                .encode(b"test-vk"),
+            verification_key: base64::engine::general_purpose::STANDARD.encode(b"test-vk"),
             num_public_inputs: 0,
             num_constraints: None,
             metadata: None,
@@ -892,10 +904,8 @@ mod tests {
             updated_at: Utc::now(),
         };
 
-        let proof =
-            base64::engine::general_purpose::STANDARD.encode(b"some-proof-bytes-for-test");
-        let result =
-            verify_proof_internal(&circuit, &proof, &["not-hex-!!!".to_string()]).await;
+        let proof = base64::engine::general_purpose::STANDARD.encode(b"some-proof-bytes-for-test");
+        let result = verify_proof_internal(&circuit, &proof, &["not-hex-!!!".to_string()]).await;
         assert!(result.is_err(), "invalid public input should error");
     }
 }

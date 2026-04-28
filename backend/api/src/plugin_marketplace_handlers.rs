@@ -100,4 +100,3 @@ pub async fn get_plugin_manifest(
 
     Ok(Json(plugin.manifest.clone()))
 }
-

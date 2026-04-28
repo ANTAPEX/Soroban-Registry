@@ -1,16 +1,18 @@
+pub mod deps;
 // Contract verification engine
+pub mod engine;
 // Compiles source code and compares with on-chain bytecode
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
 use shared::RegistryError;
+use std::process::Stdio;
 use std::time::Duration;
+use tempfile::TempDir;
 use tokio::fs;
 use tokio::process::Command;
 use tokio::time::timeout;
-use sha2::{Sha256, Digest};
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use serde_json::Value;
-use std::process::Stdio;
-use tempfile::TempDir;
 use tracing::instrument;
 
 const DEFAULT_SOROBAN_SDK_VERSION: &str = "21.7.7";
@@ -85,7 +87,8 @@ pub async fn compile_contract(
         });
     }
 
-    let temp_dir = TempDir::new().map_err(|e| RegistryError::Internal(format!("Failed to create temp dir: {}", e)))?;
+    let temp_dir = TempDir::new()
+        .map_err(|e| RegistryError::Internal(format!("Failed to create temp dir: {}", e)))?;
     bootstrap_project(temp_dir.path(), source_code, compiler_version).await?;
 
     let mut command = Command::new("cargo");
@@ -127,7 +130,11 @@ pub async fn compile_contract(
 
     if !wasm_path.exists() {
         // Try to find any wasm file if the standard name doesn't exist
-        let release_dir = temp_dir.path().join("target").join("wasm32-unknown-unknown").join("release");
+        let release_dir = temp_dir
+            .path()
+            .join("target")
+            .join("wasm32-unknown-unknown")
+            .join("release");
         if let Ok(mut entries) = fs::read_dir(release_dir).await {
             while let Ok(Some(entry)) = entries.next_entry().await {
                 let path = entry.path();
@@ -136,7 +143,9 @@ pub async fn compile_contract(
                 }
             }
         }
-        return Err(RegistryError::Internal("No WASM file found after build".to_string()));
+        return Err(RegistryError::Internal(
+            "No WASM file found after build".to_string(),
+        ));
     }
 
     Ok(fs::read(&wasm_path).await?)
@@ -214,13 +223,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_contract_invalid_hash() {
-        let result = verify_contract(
-            "fn main() {}", 
-            "invalid_hash", 
-            None, 
-            None
-        ).await;
-        
+        let result = verify_contract("fn main() {}", "invalid_hash", None, None).await;
+
         assert!(result.is_err());
     }
 

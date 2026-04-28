@@ -165,10 +165,16 @@ async fn notify_dependents(
     contract_id: &str,
     retirement_at: DateTime<Utc>,
 ) -> ApiResult<()> {
-    let has_dep_contract_id =
-        column_exists(state, "contract_static_dependencies", "dependency_contract_id").await?;
-    let has_dep_name = column_exists(state, "contract_static_dependencies", "dependency_name").await?;
-    let has_package_name = column_exists(state, "contract_static_dependencies", "package_name").await?;
+    let has_dep_contract_id = column_exists(
+        state,
+        "contract_static_dependencies",
+        "dependency_contract_id",
+    )
+    .await?;
+    let has_dep_name =
+        column_exists(state, "contract_static_dependencies", "dependency_name").await?;
+    let has_package_name =
+        column_exists(state, "contract_static_dependencies", "package_name").await?;
 
     let dependents: Vec<Uuid> = if has_dep_contract_id {
         sqlx::query_scalar(

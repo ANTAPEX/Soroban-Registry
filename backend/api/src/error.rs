@@ -7,6 +7,11 @@ use chrono::{SecondsFormat, Utc};
 use serde::Serialize;
 use serde_json::{json, Value};
 
+/// Standardized error types, payload normalization, and HTTP response handling for the API layer.
+/// 
+/// This module avoids specific external crate dependencies (e.g., `uuid::Uuid`) for request 
+/// tracking to minimize bloat, instead delegating correlation ID logic to the `request_tracing` 
+/// module which handles generation and lifecycle natively.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
@@ -82,7 +87,10 @@ fn normalize_error_code(code: impl Into<String>) -> String {
             if ch.is_ascii_uppercase()
                 && idx > 0
                 && !normalized.ends_with('_')
-                && normalized.chars().last().is_some_and(|prev| prev.is_ascii_lowercase())
+                && normalized
+                    .chars()
+                    .last()
+                    .is_some_and(|prev| prev.is_ascii_lowercase())
             {
                 normalized.push('_');
             }

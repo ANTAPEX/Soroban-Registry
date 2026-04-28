@@ -101,18 +101,28 @@ pub async fn verify_challenge(
         ));
     }
     // Fetch publisher_id from address
-    let publisher_id: uuid::Uuid = sqlx::query_scalar(
-        "SELECT id FROM publishers WHERE address = $1"
-    )
-    .bind(&payload.address)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "PublisherNotFound", "Publisher not registered"))?;
+    let publisher_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM publishers WHERE address = $1")
+            .bind(&payload.address)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::NOT_FOUND,
+                    "PublisherNotFound",
+                    "Publisher not registered",
+                )
+            })?;
 
     let mut mgr = state.auth_mgr.write().unwrap();
     let token = mgr
-        .verify_and_issue_jwt(&payload.address, &payload.public_key, &payload.signature, publisher_id)
+        .verify_and_issue_jwt(
+            &payload.address,
+            &payload.public_key,
+            &payload.signature,
+            publisher_id,
+        )
         .map_err(|_| {
             ApiError::new(
                 StatusCode::UNAUTHORIZED,

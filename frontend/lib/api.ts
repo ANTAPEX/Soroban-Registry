@@ -22,6 +22,7 @@ import {
   extractErrorData,
   createApiError,
 } from "./errors";
+import { resilientCall } from './resilience';
 import type { 
   Network, 
   NetworkStatus, 
@@ -266,8 +267,13 @@ async function handleApiCall<T>(
   apiCall: () => Promise<Response>,
   endpoint: string,
 ): Promise<T> {
+  // Wrap the API call with a circuit breaker + retries
   try {
-    const response = await apiCall();
+    const rawResponse = await resilientCall(endpoint, async () => {
+      return apiCall();
+    }, { endpoint });
+
+    const response = rawResponse as Response;
 
     if (!response.ok) {
       const errorData = await extractErrorData(response);
@@ -288,6 +294,13 @@ async function handleApiCall<T>(
     // Re-throw if already an ApiError
     if (error instanceof ApiError) {
       throw error;
+    }
+
+    // Circuit open
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    if (error && error.name === 'CircuitOpenError') {
+      throw new NetworkError('Service temporarily unavailable (circuit open)', endpoint);
     }
 
     // Handle network errors
@@ -375,10 +388,28 @@ export const api = {
       };
     }
 
-    return handleApiCall<NetworkListResponse>(
-      () => fetch(`${API_URL}/networks`),
-      "/networks",
-    );
+    try {
+      const resp = await handleApiCall<NetworkListResponse>(
+        () => fetch(`${API_URL}/networks`),
+        "/networks",
+      );
+      try {
+        // cache for fallback
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('soroban_cached_networks', JSON.stringify(resp));
+        }
+      } catch {}
+      return resp;
+    } catch (err) {
+      // On network/circuit failures, fall back to cached networks if available
+      try {
+        if (typeof window !== 'undefined') {
+          const cached = localStorage.getItem('soroban_cached_networks');
+          if (cached) return JSON.parse(cached) as NetworkListResponse;
+        }
+      } catch {}
+      throw err;
+    }
   },
 
   // Contract endpoints
@@ -518,55 +549,45 @@ export const api = {
 
     const queryParams = new URLSearchParams();
     if (params?.query) queryParams.append("query", params.query);
-    if (params?.contract_id)
-      queryParams.append("contract_id", params.contract_id);
+    if (params?.contract_id) queryParams.append("contract_id", params.contract_id);
     if (params?.network) queryParams.append("network", params.network);
-    params?.networks?.forEach((network) =>
-      queryParams.append("networks", network),
-    );
+    params?.networks?.forEach((network) => queryParams.append("networks", network));
     if (params?.verified_only !== undefined)
       queryParams.append("verified_only", String(params.verified_only));
     if (params?.category) queryParams.append("category", params.category);
-    params?.categories?.forEach((category) =>
-      queryParams.append("categories", category),
-    );
-    if (params?.language) queryParams.append("language", params.language);
-    params?.languages?.forEach((language) =>
-      queryParams.append("language", language),
-    );
-    if (params?.author) queryParams.append("author", params.author);
-    params?.tags?.forEach((tag) => queryParams.append("tag", tag));
-    // Backend accepts sort_by as specified (e.g. created_at, updated_at, popularity, deployments).
-    // For legacy UI labels we keep a small compatibility mapping.
-    if (params?.sort_by) {
-      const backendSortBy =
-        params.sort_by === "downloads"
-          ? "interactions"
-          : params.sort_by === "rating"
-            ? "popularity"
-            : params.sort_by;
-      queryParams.append("sort_by", backendSortBy);
-    }
-    if (params?.sort_order) queryParams.append("sort_order", params.sort_order);
-    if (params?.page) queryParams.append("page", String(params.page));
-    if (params?.page_size)
-      queryParams.append("page_size", String(params.page_size));
+    params?.categories?.forEach((category) => queryParams.append("categories", category));
 
-    const data = await handleApiCall<PaginatedResponse<Contract>>(
-      () => fetch(`${API_URL}/api/contracts?${queryParams}`),
-      "/api/contracts",
-    );
-    // Normalize legacy field names from older backend responses
-    const raw = data as unknown as Record<string, unknown>;
-    const normalized = { ...data } as PaginatedResponse<Contract> &
-      Record<string, unknown>;
-    if (Array.isArray(raw.contracts) && !Array.isArray(raw.items)) {
-      normalized.items = raw.contracts as Contract[];
+    try {
+      const resp = await handleApiCall<PaginatedResponse<Contract>>(
+        () => fetch(`${API_URL}/api/contracts?${queryParams}`),
+        "/api/contracts",
+      );
+
+      // Normalize legacy field names from older backend responses
+      const raw = resp as unknown as Record<string, unknown>;
+      const normalized = { ...resp } as PaginatedResponse<Contract> & Record<string, unknown>;
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('soroban_cached_contracts', JSON.stringify(normalized));
+        }
+      } catch {}
+      if (Array.isArray(raw.contracts) && !Array.isArray(raw.items)) {
+        normalized.items = raw.contracts as Contract[];
+      }
+      if (typeof raw.pages === "number" && raw.total_pages === undefined) {
+        normalized.total_pages = raw.pages as number;
+      }
+      return normalized;
+    } catch (err) {
+      // On failure, attempt to return cached contracts list if available
+      try {
+        if (typeof window !== 'undefined') {
+          const cached = localStorage.getItem('soroban_cached_contracts');
+          if (cached) return JSON.parse(cached) as PaginatedResponse<Contract>;
+        }
+      } catch {}
+      throw err;
     }
-    if (typeof raw.pages === "number" && raw.total_pages === undefined) {
-      normalized.total_pages = raw.pages as number;
-    }
-    return normalized;
   },
 
   async semanticSearchContracts(

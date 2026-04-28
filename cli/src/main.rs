@@ -48,7 +48,7 @@ mod user_config;
 mod version;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 use colored::Colorize;
 use patch::Severity;
 
@@ -68,9 +68,19 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub timeout: Option<u64>,
 
-    /// Enable verbose output (shows HTTP requests, responses, and debug info)
-    #[arg(long, short = 'v', global = true)]
-    pub verbose: bool,
+    /// Enable verbose output. Repeat to increase verbosity (-v, -vv, -vvv).
+    #[arg(
+        long,
+        short = 'v',
+        global = true,
+        action = ArgAction::Count,
+        long_help = "Enable verbose output. Repeat the flag to raise the log level:\n  \
+                     (none)  warn   — errors and warnings only (default)\n  \
+                     -v      info   — high-level operations\n  \
+                     -vv     debug  — HTTP requests, responses, and timing\n  \
+                     -vvv+   trace  — full internal tracing"
+    )]
+    pub verbose: u8,
 
     /// Check for CLI updates before running the command.
     #[arg(long, global = true)]
@@ -100,33 +110,18 @@ pub enum Commands {
         export: Option<String>,
     },
 
-    /// Search for contracts in the registry
-    Search {
-        /// Search query
-        query: String,
-        /// Only show verified contracts
+    /// Get comprehensive registry statistics
+    Stats {
+        /// Timeframe: 7d, 30d, or all (default: all)
+        #[arg(long, default_value = "all")]
+        timeframe: String,
+        /// Output format: table, json, yaml
+        #[arg(long, default_value = "table")]
+        format: String,
+        /// Export to file
         #[arg(long)]
-        verified_only: bool,
-        /// Filter by one or more networks (comma-separated: mainnet,testnet,futurenet)
-        #[arg(long)]
-        network: Option<String>,
-        /// Filter by contract category (e.g. DEX, token, lending, oracle)
-        #[arg(long)]
-        category: Option<String>,
-        /// Sort field (e.g. name, created_at, network)
-        #[arg(long)]
-        sort: Option<String>,
-        /// Maximum number of results to return
-        #[arg(long, default_value = "20")]
-        limit: usize,
-        /// Number of results to skip (for pagination)
-        #[arg(long, default_value = "0")]
-        offset: usize,
-        /// Output results as machine-readable JSON
-        #[arg(long)]
-        json: bool,
+        output: Option<String>,
     },
-
 
     /// Publish a new contract to the registry
     Publish {
@@ -1628,13 +1623,17 @@ async fn main() -> Result<()> {
     cli.timeout = Some(runtime.timeout);
 
     // ── Initialise logger ─────────────────────────────────────────────────────
-    // --verbose / -v  →  DEBUG level (shows HTTP calls, payloads, timing)
-    // default         →  WARN level  (only errors and warnings)
-    let log_level = if cli.verbose { "debug" } else { "warn" };
+    // -v counts; each level raises verbosity by one step.
+    let log_level = match cli.verbose {
+        0 => "warn",
+        1 => "info",
+        2 => "debug",
+        _ => "trace",
+    };
     env_logger::Builder::new()
         .parse_filters(log_level)
         .format_timestamp(None) // no timestamps in CLI output
-        .format_module_path(cli.verbose) // show module path only in verbose
+        .format_module_path(cli.verbose > 0) // show module path only when verbose
         .init();
 
     log::debug!("Verbose mode enabled");
@@ -2903,4 +2902,50 @@ pub async fn dispatch_command(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod verbose_flag_tests {
+    use super::*;
+    use clap::Parser;
+
+    fn parse(args: &[&str]) -> Cli {
+        Cli::try_parse_from(args).expect("CLI should parse")
+    }
+
+    #[test]
+    fn no_flag_yields_zero() {
+        let cli = parse(&["soroban-registry", "version"]);
+        assert_eq!(cli.verbose, 0);
+    }
+
+    #[test]
+    fn single_short_flag_yields_one() {
+        let cli = parse(&["soroban-registry", "-v", "version"]);
+        assert_eq!(cli.verbose, 1);
+    }
+
+    #[test]
+    fn repeated_short_flags_count() {
+        let cli = parse(&["soroban-registry", "-v", "-v", "-v", "version"]);
+        assert_eq!(cli.verbose, 3);
+    }
+
+    #[test]
+    fn stacked_short_flag_counts() {
+        let cli = parse(&["soroban-registry", "-vvv", "version"]);
+        assert_eq!(cli.verbose, 3);
+    }
+
+    #[test]
+    fn long_flag_counts_too() {
+        let cli = parse(&["soroban-registry", "--verbose", "--verbose", "version"]);
+        assert_eq!(cli.verbose, 2);
+    }
+
+    #[test]
+    fn verbose_works_after_subcommand_when_global() {
+        let cli = parse(&["soroban-registry", "version", "-vv"]);
+        assert_eq!(cli.verbose, 2);
+    }
 }

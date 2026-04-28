@@ -6,12 +6,12 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
     error::{ApiError, ApiResult},
+    ml_detector,
     state::AppState,
 };
 use shared::{
@@ -49,7 +49,7 @@ pub async fn trigger_security_scan(
         return Err(ApiError::not_found("contract", "Contract not found"));
     }
 
-    // Get contract version if specified
+    // Get contract version if specified, otherwise fall back to the latest version.
     let contract_version_id = if let Some(version) = &req.version {
         let version_id: Option<Uuid> = sqlx::query_scalar(
             "SELECT id FROM contract_versions WHERE contract_id = $1 AND version = $2",
@@ -62,8 +62,60 @@ pub async fn trigger_security_scan(
 
         version_id
     } else {
-        None
+        sqlx::query_scalar(
+            "SELECT id FROM contract_versions WHERE contract_id = $1 ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(contract_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
     };
+
+    let requested_scan_type = req.scan_type.as_deref().unwrap_or("full");
+    let ml_scanner_requested = if requested_scan_type.eq_ignore_ascii_case("ml") {
+        true
+    } else if let Some(scanner_ids) = req.scanner_ids.as_ref() {
+        if scanner_ids.is_empty() {
+            false
+        } else {
+            let ml_scanner_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM security_scanners WHERE id = ANY($1) AND scanner_type = 'ml_local' AND is_active = true",
+            )
+            .bind(scanner_ids)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            ml_scanner_count > 0
+        }
+    } else {
+        false
+    };
+
+    if ml_scanner_requested {
+        let contract_version_id = contract_version_id.ok_or_else(|| {
+            ApiError::not_found(
+                "contract_version",
+                "ML scans require a contract version with verified source code",
+            )
+        })?;
+
+        let (source_code, _verification_id) = ml_detector::source_for_contract(
+            &state,
+            contract_id,
+            req.version.as_deref(),
+        )
+        .await?;
+
+        let scan = ml_detector::persist_ml_scan(
+            &state,
+            contract_id,
+            contract_version_id,
+            source_code,
+        )
+        .await?;
+
+        return Ok(Json(scan));
+    }
 
     // Create scan record
     let scan = sqlx::query_as::<_, SecurityScan>(
@@ -299,14 +351,13 @@ pub async fn update_security_issue(
     Json(req): Json<UpdateSecurityIssueRequest>,
 ) -> ApiResult<Json<shared::SecurityIssue>> {
     // Verify issue belongs to contract
-    let existing: Option<shared::SecurityIssue> = sqlx::query_as(
-        "SELECT * FROM security_issues WHERE id = $1 AND contract_id = $2",
-    )
-    .bind(issue_id)
-    .bind(contract_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let existing: Option<shared::SecurityIssue> =
+        sqlx::query_as("SELECT * FROM security_issues WHERE id = $1 AND contract_id = $2")
+            .bind(issue_id)
+            .bind(contract_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let mut issue = existing
         .ok_or_else(|| ApiError::not_found("security_issue", "Security issue not found"))?;

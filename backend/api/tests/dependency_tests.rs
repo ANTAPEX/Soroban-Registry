@@ -19,11 +19,7 @@ fn get_transitive_dependencies_in_memory(
     vec![]
 }
 
-fn has_cycle_in_memory(
-    graph: &HashMap<&str, Vec<&str>>,
-    start: &str,
-    potential_dep: &str,
-) -> bool {
+fn has_cycle_in_memory(graph: &HashMap<&str, Vec<&str>>, start: &str, potential_dep: &str) -> bool {
     if start == potential_dep {
         return true;
     }
@@ -73,7 +69,7 @@ fn test_self_dependency_is_cycle() {
 fn test_direct_cycle_detected() {
     let mut graph: HashMap<&str, Vec<&str>> = HashMap::new();
     graph.insert("B", vec!["A"]); // B already depends on A
-    // Adding A → B would create: A → B → A
+                                  // Adding A → B would create: A → B → A
     assert!(
         has_cycle_in_memory(&graph, "A", "B"),
         "A→B would create cycle"
@@ -85,7 +81,7 @@ fn test_transitive_cycle_detected() {
     let mut graph: HashMap<&str, Vec<&str>> = HashMap::new();
     graph.insert("B", vec!["C"]);
     graph.insert("C", vec!["A"]); // C → A already exists
-    // Adding A → B would create: A → B → C → A
+                                  // Adding A → B would create: A → B → C → A
     assert!(
         has_cycle_in_memory(&graph, "A", "B"),
         "Transitive cycle A→B→C→A detected"
@@ -117,7 +113,10 @@ fn test_circular_detection_visited_set() {
 
     // c tries to reference a — already in visited → circular
     let is_circular = visited.contains(&id_a);
-    assert!(is_circular, "#610: circular dependency to A detected via visited set");
+    assert!(
+        is_circular,
+        "#610: circular dependency to A detected via visited set"
+    );
 
     // c references d — not in visited
     let is_d_circular = visited.contains(&"contract-D");
@@ -129,8 +128,12 @@ fn test_circular_detection_visited_set() {
 fn test_dependency_name_resolution_uuid_format() {
     // Simulate: if identifier parses as UUID, it's used directly.
     let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
-    let is_uuid = uuid_str.parse::<u128>().is_err() && uuid_str.contains('-') && uuid_str.len() == 36;
-    assert!(is_uuid, "#610: UUID identifiers recognised for dependency resolution");
+    let is_uuid =
+        uuid_str.parse::<u128>().is_err() && uuid_str.contains('-') && uuid_str.len() == 36;
+    assert!(
+        is_uuid,
+        "#610: UUID identifiers recognised for dependency resolution"
+    );
 }
 
 #[test]
