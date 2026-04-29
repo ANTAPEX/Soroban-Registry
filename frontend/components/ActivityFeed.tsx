@@ -197,7 +197,7 @@ export default function ActivityFeed() {
         ) : (
           <div className="divide-y divide-border">
             {items.map((item) => {
-              const config = EVENT_CONFIG[item.event_type] || { icon: Activity, label: item.event_type, color: 'text-gray-500 bg-gray-500/10' };
+              const config = EVENT_CONFIG[item.event_type] || { icon: Activity, label: item.event_type as string, color: 'text-gray-500 bg-gray-500/10' };
               const Icon = config.icon;
               
               return (
