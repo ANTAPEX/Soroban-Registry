@@ -4,10 +4,12 @@ import storage from "redux-persist/lib/storage";
 
 import themeReducer from "./slices/themeSlice";
 import favoritesReducer from "./slices/favoritesSlice";
+import collectionsReducer from "./slices/collectionsSlice";
 
 const rootReducer = combineReducers({
   theme: themeReducer,
   favorites: favoritesReducer,
+  collections: collectionsReducer,
 });
 
 const persistConfig = {
