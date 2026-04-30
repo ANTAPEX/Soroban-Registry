@@ -36,8 +36,9 @@
     "react-i18next": "^17.0.4",
     "react-redux": "^8.1.1",
     "recharts": "^3.7.0",
-    "three": "^0.181.1",
-    "swagger-ui-react": "^5.31.2"
+    "redux-persist": "^6.0.0",
+    "swagger-ui-react": "^5.31.2",
+    "three": "^0.181.1"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.1.2",
@@ -53,8 +54,8 @@
     "@types/node": "^20",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19",
-    "@types/three": "^0.181.0",
     "@types/swagger-ui-react": "^5.18.0",
+    "@types/three": "^0.181.0",
     "@vitest/browser-playwright": "^4.1.5",
     "@vitest/coverage-v8": "^4.1.5",
     "eslint": "^9",
