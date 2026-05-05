@@ -15,7 +15,7 @@ export default function CompatibilityPage() {
 
   const { data: contract } = useQuery({
     queryKey: ["contract", contractId],
-    queryFn: () => api.getContract(contractId!),
+    queryFn: () => api.fetchContract(contractId!),
     enabled: !!contractId,
   });
 
@@ -26,7 +26,7 @@ export default function CompatibilityPage() {
     error,
   } = useQuery({
     queryKey: ["compatibility", contractId],
-    queryFn: () => api.getCompatibility(contractId!),
+    queryFn: () => api.fetchContractVersions(contractId!),
     enabled: !!contractId,
   });
 

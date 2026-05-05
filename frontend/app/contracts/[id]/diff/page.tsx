@@ -30,7 +30,7 @@ function DiffPageContent() {
 
   const contractQuery = useQuery({
     queryKey: ["contract", contractId],
-    queryFn: () => api.getContract(contractId),
+    queryFn: () => api.fetchContract(contractId),
     enabled: !!contractId,
   });
 
