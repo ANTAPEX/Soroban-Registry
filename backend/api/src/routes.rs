@@ -30,7 +30,7 @@ use utoipa_swagger_ui::SwaggerUi;
 ///
 /// `main.rs` owns process setup, middleware, and graceful shutdown; this module
 /// owns route registration so resource groups stay discoverable and testable.
-pub fn application_routes(schema: crate::graphql::schema::RegistrySchema) -> Router<AppState> {
+pub fn application_routes(_schema: crate::graphql::schema::RegistrySchema) -> Router<AppState> {
     Router::new()
         // Identity and marketplace primitives
         .merge(auth_routes())

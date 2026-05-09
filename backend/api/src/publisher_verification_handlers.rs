@@ -80,7 +80,7 @@ fn is_valid_email(email: &str) -> bool {
 /// Here we simulate a successful verification when the token is exactly
 /// `"verify-{email_hash}"` (first 8 hex chars of SHA256), or any non-empty
 /// token when the publisher's existing email already matches (auto-confirm).
-fn check_token(email: &str, token: Option<&str>) -> bool {
+fn check_token(_email: &str, token: Option<&str>) -> bool {
     match token {
         None => {
             // No token provided → treat as a first-step declarative submit.

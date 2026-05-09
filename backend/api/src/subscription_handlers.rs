@@ -724,7 +724,7 @@ pub async fn delete_webhook(
     Path(webhook_id): Path<Uuid>,
     auth_user: auth::AuthenticatedUser,
 ) -> ApiResult<StatusCode> {
-    let rows_affected =
+    let _rows_affected =
         sqlx::query("DELETE FROM webhook_configurations WHERE id = $1 AND user_id = $2")
             .bind(webhook_id)
             .bind(auth_user.publisher_id)
@@ -733,9 +733,9 @@ pub async fn delete_webhook(
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
             .rows_affected();
 
-    let user_id = auth_user.publisher_id;
+    let _user_id = auth_user.publisher_id;
 
-    let rows_affected =
+    let _rows_affected =
         sqlx::query("DELETE FROM webhook_configurations WHERE id = $1 AND user_id = $2")
             .bind(webhook_id)
             .bind(auth_user.publisher_id)

@@ -480,7 +480,7 @@ impl WasmBytecodeAnalyzer {
                 Operator::End => {
                     depth = depth.saturating_sub(1);
                 }
-                Operator::Br { relative_depth } | Operator::BrIf { relative_depth } => {
+                Operator::Br { relative_depth: _ } | Operator::BrIf { relative_depth: _ } => {
                     // A backward branch (br to an enclosing loop) creates an unbounded loop
                     // unless the loop exit is provably reachable.
                     // We use a conservative heuristic: any br/br_if with depth >= 1 inside
