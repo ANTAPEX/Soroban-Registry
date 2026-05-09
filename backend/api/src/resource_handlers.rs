@@ -26,7 +26,10 @@ mod tests {
     use crate::cache::{CacheConfig, CacheLayer};
     use crate::contract_events::ContractEventHub;
     use crate::metrics;
+    use crate::rate_limit::RateLimitState;
     use crate::resource_tracking::{ResourceManager, ResourceUsage};
+    use crate::search_client::SearchClient;
+    use crate::search_postgres::PostgresSearchService;
     use axum::extract::{Path, State};
     use axum::response::IntoResponse;
     use chrono::{TimeZone, Utc};
@@ -61,7 +64,11 @@ mod tests {
             contract_events: Arc::new(ContractEventHub::from_env()),
             source_storage: Arc::new(shared::source_storage::SourceStorage::new().await.unwrap()),
             event_broadcaster,
-            ..Default::default()
+            search: Arc::new(SearchClient::new("http://localhost:9200").unwrap()),
+            pg_search: Arc::new(PostgresSearchService::new(create_test_pool())),
+            ai_service: None,
+            state_monitor: None,
+            rate_limit_state: Arc::new(RateLimitState::from_env()),
         }
     }
 

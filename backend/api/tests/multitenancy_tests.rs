@@ -10,7 +10,10 @@ use uuid::Uuid;
 use api::auth::AuthManager;
 use api::cache::{CacheConfig, CacheLayer};
 use api::contract_events::ContractEventHub;
+use api::rate_limit::RateLimitState;
 use api::resource_tracking::ResourceManager;
+use api::search_client::SearchClient;
+use api::search_postgres::PostgresSearchService;
 use api::state::AppState;
 
 // Helper to create a mock AppState with a lazy (but invalid) DB connection
@@ -36,6 +39,16 @@ async fn test_state() -> AppState {
         contract_events: Arc::new(ContractEventHub::from_env()),
         source_storage: Arc::new(shared::source_storage::SourceStorage::new().await.unwrap()),
         event_broadcaster,
+        search: Arc::new(SearchClient::new("http://localhost:9200").unwrap()),
+        pg_search: Arc::new(PostgresSearchService::new(
+            sqlx::pool::PoolOptions::new()
+                .max_connections(1)
+                .connect_lazy("postgres://localhost/test")
+                .unwrap(),
+        )),
+        ai_service: None,
+        state_monitor: None,
+        rate_limit_state: Arc::new(RateLimitState::from_env()),
     }
 }
 

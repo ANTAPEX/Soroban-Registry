@@ -147,7 +147,10 @@ mod tests {
     use crate::cache::{CacheConfig, CacheLayer};
     use crate::contract_events::ContractEventHub;
     use crate::health_monitor::HealthMonitorStatus;
+    use crate::rate_limit::RateLimitState;
     use crate::resource_tracking::ResourceManager;
+    use crate::search_client::SearchClient;
+    use crate::search_postgres::PostgresSearchService;
     use axum::extract::Query;
     use ed25519_dalek::{Signer, SigningKey};
     use prometheus::Registry;
@@ -167,7 +170,7 @@ mod tests {
         let (job_engine, _rx) = soroban_batch::engine::JobEngine::new();
         let (event_broadcaster, _) = tokio::sync::broadcast::channel(100);
         AppState {
-            db,
+            db: db.clone(),
             started_at: Instant::now(),
             cache: Arc::new(CacheLayer::new(CacheConfig::default()).await),
             registry,
@@ -179,7 +182,11 @@ mod tests {
             contract_events: Arc::new(ContractEventHub::from_env()),
             source_storage: Arc::new(shared::source_storage::SourceStorage::new().await.unwrap()),
             event_broadcaster,
-            ..Default::default()
+            search: Arc::new(SearchClient::new("http://localhost:9200").unwrap()),
+            pg_search: Arc::new(PostgresSearchService::new(db)),
+            ai_service: None,
+            state_monitor: None,
+            rate_limit_state: Arc::new(RateLimitState::from_env()),
         }
     }
 
