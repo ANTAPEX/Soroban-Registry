@@ -4,9 +4,8 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use shared::models::{Contract, Network};
-use sqlx::{postgres::PgArguments, PgPool};
-use uuid::Uuid;
+use shared::models::Network;
+use sqlx::PgPool;
 
 use crate::error::ApiError;
 use crate::state::AppState;

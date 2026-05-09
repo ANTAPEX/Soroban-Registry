@@ -521,7 +521,6 @@ pub async fn build_local_graph(pool: &PgPool, root_id: Uuid, depth: u32) -> Resu
 }
 
 #[cfg(test)]
-
 mod tests {
     use super::*;
     use serde_json::json;

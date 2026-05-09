@@ -2,10 +2,9 @@ use anyhow::{anyhow, Context, Result};
 use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
-use tracing::{error, info, warn};
+use tracing::error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AIProvider {

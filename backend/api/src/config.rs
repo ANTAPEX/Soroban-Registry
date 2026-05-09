@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::env;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
