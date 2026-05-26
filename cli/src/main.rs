@@ -12,6 +12,7 @@ mod codegen;
 mod commands;
 mod compare;
 mod config;
+mod contract_risk;
 mod contract_verify;
 mod contracts;
 mod conversions;
@@ -1475,6 +1476,27 @@ pub enum ContractCommands {
         #[arg(long)]
         json: bool,
     },
+
+    /// Assess security and operational risks for a contract (#837)
+    ///
+    /// Usage: soroban-registry contract risk <address> [--network <n>] [--threshold <level>] [--json]
+    Risk {
+        /// On-chain contract address or registry UUID to assess
+        address: String,
+
+        /// Stellar network (mainnet | testnet | futurenet)
+        #[arg(long, default_value = "mainnet")]
+        network: String,
+
+        /// Exit with code 1 if overall risk level meets or exceeds this threshold
+        /// (low | medium | high | critical)
+        #[arg(long)]
+        threshold: Option<String>,
+
+        /// Output the risk report as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Sub-commands for the `webhook` group
@@ -2836,6 +2858,28 @@ pub async fn dispatch_command(
                     json
                 );
                 contracts::run_details(&cli.api_url, &address, &network, json).await?;
+            }
+            ContractCommands::Risk {
+                address,
+                network,
+                threshold,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract risk | address={} network={} threshold={:?} json={}",
+                    address,
+                    network,
+                    threshold,
+                    json
+                );
+                contract_risk::run(
+                    &cli.api_url,
+                    &address,
+                    &network,
+                    threshold.as_deref(),
+                    json,
+                )
+                .await?;
             }
         },
         // ── Release Notes commands ───────────────────────────────────────────
