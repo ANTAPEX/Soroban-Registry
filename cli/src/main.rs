@@ -12,6 +12,10 @@ mod codegen;
 mod commands;
 mod compare;
 mod config;
+mod api_key;
+mod contract_dependency;
+mod contract_highlight;
+mod contract_interaction;
 mod contract_verify;
 mod contracts;
 mod conversions;
@@ -753,6 +757,13 @@ pub enum Commands {
         action: ContractCommands,
     },
 
+    /// Manage API keys for programmatic access (#842)
+    #[command(name = "api-key")]
+    ApiKey {
+        #[command(subcommand)]
+        action: ApiKeyCommands,
+    },
+
     /// Verify multiple contracts in a single atomic batch (all succeed or all rollback)
     BatchVerify {
         /// Comma-separated list of contract IDs to verify.
@@ -1472,6 +1483,79 @@ pub enum ContractCommands {
         network: String,
 
         /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Manage featured (highlighted) contracts (#832)
+    ///
+    /// Usage: soroban-registry contract highlight [ADDRESS] --action <add|remove|list|check>
+    Highlight {
+        /// Contract address (required for add/remove/check)
+        address: Option<String>,
+        /// Action to perform: add | remove | list | check
+        #[arg(long, default_value = "list")]
+        action: String,
+        /// Curator bearer token for mutating actions (add/remove)
+        #[arg(long)]
+        token: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// View a contract's interactions and call patterns (#835)
+    Interaction {
+        /// On-chain contract address
+        address: String,
+        /// Max number of recent interactions to display
+        #[arg(long, default_value_t = 20)]
+        limit: u32,
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Analyze a contract's dependencies and relationships (#836)
+    Dependency {
+        /// On-chain contract address
+        address: String,
+        /// Dependency tree depth
+        #[arg(long, default_value_t = 1)]
+        depth: u32,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// Sub-commands for the `api-key` group (#842)
+#[derive(Debug, Subcommand)]
+pub enum ApiKeyCommands {
+    /// Create a new API key
+    Create {
+        /// Expiry (ISO date or duration, e.g. 2026-12-31 or 30d)
+        #[arg(long)]
+        expires: Option<String>,
+        /// Comma-separated scopes / permissions
+        #[arg(long)]
+        scopes: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List your API keys
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Permanently delete an API key
+    Delete {
+        /// API key id
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Revoke (disable) an API key without deleting its audit record
+    Revoke {
+        /// API key id
+        id: String,
         #[arg(long)]
         json: bool,
     },
@@ -2836,6 +2920,60 @@ pub async fn dispatch_command(
                     json
                 );
                 contracts::run_details(&cli.api_url, &address, &network, json).await?;
+            }
+            ContractCommands::Highlight {
+                address,
+                action,
+                token,
+                json,
+            } => {
+                log::debug!("Command: contract highlight | action={}", action);
+                contract_highlight::run(
+                    &cli.api_url,
+                    address.as_deref(),
+                    &action,
+                    token.as_deref(),
+                    json,
+                )
+                .await?;
+            }
+            ContractCommands::Interaction {
+                address,
+                limit,
+                json,
+            } => {
+                log::debug!("Command: contract interaction | address={}", address);
+                contract_interaction::run(&cli.api_url, &address, limit, json).await?;
+            }
+            ContractCommands::Dependency {
+                address,
+                depth,
+                json,
+            } => {
+                log::debug!("Command: contract dependency | address={} depth={}", address, depth);
+                contract_dependency::run(&cli.api_url, &address, depth, json).await?;
+            }
+        },
+        Commands::ApiKey { action } => match action {
+            ApiKeyCommands::Create {
+                expires,
+                scopes,
+                json,
+            } => {
+                log::debug!("Command: api-key create");
+                api_key::create(&cli.api_url, expires.as_deref(), scopes.as_deref(), json).await?;
+            }
+            ApiKeyCommands::List { json } => {
+                log::debug!("Command: api-key list");
+                api_key::list(&cli.api_url, json).await?;
+            }
+            ApiKeyCommands::Delete { id, json } => {
+                log::debug!("Command: api-key delete | id={}", id);
+                api_key::delete(&cli.api_url, &id, false, json).await?;
+            }
+            ApiKeyCommands::Revoke { id, json } => {
+                log::debug!("Command: api-key revoke | id={}", id);
+                api_key::delete(&cli.api_url, &id, true, json).await?;
             }
         },
         // ── Release Notes commands ───────────────────────────────────────────
