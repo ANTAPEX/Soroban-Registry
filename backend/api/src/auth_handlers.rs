@@ -35,6 +35,12 @@ pub struct VerifyRequest {
     pub public_key: String,
     /// Signed nonce in hex
     pub signature: String,
+    /// Fine-grained scopes to embed in the JWT
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    /// Custom token lifetime in seconds
+    #[serde(default)]
+    pub expires_in_seconds: Option<u64>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -102,7 +108,7 @@ pub async fn verify_challenge(
     }
     // Fetch publisher_id from address
     let publisher_id: uuid::Uuid =
-        sqlx::query_scalar("SELECT id FROM publishers WHERE address = $1")
+        sqlx::query_scalar("SELECT id FROM publishers WHERE stellar_address = $1")
             .bind(&payload.address)
             .fetch_optional(&state.db)
             .await
@@ -115,6 +121,10 @@ pub async fn verify_challenge(
                 )
             })?;
 
+    let expires_in_seconds = payload
+        .expires_in_seconds
+        .unwrap_or(86_400)
+        .clamp(300, 30 * 24 * 60 * 60);
     let mut mgr = state.auth_mgr.write().unwrap();
     let token = mgr
         .verify_and_issue_jwt(
@@ -122,6 +132,8 @@ pub async fn verify_challenge(
             &payload.public_key,
             &payload.signature,
             publisher_id,
+            payload.scopes,
+            expires_in_seconds,
         )
         .map_err(|_| {
             ApiError::new(
@@ -135,7 +147,7 @@ pub async fn verify_challenge(
         Json(VerifyResponse {
             token,
             token_type: "Bearer",
-            expires_in_seconds: 86_400,
+            expires_in_seconds,
         }),
     ))
 }
@@ -153,6 +165,7 @@ mod tests {
     use crate::search_postgres::PostgresSearchService;
     use axum::extract::Query;
     use ed25519_dalek::{Signer, SigningKey};
+    use stellar_strkey::ed25519::PublicKey as StellarPublicKey;
     use prometheus::Registry;
     use std::sync::{Arc, RwLock};
     use std::time::Instant;
@@ -193,13 +206,15 @@ mod tests {
     #[tokio::test]
     async fn challenge_returns_nonce_for_address() {
         let state = test_app_state().await;
+        let key = SigningKey::from_bytes(&[1u8; 32]);
+        let address = StellarPublicKey(*key.verifying_key().as_bytes()).to_string();
         let query = ChallengeQuery {
-            address: "GABCDEF".to_string(),
+            address,
         };
         let result = get_challenge(State(state.clone()), Query(query)).await;
         assert!(result.is_ok());
         let Json(resp) = result.unwrap();
-        assert_eq!(resp.address, "GABCDEF");
+        assert_eq!(resp.address.len(), 56);
         assert!(!resp.nonce.is_empty());
         assert_eq!(resp.expires_in_seconds, 300);
     }
@@ -218,10 +233,11 @@ mod tests {
     async fn verify_issues_jwt_when_signature_valid() {
         let state = test_app_state().await;
         let key = SigningKey::from_bytes(&[1u8; 32]);
-        let address_hex = hex::encode(key.verifying_key().as_bytes());
+        let address = StellarPublicKey(*key.verifying_key().as_bytes()).to_string();
+        let public_key_hex = hex::encode(key.verifying_key().as_bytes());
 
         let query = ChallengeQuery {
-            address: address_hex.clone(),
+            address: address.clone(),
         };
         let challenge_result = get_challenge(State(state.clone()), Query(query)).await;
         assert!(challenge_result.is_ok());
@@ -232,9 +248,11 @@ mod tests {
         let signature_hex = hex::encode(sig.to_bytes());
 
         let payload = VerifyRequest {
-            address: address_hex.clone(),
-            public_key: address_hex.clone(),
+            address: address.clone(),
+            public_key: public_key_hex,
             signature: signature_hex,
+            scopes: vec!["read".to_string()],
+            expires_in_seconds: None,
         };
         let result = verify_challenge(State(state.clone()), Json(payload)).await;
         assert!(result.is_ok(), "{:?}", result.err());
@@ -245,6 +263,6 @@ mod tests {
 
         let mgr = state.auth_mgr.read().unwrap();
         let claims = mgr.validate_jwt(&resp.token).expect("valid JWT");
-        assert_eq!(claims.sub, address_hex);
+        assert_eq!(claims.sub, address);
     }
 }

@@ -49,6 +49,14 @@ csv = "1.4.0"
 stellar-strkey = "0.0.16"
 stellar-xdr = { version = "26.0.0", features = ["curr", "std", "base64"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.3", features = ["linux-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6.3", features = ["windows-native"] }
 
 [dev-dependencies]
 criterion = "0.5"

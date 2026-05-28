@@ -31,6 +31,7 @@ impl RequestBuilderExt for RequestBuilder {
 
 async fn send_with_retry(builder: RequestBuilder) -> Result<Response> {
     let (method, url) = request_summary(&builder);
+    let builder = attach_auth(builder, url.as_ref()).await?;
 
     if builder.try_clone().is_none() {
         return builder
@@ -88,6 +89,32 @@ async fn send_with_retry(builder: RequestBuilder) -> Result<Response> {
         "Network request failed after {} attempt(s). Check the API URL, your network connection, and try again.",
         MAX_ATTEMPTS
     ))
+}
+
+async fn attach_auth(builder: RequestBuilder, url: Option<&Url>) -> Result<RequestBuilder> {
+    if builder.try_clone().is_none() {
+        return Ok(builder);
+    }
+
+    let Some(base_url) = request_base_url(url) else {
+        return Ok(builder);
+    };
+
+    let Some(token) = crate::auth::access_token_for_requests(&base_url).await? else {
+        return Ok(builder);
+    };
+
+    Ok(builder.header(reqwest::header::AUTHORIZATION, format!("Bearer {}", token)))
+}
+
+fn request_base_url(url: Option<&Url>) -> Option<String> {
+    let url = url?;
+    let mut base = format!("{}://{}", url.scheme(), url.host_str()?);
+    if let Some(port) = url.port() {
+        base.push(':');
+        base.push_str(&port.to_string());
+    }
+    Some(base)
 }
 
 fn request_summary(builder: &RequestBuilder) -> (Option<Method>, Option<Url>) {

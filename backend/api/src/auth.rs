@@ -11,6 +11,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
+use stellar_strkey::{Strkey, ed25519::PublicKey as StellarPublicKey};
 
 pub const MIN_JWT_SECRET_LEN: usize = 32;
 
@@ -73,6 +74,8 @@ pub struct AuthClaims {
     pub publisher_id: uuid::Uuid,
     pub iat: i64,
     pub exp: i64,
+    #[serde(default)]
+    pub scopes: Vec<String>,
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
@@ -164,6 +167,8 @@ impl AuthManager {
         public_key_hex: &str,
         signature_hex: &str,
         publisher_id: uuid::Uuid,
+        scopes: Vec<String>,
+        expires_in_seconds: u64,
     ) -> Result<String, &'static str> {
         let challenge = self
             .challenges
@@ -172,22 +177,25 @@ impl AuthManager {
         if Utc::now().timestamp() > challenge.expires_at {
             return Err("challenge_expired");
         }
-        if address != public_key_hex {
+        let public_key = decode_hex_32(public_key_hex).ok_or("invalid_public_key_hex")?;
+        let address_public_key = decode_stellar_public_key(address).ok_or("invalid_address")?;
+        if address_public_key != public_key {
             return Err("address_public_key_mismatch");
         }
-        let public_key = decode_hex_32(public_key_hex).ok_or("invalid_public_key_hex")?;
         let signature = decode_hex_64(signature_hex).ok_or("invalid_signature_hex")?;
         let vk = VerifyingKey::from_bytes(&public_key).map_err(|_| "invalid_public_key")?;
         let sig = Signature::from_bytes(&signature);
         vk.verify(challenge.nonce.as_bytes(), &sig)
             .map_err(|_| "invalid_signature")?;
         let iat = Utc::now().timestamp();
-        let exp = (Utc::now() + Duration::hours(24)).timestamp();
+        let expires_in_seconds = expires_in_seconds.clamp(300, 30 * 24 * 60 * 60);
+        let exp = (Utc::now() + Duration::seconds(expires_in_seconds as i64)).timestamp();
         let claims = AuthClaims {
             sub: address.to_string(),
             publisher_id,
             iat,
             exp,
+            scopes,
             role: None,
             admin: false,
         };
@@ -287,6 +295,13 @@ fn decode_hex_64(value: &str) -> Option<[u8; 64]> {
     Some(out)
 }
 
+fn decode_stellar_public_key(value: &str) -> Option<[u8; 32]> {
+    match Strkey::from_string(value).ok()? {
+        Strkey::PublicKeyEd25519(StellarPublicKey(bytes)) => Some(bytes),
+        _ => None,
+    }
+}
+
 fn decode_hex(value: &str) -> Option<Vec<u8>> {
     if !value.len().is_multiple_of(2) {
         return None;
@@ -301,6 +316,7 @@ fn decode_hex(value: &str) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
+    use stellar_strkey::ed25519::PublicKey as StellarPublicKey;
 
     fn hex_encode(data: &[u8]) -> String {
         data.iter()
@@ -313,19 +329,23 @@ mod tests {
         let mut auth = AuthManager::new("test-secret".to_string());
         let seed = [7u8; 32];
         let sk = SigningKey::from_bytes(&seed);
+        let address = StellarPublicKey(*sk.verifying_key().as_bytes()).to_string();
         let vk_hex = hex_encode(sk.verifying_key().as_bytes());
-        let nonce = auth.create_challenge(&vk_hex);
+        let nonce = auth.create_challenge(&address);
         let sig = sk.sign(nonce.as_bytes());
         let token = auth
             .verify_and_issue_jwt(
-                &vk_hex,
+                &address,
                 &vk_hex,
                 &hex_encode(&sig.to_bytes()),
                 uuid::Uuid::nil(),
+                vec!["read".to_string()],
+                3_600,
             )
             .expect("jwt must be issued");
         let claims = auth.validate_jwt(&token).expect("token must be valid");
-        assert_eq!(claims.sub, vk_hex);
+        assert_eq!(claims.sub, address);
+        assert_eq!(claims.scopes, vec!["read".to_string()]);
     }
 
     #[test]
@@ -333,13 +353,28 @@ mod tests {
         let mut auth = AuthManager::new("test-secret".to_string());
         let seed = [9u8; 32];
         let sk = SigningKey::from_bytes(&seed);
+        let address = StellarPublicKey(*sk.verifying_key().as_bytes()).to_string();
         let vk_hex = hex_encode(sk.verifying_key().as_bytes());
-        let nonce = auth.create_challenge(&vk_hex);
+        let nonce = auth.create_challenge(&address);
         let sig = sk.sign(nonce.as_bytes());
         let sig_hex = hex_encode(&sig.to_bytes());
-        let first = auth.verify_and_issue_jwt(&vk_hex, &vk_hex, &sig_hex, uuid::Uuid::nil());
+        let first = auth.verify_and_issue_jwt(
+            &address,
+            &vk_hex,
+            &sig_hex,
+            uuid::Uuid::nil(),
+            vec![],
+            3_600,
+        );
         assert!(first.is_ok());
-        let second = auth.verify_and_issue_jwt(&vk_hex, &vk_hex, &sig_hex, uuid::Uuid::nil());
+        let second = auth.verify_and_issue_jwt(
+            &address,
+            &vk_hex,
+            &sig_hex,
+            uuid::Uuid::nil(),
+            vec![],
+            3_600,
+        );
         assert!(second.is_err());
     }
 
