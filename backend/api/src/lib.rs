@@ -100,3 +100,4 @@ pub mod security_log;
 pub mod state_monitor;
 pub mod stats;
 pub mod webhook_delivery;
+pub mod db_resilience;

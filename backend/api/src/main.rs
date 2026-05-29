@@ -136,6 +136,60 @@ async fn main() -> Result<()> {
     // Create event broadcaster for real-time updates
     let (event_broadcaster, _) = broadcast::channel(100);
 
+    // Database Concurrency & Queue configuration (#595)
+    let concurrency_limit = std::env::var("DB_CONCURRENCY_LIMIT")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(((max_pool_size as usize).saturating_sub(2)).max(1));
+
+    let queue_limit = std::env::var("DB_QUEUE_LIMIT")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(50);
+
+    let queue_timeout_ms = std::env::var("DB_QUEUE_TIMEOUT_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(5000);
+
+    let breaker_failures = std::env::var("CIRCUIT_BREAKER_FAILURES")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(5);
+
+    let breaker_recovery_secs = std::env::var("CIRCUIT_BREAKER_RECOVERY_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(10);
+
+    tracing::info!(
+        concurrency_limit = concurrency_limit,
+        queue_limit = queue_limit,
+        queue_timeout_ms = queue_timeout_ms,
+        breaker_failures = breaker_failures,
+        breaker_recovery_secs = breaker_recovery_secs,
+        "Initializing database resilience layer"
+    );
+
+    let db_breaker = Arc::new(crate::db_resilience::CircuitBreaker::new(
+        breaker_failures,
+        Duration::from_secs(breaker_recovery_secs),
+    ));
+
+    let db_queue = Arc::new(crate::db_resilience::DbQueue::new(
+        concurrency_limit,
+        queue_limit,
+        Duration::from_millis(queue_timeout_ms),
+    ));
+
+    // Spawn background database health ping task
+    crate::db_resilience::spawn_background_ping_task(
+        pool.clone(),
+        db_breaker.clone(),
+        Duration::from_secs(2), // Ping every 2 seconds
+        Duration::from_secs(1), // Timeout after 1 second
+    );
+
     // Create app state
     let is_shutting_down = Arc::new(AtomicBool::new(false));
     // Job engine: initialize for background batch processing
@@ -152,6 +206,8 @@ async fn main() -> Result<()> {
         rate_limit_state.clone(),
         ai_service.clone(),
         event_broadcaster.clone(),
+        db_breaker,
+        db_queue,
     )
     .await?;
 
@@ -262,6 +318,10 @@ async fn main() -> Result<()> {
         ))
         .layer(middleware::from_fn(
             validation::enhanced_extractors::validation_failure_tracking_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::db_resilience::db_resilience_middleware,
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
