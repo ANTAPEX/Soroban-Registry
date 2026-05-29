@@ -82,7 +82,7 @@ jobs:
       # BEFORE clippy/test/build, so install sqlx-cli and run migrations
       # against the CI Postgres service first.
       - name: Install sqlx-cli
-        run: cargo install sqlx-cli --no-default-features --features rustls,postgres --locked
+        run: cargo install sqlx-cli --version 0.8.6 --no-default-features --features rustls,postgres --locked
 
       - name: Verify SQLx build environment
         run: bash scripts/check-sqlx-env.sh
