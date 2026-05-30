@@ -189,6 +189,8 @@ async fn main() -> Result<()> {
         Duration::from_secs(2), // Ping every 2 seconds
         Duration::from_secs(1), // Timeout after 1 second
     );
+    // Initialize feature flags manager
+    let feature_flags = Arc::new(api::feature_flags::FeatureFlagManager::new());
 
     // Create app state
     let is_shutting_down = Arc::new(AtomicBool::new(false));
@@ -208,6 +210,7 @@ async fn main() -> Result<()> {
         event_broadcaster.clone(),
         db_breaker,
         db_queue,
+        feature_flags,
     )
     .await?;
 
@@ -259,6 +262,10 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         health_monitor::run_health_monitor(hm_state, hm_status).await;
     });
+
+    // Create alert manager and spawn system health monitor
+    let alert_mgr = Arc::new(api::alerting::AlertManager::new());
+    api::system_health::spawn_system_health_monitor(pool.clone(), state.cache.clone(), alert_mgr);
 
     let network_state = state.clone();
     tokio::spawn(async move {

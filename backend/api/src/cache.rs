@@ -287,6 +287,16 @@ impl CacheLayer {
         self.contracts_cache.invalidate_all();
     }
 
+    pub async fn ping(&self) -> anyhow::Result<()> {
+        if self.config.redis_enabled {
+            if let Some(cm) = &self.redis_cm {
+                let mut conn = cm.clone();
+                let _: () = redis::cmd("PING").query_async(&mut conn).await?;
+            }
+        }
+        Ok(())
+    }
+
     /// Starts an asynchronous startup warmup task querying the top 100 contracts
     pub fn warm_up(self: Arc<Self>, pool: PgPool) {
         if !self.config.enabled {

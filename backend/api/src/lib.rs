@@ -88,6 +88,9 @@ pub mod zk_proof_handlers;
 
 // New modules for feature tasks
 pub mod ai;
+pub mod feature_flags;
+pub mod alerting;
+pub mod system_health;
 pub mod audit;
 pub mod config;
 pub mod db_monitoring;

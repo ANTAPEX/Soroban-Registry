@@ -8,6 +8,7 @@ use crate::resource_tracking::ResourceManager;
 use crate::search_client::SearchClient;
 use crate::search_postgres::PostgresSearchService;
 use crate::state_monitor::StateMonitorService;
+use crate::feature_flags::FeatureFlagManager;
 use shared::source_storage::SourceStorage;
 
 use prometheus::Registry;
@@ -96,6 +97,7 @@ pub struct AppState {
     pub rate_limit_state: Arc<RateLimitState>,
     pub db_breaker: Arc<crate::db_resilience::CircuitBreaker>,
     pub db_queue: Arc<crate::db_resilience::DbQueue>,
+    pub feature_flags: Arc<FeatureFlagManager>,
 }
 
 impl AppState {
@@ -109,6 +111,7 @@ impl AppState {
         event_broadcaster: broadcast::Sender<RealtimeEvent>,
         db_breaker: Arc<crate::db_resilience::CircuitBreaker>,
         db_queue: Arc<crate::db_resilience::DbQueue>,
+        feature_flags: Arc<FeatureFlagManager>,
     ) -> Result<Self, shared::error::RegistryError> {
         let config = CacheConfig::from_env();
         let auth_manager = match AuthManager::from_env() {
@@ -167,6 +170,7 @@ impl AppState {
             rate_limit_state,
             db_breaker,
             db_queue,
+            feature_flags,
         })
     }
 }

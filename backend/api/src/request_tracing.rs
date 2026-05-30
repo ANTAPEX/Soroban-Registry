@@ -100,7 +100,10 @@ pub async fn tracing_middleware(
         request_id = %request_id,
         method = %method,
         path = %path,
-        user_ip = %user_ip
+        user_ip = %user_ip,
+        user_id = tracing::field::Empty,
+        contract_id = tracing::field::Empty,
+        organization_id = tracing::field::Empty,
     );
     span.set_parent(parent_context);
     let mut response = CURRENT_REQUEST_ID
@@ -339,6 +342,19 @@ pub fn current_request_id() -> Option<String> {
         .ok()
 }
 
+pub fn inject_business_context(user_id: Option<&str>, contract_id: Option<&str>, org_id: Option<&str>) {
+    let span = tracing::Span::current();
+    if let Some(uid) = user_id {
+        span.record("user_id", &uid);
+    }
+    if let Some(cid) = contract_id {
+        span.record("contract_id", &cid);
+    }
+    if let Some(oid) = org_id {
+        span.record("organization_id", &oid);
+    }
+}
+
 pub fn request_id_from_headers(headers: &HeaderMap) -> Option<String> {
     [X_REQUEST_ID.as_str(), X_CORRELATION_ID.as_str()]
         .iter()
@@ -464,8 +480,19 @@ pub fn init_json_tracing() {
         .with_writer(writer);
 
     if let Some(endpoint) = otlp_endpoint {
-        let trace_config =
-            opentelemetry_sdk::trace::Config::default().with_resource(Resource::new(vec![
+        // Retrieve sampling rate from env (default to 1.0 which is 100%)
+        let sample_rate = std::env::var("OTEL_TRACES_SAMPLER_ARG")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(1.0);
+            
+        let sampler = opentelemetry_sdk::trace::Sampler::ParentBased(
+            Box::new(opentelemetry_sdk::trace::Sampler::TraceIdRatioBased(sample_rate))
+        );
+
+        let trace_config = opentelemetry_sdk::trace::Config::default()
+            .with_sampler(sampler)
+            .with_resource(Resource::new(vec![
                 KeyValue::new("service.name", service_name.clone()),
             ]));
 
