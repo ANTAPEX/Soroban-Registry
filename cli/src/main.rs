@@ -54,6 +54,7 @@ mod test_framework;
 mod track_deployment;
 mod upgrade;
 mod user_config;
+mod user_profile;
 mod verification;
 mod version;
 mod webhook;
@@ -496,8 +497,9 @@ pub enum Commands {
         minimize: bool,
     },
 
-    /// Profile contract execution performance
-    Profile {
+    /// Perf contract execution performance
+    #[command(name = "perf")]
+    Perf {
         /// Path to contract file
         contract_path: String,
 
@@ -520,6 +522,12 @@ pub enum Commands {
         /// Show recommendations
         #[arg(long, default_value = "true")]
         recommendations: bool,
+    },
+
+    /// Manage your user profile and publishing preferences (#841)
+    Profile {
+        #[command(subcommand)]
+        action: ProfileCommands,
     },
 
     /// Run integration tests
@@ -2038,6 +2046,100 @@ pub enum CacheCommands {
     },
 }
 
+/// Sub-commands for the `profile` group (#841)
+#[derive(Debug, Subcommand)]
+pub enum ProfileCommands {
+    /// Display a publisher profile
+    ///
+    /// Usage: soroban-registry profile view [--address <stellar-address>] [--json]
+    View {
+        /// Stellar address or publisher UUID to look up (defaults to the address in local config)
+        #[arg(long)]
+        address: Option<String>,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Update profile fields
+    ///
+    /// Usage: soroban-registry profile edit --name <n> --website <url> ...
+    Edit {
+        /// Display name
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Short biography or description
+        #[arg(long)]
+        bio: Option<String>,
+
+        /// Personal or project website URL
+        #[arg(long)]
+        website: Option<String>,
+
+        /// Contact email address
+        #[arg(long)]
+        email: Option<String>,
+
+        /// GitHub profile URL
+        #[arg(long)]
+        github: Option<String>,
+
+        /// Avatar image URL
+        #[arg(long)]
+        avatar: Option<String>,
+    },
+
+    /// Update a single profile field by key
+    ///
+    /// Usage: soroban-registry profile update --field <key> --value <val>
+    Update {
+        /// Field to update (name | bio | website | email | github | avatar)
+        #[arg(long)]
+        field: String,
+
+        /// New value for the field
+        #[arg(long)]
+        value: String,
+    },
+
+    /// List contracts published by a profile
+    ///
+    /// Usage: soroban-registry profile list-contracts [--address <addr>] [--limit N]
+    #[command(name = "list-contracts")]
+    ListContracts {
+        /// Stellar address or publisher UUID (defaults to local config)
+        #[arg(long)]
+        address: Option<String>,
+
+        /// Maximum number of contracts to return
+        #[arg(long, default_value = "20")]
+        limit: usize,
+
+        /// Output format: table | csv
+        #[arg(long, default_value = "table")]
+        format: String,
+
+        /// Output as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Export full profile data to JSON or CSV
+    ///
+    /// Usage: soroban-registry profile export [--address <addr>] [--format json|csv]
+    Export {
+        /// Stellar address or publisher UUID (defaults to local config)
+        #[arg(long)]
+        address: Option<String>,
+
+        /// Export format: json | csv
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+}
+
 /// Sub-commands for the `webhook` group
 #[derive(Debug, Subcommand)]
 pub enum WebhookCommands {
@@ -2953,7 +3055,7 @@ pub async fn dispatch_command(
             )
             .await?;
         }
-        Commands::Profile {
+        Commands::Perf {
             contract_path,
             method,
             output,
@@ -2962,7 +3064,7 @@ pub async fn dispatch_command(
             recommendations,
         } => {
             log::debug!(
-                "Command: profile | contract_path={} method={:?} output={:?} flamegraph={:?} compare={:?} recommendations={}",
+                "Command: perf | contract_path={} method={:?} output={:?} flamegraph={:?} compare={:?} recommendations={}",
                 contract_path,
                 method,
                 output,
@@ -2979,6 +3081,64 @@ pub async fn dispatch_command(
                 recommendations,
             )?;
         }
+        // ── User profile management (#841) ───────────────────────────────────
+        Commands::Profile { action } => match action {
+            ProfileCommands::View { address, json } => {
+                log::debug!("Command: profile view | address={:?} json={}", address, json);
+                user_profile::view(&cli.api_url, address.as_deref(), json).await?;
+            }
+            ProfileCommands::Edit {
+                name,
+                bio,
+                website,
+                email,
+                github,
+                avatar,
+            } => {
+                log::debug!("Command: profile edit");
+                user_profile::edit(
+                    &cli.api_url,
+                    name.as_deref(),
+                    bio.as_deref(),
+                    website.as_deref(),
+                    email.as_deref(),
+                    github.as_deref(),
+                    avatar.as_deref(),
+                )
+                .await?;
+            }
+            ProfileCommands::Update { field, value } => {
+                log::debug!(
+                    "Command: profile update | field={} value={}",
+                    field,
+                    value
+                );
+                user_profile::update_field(&cli.api_url, &field, &value).await?;
+            }
+            ProfileCommands::ListContracts {
+                address,
+                limit,
+                format,
+                json,
+            } => {
+                log::debug!(
+                    "Command: profile list-contracts | address={:?} limit={} format={}",
+                    address,
+                    limit,
+                    format
+                );
+                user_profile::list_contracts(&cli.api_url, address.as_deref(), limit, &format, json)
+                    .await?;
+            }
+            ProfileCommands::Export { address, format } => {
+                log::debug!(
+                    "Command: profile export | address={:?} format={}",
+                    address,
+                    format
+                );
+                user_profile::export(&cli.api_url, address.as_deref(), &format).await?;
+            }
+        },
         Commands::Test {
             test_file,
             contract_path,
