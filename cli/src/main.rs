@@ -1660,6 +1660,74 @@ pub enum ContractCommands {
         json: bool,
     },
 
+    /// Show contract registry statistics and analytics
+    ///
+    /// Usage: soroban-registry contract stats [--network testnet] [--category defi]
+    Stats {
+        /// Filter stats by network
+        #[arg(long)]
+        network: Option<String>,
+
+        /// Filter stats by category
+        #[arg(long)]
+        category: Option<String>,
+
+        /// Number of popular contracts to display
+        #[arg(long, default_value_t = 10)]
+        top_n: usize,
+
+        /// Output format: table, json, csv
+        #[arg(long, default_value = "table")]
+        format: String,
+
+        /// Export stats to a file
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+
+        /// Compare against another period, for example 7d or 30d
+        #[arg(long)]
+        compare: Option<String>,
+    },
+
+    /// Export contracts and related registry data for backup or migration
+    ///
+    /// Usage: soroban-registry contract export [OUTPUT_FILE] --format json
+    Export {
+        /// Optional output file path
+        output_file: Option<String>,
+
+        /// Output file path
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+
+        /// Export format: json, csv, jsonl, sqlite, markdown, or archive
+        #[arg(long, short = 'f', default_value = "json")]
+        format: String,
+
+        /// Filter by network
+        #[arg(long)]
+        network: Option<String>,
+
+        /// Filter by category
+        #[arg(long)]
+        category: Option<String>,
+
+        /// Export only contracts updated since this date
+        #[arg(long)]
+        since: Option<String>,
+
+        /// Write a gzip-compressed export file
+        #[arg(long)]
+        compress: bool,
+
+        /// Include related data such as versions, dependencies, analytics, and reviews
+        #[arg(long, default_value_t = true)]
+        include_related: bool,
+
+        /// Number of contracts to fetch per API page
+        #[arg(long, default_value_t = 100)]
+        page_size: usize,
+    },
     /// Manage featured (highlighted) contracts (#832)
     ///
     /// Usage: soroban-registry contract highlight [ADDRESS] --action <add|remove|list|check>
@@ -3332,6 +3400,62 @@ pub async fn dispatch_command(
                 );
                 contracts::run_details(&cli.api_url, &address, &network, json).await?;
             }
+            ContractCommands::Stats {
+                network,
+                category,
+                top_n,
+                format,
+                output,
+                compare,
+            } => {
+                log::debug!(
+                    "Command: contract stats | network={:?} category={:?} format={}",
+                    network,
+                    category,
+                    format
+                );
+                commands::contract_stats(
+                    &cli.api_url,
+                    network.as_deref(),
+                    category.as_deref(),
+                    top_n,
+                    &format,
+                    output.as_deref(),
+                    compare.as_deref(),
+                )
+                .await?;
+            }
+            ContractCommands::Export {
+                output_file,
+                output,
+                format,
+                network,
+                category,
+                since,
+                compress,
+                include_related,
+                page_size,
+            } => {
+                let resolved_output = output.or(output_file);
+                log::debug!(
+                    "Command: contract export | output={:?} format={} network={:?} category={:?}",
+                    resolved_output,
+                    format,
+                    network,
+                    category
+                );
+                commands::contract_export(
+                    &cli.api_url,
+                    resolved_output.as_deref(),
+                    &format,
+                    network.as_deref(),
+                    category.as_deref(),
+                    since.as_deref(),
+                    compress,
+                    include_related,
+                    page_size,
+                )
+                .await?;
             ContractCommands::Highlight {
                 address,
                 action,

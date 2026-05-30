@@ -41,6 +41,8 @@ pub fn create_archive(
 pub enum RegistryExportFormat {
     Json,
     Csv,
+    JsonLines,
+    Sqlite,
     Markdown,
     Archive,
 }
@@ -66,10 +68,12 @@ impl RegistryExportFormat {
         match raw.trim().to_ascii_lowercase().as_str() {
             "json" => Ok(Self::Json),
             "csv" => Ok(Self::Csv),
+            "jsonl" | "ndjson" => Ok(Self::JsonLines),
+            "sqlite" | "sqlite3" => Ok(Self::Sqlite),
             "markdown" | "md" => Ok(Self::Markdown),
             "archive" | "tar" | "tar.gz" => Ok(Self::Archive),
             other => anyhow::bail!(
-                "unsupported export format `{}`; expected json, csv, markdown, or archive",
+                "unsupported export format `{}`; expected json, csv, jsonl, sqlite, markdown, or archive",
                 other
             ),
         }
@@ -79,6 +83,8 @@ impl RegistryExportFormat {
         match self {
             Self::Json => "json",
             Self::Csv => "csv",
+            Self::JsonLines => "jsonl",
+            Self::Sqlite => "sqlite",
             Self::Markdown => "md",
             Self::Archive => "tar.gz",
         }
@@ -93,6 +99,8 @@ pub struct RegistryExportOptions<'a> {
     pub format: RegistryExportFormat,
     pub filters: Vec<String>,
     pub page_size: usize,
+    pub include_related: bool,
+    pub compress: bool,
 }
 
 pub struct RegistryExportSummary {
@@ -136,13 +144,22 @@ pub async fn export_registry_data(
         .output
         .map(str::to_string)
         .unwrap_or_else(|| format!("contracts-export.{}", options.format.extension()));
+    let output = if options.compress && !output.ends_with(".gz") {
+        format!("{}.gz", output)
+    } else {
+        output
+    };
     let output_path = Path::new(&output);
     let filters = parse_filters(&options.filters)?;
     let client = reqwest::Client::new();
 
     let items_exported = match options.format {
         RegistryExportFormat::Json => export_json(&client, &options, &filters, output_path).await?,
+        RegistryExportFormat::JsonLines => {
+            export_json_lines(&client, &options, &filters, output_path).await?
+        }
         RegistryExportFormat::Csv => export_csv(&client, &options, &filters, output_path).await?,
+        RegistryExportFormat::Sqlite => export_sqlite(&client, &options, &filters, output_path).await?,
         RegistryExportFormat::Markdown => {
             export_markdown(&client, &options, &filters, output_path).await?
         }
@@ -165,9 +182,7 @@ async fn export_json(
     filters: &[(String, String)],
     output_path: &Path,
 ) -> Result<usize> {
-    let file = File::create(output_path)
-        .with_context(|| format!("failed to create {}", output_path.display()))?;
-    let mut writer = BufWriter::new(file);
+    let mut writer = create_export_writer(output_path, options.compress)?;
     let started_at = Utc::now().to_rfc3339();
 
     writeln!(writer, "{{")?;
@@ -204,15 +219,30 @@ async fn export_json(
     Ok(count)
 }
 
+async fn export_json_lines(
+    client: &reqwest::Client,
+    options: &RegistryExportOptions<'_>,
+    filters: &[(String, String)],
+    output_path: &Path,
+) -> Result<usize> {
+    let mut writer = create_export_writer(output_path, options.compress)?;
+    let mut count = 0usize;
+    for item in fetch_export_items(client, options, filters).await? {
+        writeln!(writer, "{}", serde_json::to_string(&item)?)?;
+        count += 1;
+        eprintln!("exported {} contract(s)...", count);
+    }
+    writer.flush()?;
+    Ok(count)
+}
+
 async fn export_csv(
     client: &reqwest::Client,
     options: &RegistryExportOptions<'_>,
     filters: &[(String, String)],
     output_path: &Path,
 ) -> Result<usize> {
-    let file = File::create(output_path)
-        .with_context(|| format!("failed to create {}", output_path.display()))?;
-    let mut writer = csv::Writer::from_writer(BufWriter::new(file));
+    let mut writer = csv::Writer::from_writer(create_export_writer(output_path, options.compress)?);
     writer.write_record([
         "id",
         "contract_id",
@@ -252,15 +282,49 @@ async fn export_csv(
     Ok(count)
 }
 
+async fn export_sqlite(
+    client: &reqwest::Client,
+    options: &RegistryExportOptions<'_>,
+    filters: &[(String, String)],
+    output_path: &Path,
+) -> Result<usize> {
+    let mut writer = create_export_writer(output_path, options.compress)?;
+    writeln!(writer, "BEGIN TRANSACTION;")?;
+    writeln!(writer, "CREATE TABLE IF NOT EXISTS contracts (id TEXT PRIMARY KEY, contract_id TEXT, name TEXT, network TEXT, is_verified INTEGER, category TEXT, publisher_id TEXT, wasm_hash TEXT, created_at TEXT, updated_at TEXT, metadata_json TEXT NOT NULL);")?;
+
+    let mut count = 0usize;
+    for item in fetch_export_items(client, options, filters).await? {
+        writeln!(
+            writer,
+            "INSERT OR REPLACE INTO contracts (id, contract_id, name, network, is_verified, category, publisher_id, wasm_hash, created_at, updated_at, metadata_json) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {});",
+            sql_string(&scalar(&item, "id")),
+            sql_string(&scalar(&item, "contract_id")),
+            sql_string(&scalar(&item, "name")),
+            sql_string(&scalar(&item, "network")),
+            sql_bool(&item, "is_verified"),
+            sql_string(&scalar(&item, "category")),
+            sql_string(&scalar(&item, "publisher_id")),
+            sql_string(&scalar(&item, "wasm_hash")),
+            sql_string(&scalar(&item, "created_at")),
+            sql_string(&scalar(&item, "updated_at")),
+            sql_string(&serde_json::to_string(&item)?),
+        )?;
+        count += 1;
+        eprintln!("exported {} contract(s)...", count);
+    }
+
+    writeln!(writer, "COMMIT;")?;
+    writer.flush()?;
+    Ok(count)
+}
+
 async fn export_markdown(
     client: &reqwest::Client,
     options: &RegistryExportOptions<'_>,
     filters: &[(String, String)],
     output_path: &Path,
 ) -> Result<usize> {
-    let file = File::create(output_path)
-        .with_context(|| format!("failed to create {}", output_path.display()))?;
-    let mut writer = BufWriter::new(file);
+    let mut writer = create_export_writer(output_path, options.compress)?;
     writeln!(writer, "# Soroban Registry Export")?;
     writeln!(writer)?;
     writeln!(writer, "- Exported at: {}", Utc::now().to_rfc3339())?;
@@ -304,7 +368,7 @@ async fn fetch_export_items(
         )
         .await
         .with_context(|| format!("failed to fetch contract {}", id))?;
-        return Ok(vec![enrich_contract(client, options.api_url, detail).await]);
+        return Ok(vec![maybe_enrich_contract(client, options, detail).await]);
     }
 
     let mut output = Vec::new();
@@ -319,7 +383,7 @@ async fn fetch_export_items(
         }
 
         for item in items {
-            output.push(enrich_contract(client, options.api_url, item).await);
+            output.push(maybe_enrich_contract(client, options, item).await);
         }
 
         offset += page_size;
@@ -353,6 +417,18 @@ async fn fetch_contract_page(
         }
     }
     fetch_json(client, url.as_str()).await
+}
+
+async fn maybe_enrich_contract(
+    client: &reqwest::Client,
+    options: &RegistryExportOptions<'_>,
+    item: Value,
+) -> Value {
+    if options.include_related {
+        enrich_contract(client, options.api_url, item).await
+    } else {
+        item
+    }
 }
 
 async fn enrich_contract(client: &reqwest::Client, api_url: &str, mut item: Value) -> Value {
@@ -465,6 +541,32 @@ fn scalar(item: &Value, key: &str) -> String {
         Some(Value::Number(value)) => value.to_string(),
         Some(Value::Null) | None => String::new(),
         Some(value) => serde_json::to_string(value).unwrap_or_default(),
+    }
+}
+
+fn create_export_writer(output_path: &Path, compress: bool) -> Result<Box<dyn Write>> {
+    let file = File::create(output_path)
+        .with_context(|| format!("failed to create {}", output_path.display()))?;
+    if compress {
+        Ok(Box::new(GzEncoder::new(file, Compression::default())))
+    } else {
+        Ok(Box::new(BufWriter::new(file)))
+    }
+}
+
+fn sql_string(value: &str) -> String {
+    if value.is_empty() {
+        "NULL".to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "''"))
+    }
+}
+
+fn sql_bool(item: &Value, key: &str) -> &'static str {
+    match item.get(key).and_then(Value::as_bool) {
+        Some(true) => "1",
+        Some(false) => "0",
+        None => "NULL",
     }
 }
 

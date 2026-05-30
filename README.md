@@ -190,6 +190,12 @@ soroban-registry publish --contract-path ./my-contract
 
 # Verify a contract against source
 soroban-registry verify <contract-id> --source ./src
+
+# View registry analytics for contracts
+soroban-registry contract stats --network testnet --top-n 5 --format table
+
+# Export contract registry data for backup or migration
+soroban-registry contract export contracts.jsonl --format jsonl --network testnet --compress
 ```
 
 Configuration is stored at `~/.soroban-registry/config.toml`. A legacy `~/.soroban-registry.toml` file is migrated automatically if present.[cite:352]

@@ -1418,10 +1418,62 @@ pub async fn export(
         format: resolved_format,
         filters,
         page_size,
+        include_related: true,
+        compress: false,
     })
     .await?;
 
     println!("{}", "✓ Export complete!".green().bold());
+    println!(
+        "  {}: {}",
+        "Format".bold(),
+        format!("{:?}", summary.format).to_lowercase()
+    );
+    println!("  {}: {}", "Items".bold(), summary.items_exported);
+    println!("  {}: {}", "Output".bold(), summary.output_path);
+    println!("  {}: {}", "SHA-256".bold(), summary.sha256.bright_black());
+    println!("  {}: {}\n", "Checksum".bold(), summary.checksum_path);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn contract_export(
+    api_url: &str,
+    output: Option<&str>,
+    format: &str,
+    network: Option<&str>,
+    category: Option<&str>,
+    since: Option<&str>,
+    compress: bool,
+    include_related: bool,
+    page_size: usize,
+) -> Result<()> {
+    let mut filters = Vec::new();
+    if let Some(network) = network {
+        filters.push(format!("network={}", network));
+    }
+    if let Some(category) = category {
+        filters.push(format!("category={}", category));
+    }
+    if let Some(since) = since {
+        filters.push(format!("updated_from={}", since));
+    }
+
+    let resolved_format = crate::export::RegistryExportFormat::resolve(Some(format), None, output)?;
+    let summary = crate::export::export_registry_data(crate::export::RegistryExportOptions {
+        api_url,
+        id: None,
+        output,
+        contract_dir: ".",
+        format: resolved_format,
+        filters,
+        page_size,
+        include_related,
+        compress,
+    })
+    .await?;
+
+    println!("{}", "Export complete!".green().bold());
     println!(
         "  {}: {}",
         "Format".bold(),
@@ -3878,6 +3930,67 @@ pub async fn snapshot_diff(api_url: &str, contract_id: &str, v1: i32, v2: i32) -
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+pub async fn contract_stats(
+    api_url: &str,
+    network: Option<&str>,
+    category: Option<&str>,
+    top_n: usize,
+    format: &str,
+    output: Option<&str>,
+    compare: Option<&str>,
+) -> Result<()> {
+    let client = crate::net::client();
+    let mut url = reqwest::Url::parse(&format!("{}/api/stats", api_url.trim_end_matches('/')))
+        .context("Invalid registry API URL")?;
+    {
+        let mut query = url.query_pairs_mut();
+        if let Some(network) = network {
+            query.append_pair("network", network);
+        }
+        if let Some(category) = category {
+            query.append_pair("category", category);
+        }
+        if let Some(compare) = compare {
+            query.append_pair("compare", compare);
+        }
+    }
+
+    let response = client
+        .get(url)
+        .send_with_retry()
+        .await
+        .context("Failed to fetch contract statistics")?;
+
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Failed to fetch contract stats: {}",
+            response.text().await.unwrap_or_default()
+        );
+    }
+
+    let mut stats: serde_json::Value = response.json().await?;
+    if let Some(top) = stats.get_mut("top_contracts").and_then(serde_json::Value::as_array_mut) {
+        top.truncate(top_n);
+    }
+
+    let output_str = match format {
+        "json" => serde_json::to_string_pretty(&stats)?,
+        "csv" => format_stats_csv(&stats)?,
+        "table" => format_stats_table(&stats),
+        _ => anyhow::bail!("Invalid format: {}. Use table, json, or csv", format),
+    };
+
+    if let Some(path) = output {
+        fs::write(path, &output_str)?;
+        println!("{} Contract stats written to {}", "OK".green(), path);
+    } else {
+        println!("{}", output_str);
+    }
+
+    Ok(())
+}
+
 /// Get comprehensive registry statistics
 /// Command: soroban-registry stats [options]
 pub async fn stats(
@@ -4022,6 +4135,81 @@ fn format_stats_table(stats: &serde_json::Value) -> String {
     }
 
     out
+}
+
+fn format_stats_csv(stats: &serde_json::Value) -> Result<String> {
+    let mut writer = csv::Writer::from_writer(Vec::new());
+    writer.write_record(["metric", "scope", "value"])?;
+
+    for key in [
+        "total_contracts",
+        "total_publishers",
+        "verified_contracts",
+        "verification_percentage",
+        "contracts_last_24h",
+        "contracts_last_7d",
+        "contracts_last_30d",
+        "new_publishers_last_30d",
+    ] {
+        if let Some(value) = stats.get(key) {
+            writer.write_record(["summary", key, &value.to_string()])?;
+        }
+    }
+
+    if let Some(networks) = stats.get("network_stats").and_then(serde_json::Value::as_array) {
+        for network in networks {
+            writer.write_record([
+                "network",
+                network
+                    .get("network")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown"),
+                &network
+                    .get("contract_count")
+                    .map(serde_json::Value::to_string)
+                    .unwrap_or_else(|| "0".to_string()),
+            ])?;
+        }
+    }
+
+    if let Some(categories) = stats
+        .get("category_stats")
+        .and_then(serde_json::Value::as_array)
+    {
+        for category in categories {
+            writer.write_record([
+                "category",
+                category
+                    .get("category")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("uncategorized"),
+                &category
+                    .get("contract_count")
+                    .map(serde_json::Value::to_string)
+                    .unwrap_or_else(|| "0".to_string()),
+            ])?;
+        }
+    }
+
+    if let Some(top) = stats.get("top_contracts").and_then(serde_json::Value::as_array) {
+        for contract in top {
+            writer.write_record([
+                "top_contract",
+                contract
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .or_else(|| contract.get("contract_id").and_then(serde_json::Value::as_str))
+                    .unwrap_or("unknown"),
+                &contract
+                    .get("interaction_count")
+                    .map(serde_json::Value::to_string)
+                    .unwrap_or_else(|| "0".to_string()),
+            ])?;
+        }
+    }
+
+    let bytes = writer.into_inner()?;
+    Ok(String::from_utf8(bytes)?)
 }
 
 fn format_kv(key: &str, value: &str) -> String {
