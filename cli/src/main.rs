@@ -833,9 +833,9 @@ pub enum Commands {
         action: NetworkCommands,
     },
 
-    /// Register multiple contracts from a YAML or JSON manifest file
+    /// Register multiple contracts from a YAML, JSON, CSV, or JSONL manifest file
     BatchRegister {
-        /// Path to the manifest file (.yaml, .yml, or .json)
+        /// Path to the manifest file (.yaml, .yml, .json, .csv, or .jsonl)
         #[arg(long)]
         manifest: String,
 
@@ -850,6 +850,14 @@ pub enum Commands {
         /// Output results as machine-readable JSON
         #[arg(long)]
         json: bool,
+
+        /// Number of contracts to register concurrently (default: 1 = sequential)
+        #[arg(long, value_name = "N")]
+        concurrent: Option<usize>,
+
+        /// Retry each failed contract once after the initial pass
+        #[arg(long)]
+        retry: bool,
     },
 
     /// Update metadata for multiple contracts in bulk (#849)
@@ -3149,12 +3157,16 @@ pub async fn dispatch_command(
             publisher,
             dry_run,
             json,
+            concurrent,
+            retry,
         } => {
             log::debug!(
-                "Command: batch-register | manifest={} dry_run={} publisher={:?}",
+                "Command: batch-register | manifest={} dry_run={} publisher={:?} concurrent={:?} retry={}",
                 manifest,
                 dry_run,
-                publisher
+                publisher,
+                concurrent,
+                retry
             );
             batch_register::run_batch_register(
                 &cli.api_url,
@@ -3162,6 +3174,8 @@ pub async fn dispatch_command(
                 publisher.as_deref(),
                 dry_run,
                 json,
+                concurrent,
+                retry,
             )
             .await?;
         }

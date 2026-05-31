@@ -5,7 +5,11 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
+use std::sync::Arc;
+use tokio::task::JoinSet;
 
 const MAX_BATCH_SIZE: usize = 50;
 const REGISTER_TIMEOUT_SECS: u64 = 60;
@@ -36,9 +40,23 @@ pub struct RegisterManifest {
     pub contracts: Vec<ManifestEntry>,
 }
 
+/// CSV row shape — tags stored as a comma-separated string in one column.
+#[derive(Debug, Deserialize)]
+struct CsvManifestEntry {
+    contract_id: String,
+    name: String,
+    network: Option<String>,
+    description: Option<String>,
+    category: Option<String>,
+    /// Comma-separated tag list, e.g. "defi,amm"
+    tags: Option<String>,
+    wasm_hash: Option<String>,
+    source_url: Option<String>,
+}
+
 // ── Request / response types ──────────────────────────────────────────────────
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct RegisterPayload {
     contract_id: String,
     name: String,
@@ -81,16 +99,20 @@ pub struct RegistrationSummary {
 
 /// Run the `batch-register` command.
 ///
-/// * `manifest_path` – path to a YAML or JSON manifest file
+/// * `manifest_path` – path to a YAML, JSON, CSV, or JSONL manifest file
 /// * `publisher`     – Stellar address; overrides `publisher` field in manifest
 /// * `dry_run`       – validate and print what would be registered, but skip API calls
 /// * `json`          – emit machine-readable JSON instead of human-readable output
+/// * `concurrent`    – number of contracts to register in parallel (default: 1 = sequential)
+/// * `retry`         – re-attempt each failed contract once after the initial pass
 pub async fn run_batch_register(
     api_url: &str,
     manifest_path: &str,
     publisher: Option<&str>,
     dry_run: bool,
     json: bool,
+    concurrent: Option<usize>,
+    retry: bool,
 ) -> Result<()> {
     // 1. Load and parse manifest
     let manifest = load_manifest(manifest_path)?;
@@ -132,8 +154,74 @@ pub async fn run_batch_register(
         return emit_dry_run(entries, skipped_duplicates, json);
     }
 
-    // 7. Submit one by one, collecting results
-    let summary = register_all(api_url, entries, skipped_duplicates, json).await?;
+    log::info!(
+        "batch-register: starting {} contracts, publisher={}",
+        entries.len(),
+        resolved_publisher
+    );
+
+    // 7. Clone entries before first pass so we can retry failed ones
+    let entries_snapshot: Vec<ResolvedEntry> = entries.iter().cloned().collect();
+
+    // 8. Submit, collecting results
+    let mut summary =
+        register_all(api_url, entries, skipped_duplicates, json, concurrent).await?;
+
+    // 9. Optional retry pass
+    if retry && summary.failed > 0 {
+        if !json {
+            println!(
+                "\n{}",
+                format!("Retrying {} failed contract(s)...", summary.failed)
+                    .yellow()
+                    .bold()
+            );
+        }
+
+        let failed_ids: HashSet<String> = summary
+            .results
+            .iter()
+            .filter(|r| r.status == "failed")
+            .map(|r| r.contract_id.clone())
+            .collect();
+
+        let retry_entries: Vec<ResolvedEntry> = entries_snapshot
+            .into_iter()
+            .filter(|e| failed_ids.contains(&e.payload.contract_id))
+            .collect();
+
+        let retry_summary = register_all(api_url, retry_entries, 0, json, concurrent).await?;
+
+        // Merge: a retried success replaces the prior failure
+        for retry_result in retry_summary.results {
+            if let Some(existing) = summary
+                .results
+                .iter_mut()
+                .find(|r| r.contract_id == retry_result.contract_id)
+            {
+                *existing = retry_result;
+            }
+        }
+
+        // Recalculate counters from merged results
+        summary.registered = summary
+            .results
+            .iter()
+            .filter(|r| r.status == "registered")
+            .count();
+        summary.failed = summary
+            .results
+            .iter()
+            .filter(|r| r.status == "failed")
+            .count();
+    }
+
+    log::info!(
+        "batch-register: done — registered={} failed={} skipped={}",
+        summary.registered,
+        summary.failed,
+        summary.skipped
+    );
 
     if json {
         println!("{}", serde_json::to_string_pretty(&summary)?);
@@ -159,26 +247,94 @@ fn load_manifest(path: &str) -> Result<RegisterManifest> {
         .to_lowercase();
 
     match ext.as_str() {
-        "yaml" | "yml" | "json" => {}
-        other => {
-            anyhow::bail!("Unsupported manifest extension '.{other}'. Use .yaml, .yml, or .json.")
-        }
+        "yaml" | "yml" | "json" | "csv" | "jsonl" => {}
+        other => anyhow::bail!(
+            "Unsupported manifest extension '.{other}'. Use .yaml, .yml, .json, .csv, or .jsonl."
+        ),
     }
 
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("Cannot read manifest file: {path}"))?;
-
     match ext.as_str() {
-        "yaml" | "yml" => serde_yaml::from_str(&content)
-            .with_context(|| format!("Failed to parse YAML manifest: {path}")),
-        "json" => serde_json::from_str(&content)
-            .with_context(|| format!("Failed to parse JSON manifest: {path}")),
+        "yaml" | "yml" => {
+            let content = std::fs::read_to_string(path)
+                .with_context(|| format!("Cannot read manifest file: {path}"))?;
+            serde_yaml::from_str(&content)
+                .with_context(|| format!("Failed to parse YAML manifest: {path}"))
+        }
+        "json" => {
+            let content = std::fs::read_to_string(path)
+                .with_context(|| format!("Cannot read manifest file: {path}"))?;
+            serde_json::from_str(&content)
+                .with_context(|| format!("Failed to parse JSON manifest: {path}"))
+        }
+        "csv" => parse_csv_manifest(path),
+        "jsonl" => parse_jsonl_manifest(path),
         _ => unreachable!(),
     }
 }
 
+fn parse_csv_manifest(path: &str) -> Result<RegisterManifest> {
+    let mut reader =
+        csv::Reader::from_path(path).with_context(|| format!("Cannot open CSV manifest: {path}"))?;
+    let mut contracts = Vec::new();
+
+    for (i, result) in reader.deserialize::<CsvManifestEntry>().enumerate() {
+        let row = result.with_context(|| format!("CSV parse error on row {}", i + 2))?;
+        let tags: Vec<String> = row
+            .tags
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        contracts.push(ManifestEntry {
+            contract_id: row.contract_id,
+            name: row.name,
+            network: row.network,
+            description: row.description,
+            category: row.category,
+            tags: Some(tags),
+            wasm_hash: row.wasm_hash,
+            source_url: row.source_url,
+        });
+    }
+
+    // publisher and network come from CLI args; the CSV has no top-level header
+    Ok(RegisterManifest {
+        publisher: None,
+        network: None,
+        contracts,
+    })
+}
+
+fn parse_jsonl_manifest(path: &str) -> Result<RegisterManifest> {
+    let file =
+        File::open(path).with_context(|| format!("Cannot open JSONL manifest: {path}"))?;
+    let reader = BufReader::new(file);
+    let mut contracts = Vec::new();
+
+    for (line_no, line) in reader.lines().enumerate() {
+        let line =
+            line.with_context(|| format!("I/O error reading line {}", line_no + 1))?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue; // skip blank lines and comments
+        }
+        let entry: ManifestEntry = serde_json::from_str(trimmed)
+            .with_context(|| format!("Invalid JSON on line {}: {}", line_no + 1, trimmed))?;
+        contracts.push(entry);
+    }
+
+    Ok(RegisterManifest {
+        publisher: None,
+        network: None,
+        contracts,
+    })
+}
+
 // ── Entry resolution ──────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 struct ResolvedEntry {
     payload: RegisterPayload,
 }
@@ -192,7 +348,7 @@ fn resolve_entries(manifest: &RegisterManifest, publisher: &str) -> Result<Vec<R
 
     let mut resolved = Vec::with_capacity(manifest.contracts.len());
 
-    for (i, entry) in manifest.contracts.iter().enumerate() {
+    for entry in manifest.contracts.iter() {
         let network = entry
             .network
             .as_deref()
@@ -212,8 +368,6 @@ fn resolve_entries(manifest: &RegisterManifest, publisher: &str) -> Result<Vec<R
                 publisher_address: publisher.to_string(),
             },
         });
-
-        let _ = i; // suppress unused warning
     }
 
     Ok(resolved)
@@ -337,47 +491,148 @@ async fn register_all(
     entries: Vec<ResolvedEntry>,
     skipped_duplicates: usize,
     json: bool,
+    concurrent: Option<usize>,
 ) -> Result<RegistrationSummary> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(REGISTER_TIMEOUT_SECS))
-        .build()?;
+    let client = Arc::new(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(REGISTER_TIMEOUT_SECS))
+            .build()?,
+    );
 
-    let url = format!("{}/api/contracts", api_url);
+    let url = Arc::new(format!("{}/api/contracts", api_url));
     let total = entries.len();
     let mut results: Vec<RegistrationResult> = Vec::with_capacity(total);
     let mut registered = 0usize;
     let mut failed = 0usize;
 
-    for (i, entry) in entries.into_iter().enumerate() {
-        if !json {
-            print!(
-                "  [{}/{}] Registering {} ... ",
-                i + 1,
-                total,
-                entry.payload.contract_id.bold()
-            );
+    let concurrency = concurrent.unwrap_or(1).max(1);
+
+    if concurrency <= 1 {
+        // Sequential path
+        for (i, entry) in entries.into_iter().enumerate() {
+            let contract_id = entry.payload.contract_id.clone();
+            let name = entry.payload.name.clone();
+            let pct = (i + 1) * 100 / total;
+
+            if !json {
+                print!(
+                    "  [{}/{}] ({}%) Registering {} ... ",
+                    i + 1,
+                    total,
+                    pct,
+                    contract_id.bold()
+                );
+            }
+
+            match register_one(&client, &url, entry).await {
+                Ok(result) => {
+                    if !json {
+                        println!("{}", "registered".green());
+                    }
+                    log::info!(
+                        "batch-register: [{}] registered, registry_id={:?}",
+                        contract_id,
+                        result.registry_id
+                    );
+                    registered += 1;
+                    results.push(result);
+                }
+                Err(err) => {
+                    let err_str = err.to_string();
+                    if !json {
+                        println!("{} — {}", "failed".red(), err_str.red());
+                    }
+                    log::info!("batch-register: [{}] failed: {}", contract_id, err_str);
+                    failed += 1;
+                    results.push(RegistrationResult {
+                        contract_id,
+                        name,
+                        status: "failed".to_string(),
+                        registry_id: None,
+                        error: Some(err_str),
+                    });
+                }
+            }
+        }
+    } else {
+        // Concurrent path with JoinSet sliding window
+        type TaskOutput = (usize, String, String, Result<RegistrationResult>);
+        let mut set: JoinSet<TaskOutput> = JoinSet::new();
+        let mut entries_iter = entries.into_iter().enumerate();
+
+        // Seed with first `concurrency` tasks
+        for _ in 0..concurrency {
+            if let Some((i, entry)) = entries_iter.next() {
+                let c = client.clone();
+                let u = url.clone();
+                set.spawn(async move {
+                    let contract_id = entry.payload.contract_id.clone();
+                    let name = entry.payload.name.clone();
+                    let result = register_one(&c, &u, entry).await;
+                    (i, contract_id, name, result)
+                });
+            }
         }
 
-        match register_one(&client, &url, entry).await {
-            Ok(result) => {
-                if !json {
-                    println!("{}", "registered".green());
+        while let Some(task_result) = set.join_next().await {
+            let (i, contract_id, name, result) =
+                task_result.context("Registration task panicked")?;
+            let pct = (i + 1) * 100 / total;
+
+            match result {
+                Ok(reg_result) => {
+                    if !json {
+                        println!(
+                            "  [{}/{}] ({}%) Registering {} ... {}",
+                            i + 1,
+                            total,
+                            pct,
+                            contract_id.bold(),
+                            "registered".green()
+                        );
+                    }
+                    log::info!(
+                        "batch-register: [{}] registered, registry_id={:?}",
+                        contract_id,
+                        reg_result.registry_id
+                    );
+                    registered += 1;
+                    results.push(reg_result);
                 }
-                registered += 1;
-                results.push(result);
+                Err(err) => {
+                    let err_str = err.to_string();
+                    if !json {
+                        println!(
+                            "  [{}/{}] ({}%) Registering {} ... {} — {}",
+                            i + 1,
+                            total,
+                            pct,
+                            contract_id.bold(),
+                            "failed".red(),
+                            err_str.red()
+                        );
+                    }
+                    log::info!("batch-register: [{}] failed: {}", contract_id, err_str);
+                    failed += 1;
+                    results.push(RegistrationResult {
+                        contract_id,
+                        name,
+                        status: "failed".to_string(),
+                        registry_id: None,
+                        error: Some(err_str),
+                    });
+                }
             }
-            Err(err) => {
-                let err_str = err.to_string();
-                if !json {
-                    println!("{} — {}", "failed".red(), err_str.red());
-                }
-                failed += 1;
-                results.push(RegistrationResult {
-                    contract_id: String::new(), // filled in by register_one on success path only
-                    name: String::new(),
-                    status: "failed".to_string(),
-                    registry_id: None,
-                    error: Some(err_str),
+
+            // Spawn the next pending entry to maintain the sliding window
+            if let Some((i, entry)) = entries_iter.next() {
+                let c = client.clone();
+                let u = url.clone();
+                set.spawn(async move {
+                    let contract_id = entry.payload.contract_id.clone();
+                    let name = entry.payload.name.clone();
+                    let result = register_one(&c, &u, entry).await;
+                    (i, contract_id, name, result)
                 });
             }
         }
@@ -619,7 +874,7 @@ mod tests {
 
     #[test]
     fn load_manifest_rejects_unknown_extension() {
-        let result = load_manifest("/tmp/contracts.csv");
+        let result = load_manifest("/tmp/contracts.toml");
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -670,6 +925,52 @@ contracts:
         let manifest = load_manifest(path.to_str().unwrap()).unwrap();
         assert_eq!(manifest.contracts.len(), 1);
         assert_eq!(manifest.contracts[0].name, "DEX");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_manifest_csv_parses_correctly() {
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        write!(
+            f,
+            "contract_id,name,network,description,category,tags,wasm_hash,source_url\n\
+             CA1,Token,testnet,A token,,defi|amm,,\n"
+        )
+        .unwrap();
+        let path = f.path().with_extension("csv");
+        std::fs::copy(f.path(), &path).unwrap();
+
+        let manifest = load_manifest(path.to_str().unwrap()).unwrap();
+        assert_eq!(manifest.contracts.len(), 1);
+        assert_eq!(manifest.contracts[0].contract_id, "CA1");
+        assert_eq!(manifest.contracts[0].name, "Token");
+        // publisher comes from CLI args, not CSV
+        assert!(manifest.publisher.is_none());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_manifest_jsonl_parses_correctly() {
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        write!(
+            f,
+            r#"{{"contract_id":"CA1","name":"Token","network":"testnet"}}
+// this is a comment
+{{"contract_id":"CA2","name":"DEX","network":"mainnet"}}
+"#
+        )
+        .unwrap();
+        let path = f.path().with_extension("jsonl");
+        std::fs::copy(f.path(), &path).unwrap();
+
+        let manifest = load_manifest(path.to_str().unwrap()).unwrap();
+        assert_eq!(manifest.contracts.len(), 2);
+        assert_eq!(manifest.contracts[0].contract_id, "CA1");
+        assert_eq!(manifest.contracts[1].contract_id, "CA2");
 
         let _ = std::fs::remove_file(&path);
     }
