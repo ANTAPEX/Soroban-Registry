@@ -135,12 +135,11 @@ impl AuditLogger {
 
     /// Enforce the 1-year compliance retention policy (Compile-Safe Runtime Query)
     pub async fn enforce_retention_policy(&self) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
-            "DELETE FROM audit_logs WHERE created_at < NOW() - INTERVAL '1 year'"
-        )
-        .execute(&self.pool)
-        .await?;
-        
+        let result =
+            sqlx::query("DELETE FROM audit_logs WHERE created_at < NOW() - INTERVAL '1 year'")
+                .execute(&self.pool)
+                .await?;
+
         Ok(result.rows_affected())
     }
 

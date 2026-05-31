@@ -47,7 +47,10 @@ pub async fn run_batch_export(
         println!("Output directory: {}", output_dir.bright_black());
         println!("Format: {}", format);
         if organize {
-            println!("Organization: {} (by network/category)", "enabled".bright_blue());
+            println!(
+                "Organization: {} (by network/category)",
+                "enabled".bright_blue()
+            );
         }
         if compress {
             println!("Compression: {}", "enabled".bright_blue());
@@ -88,9 +91,11 @@ pub async fn run_batch_export(
         }
 
         let output_path = if organize {
-            let path = Path::new(output_dir)
-                .join(network)
-                .join(format!("{}.{}", contract_id, get_extension(export_format)));
+            let path = Path::new(output_dir).join(network).join(format!(
+                "{}.{}",
+                contract_id,
+                get_extension(export_format)
+            ));
             fs::create_dir_all(path.parent().unwrap())?;
             path.to_string_lossy().to_string()
         } else {
@@ -190,7 +195,8 @@ async fn fetch_all_contracts(
     let page_size = 50;
 
     loop {
-        let mut url = reqwest::Url::parse(&format!("{}/api/contracts", api_url.trim_end_matches('/')))?;
+        let mut url =
+            reqwest::Url::parse(&format!("{}/api/contracts", api_url.trim_end_matches('/')))?;
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("limit", &page_size.to_string());
@@ -269,7 +275,11 @@ fn create_archive(output_dir: &str, _results: &[ExportResult], json_out: bool) -
     encoder.finish()?;
 
     if !json_out {
-        println!("{} Archive created: {}", "✓".green(), archive_path.bright_black());
+        println!(
+            "{} Archive created: {}",
+            "✓".green(),
+            archive_path.bright_black()
+        );
     }
 
     Ok(())
@@ -314,7 +324,10 @@ fn emit_summary(summary: &BatchExportSummary, json_out: bool) -> Result<()> {
 
     let mut by_status: HashMap<bool, Vec<_>> = HashMap::new();
     for result in &summary.results {
-        by_status.entry(result.success).or_insert_with(Vec::new).push(result);
+        by_status
+            .entry(result.success)
+            .or_insert_with(Vec::new)
+            .push(result);
     }
 
     if let Some(success_results) = by_status.get(&true) {

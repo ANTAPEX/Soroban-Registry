@@ -101,15 +101,15 @@ pub fn validate_wasm_file(wasm_path: &str) -> Result<String> {
         bail!("Invalid WASM file: incorrect magic bytes. Expected '\\0asm' at the start.");
     }
 
-    println!("✓ WASM file validation passed", );
+    println!("✓ WASM file validation passed",);
 
     Ok(wasm_path.to_string())
 }
 
 /// Computes SHA-256 hash of WASM file
 pub fn compute_contract_hash(wasm_path: &str) -> Result<String> {
-    let hash = compute_sha256_streaming(Path::new(wasm_path))
-        .context("failed to compute WASM hash")?;
+    let hash =
+        compute_sha256_streaming(Path::new(wasm_path)).context("failed to compute WASM hash")?;
     println!("✓ Contract hash computed: {}", hash.cyan());
     Ok(hash)
 }
@@ -356,7 +356,10 @@ pub fn validate_and_process_icon(icon_path: &str) -> Result<Vec<u8>> {
         _ => {}
     }
 
-    println!("✓ Icon file validation passed ({})", file_ext.to_uppercase());
+    println!(
+        "✓ Icon file validation passed ({})",
+        file_ext.to_uppercase()
+    );
 
     Ok(icon_data)
 }
@@ -542,10 +545,7 @@ pub async fn submit_contract_to_registry(
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
-        bail!(
-            "contract deployment failed: {}",
-            error_text
-        );
+        bail!("contract deployment failed: {}", error_text);
     }
 
     let deployment_response: DeploymentResponse = response
@@ -567,16 +567,35 @@ pub fn display_deployment_summary(
     metadata: &DeploymentMetadata,
     abi_info: &ContractAbiInfo,
 ) {
-    println!("\n{}", "═══════════════════════════════════════════════════".green().bold());
-    println!("{}", "         ✓ CONTRACT DEPLOYMENT SUCCESSFUL".green().bold());
-    println!("{}", "═══════════════════════════════════════════════════".green().bold());
+    println!(
+        "\n{}",
+        "═══════════════════════════════════════════════════"
+            .green()
+            .bold()
+    );
+    println!(
+        "{}",
+        "         ✓ CONTRACT DEPLOYMENT SUCCESSFUL".green().bold()
+    );
+    println!(
+        "{}",
+        "═══════════════════════════════════════════════════"
+            .green()
+            .bold()
+    );
 
     println!("\n📋 Deployment Details:");
     println!("  Deployment ID:     {}", response.id.cyan());
-    println!("  Confirmation Code: {}", response.confirmation_code.yellow());
+    println!(
+        "  Confirmation Code: {}",
+        response.confirmation_code.yellow()
+    );
     println!("  Contract Name:     {}", metadata.name);
     println!("  Network:           {}", metadata.network);
-    println!("  Category:          {}", metadata.category.as_ref().unwrap_or(&"N/A".to_string()));
+    println!(
+        "  Category:          {}",
+        metadata.category.as_ref().unwrap_or(&"N/A".to_string())
+    );
     println!("  Verification:      {}", response.verification_status);
     println!("  Created At:        {}", response.created_at);
 
@@ -584,9 +603,20 @@ pub fn display_deployment_summary(
     println!("  {}", response.wasm_hash);
 
     if !abi_info.functions.is_empty() {
-        println!("\n📚 Contract Functions ({} total):", abi_info.functions.len());
+        println!(
+            "\n📚 Contract Functions ({} total):",
+            abi_info.functions.len()
+        );
         for func in &abi_info.functions {
-            println!("  • {}({})", func.name.cyan(), func.inputs.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(", "));
+            println!(
+                "  • {}({})",
+                func.name.cyan(),
+                func.inputs
+                    .iter()
+                    .map(|i| i.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
         }
     }
 
@@ -597,7 +627,10 @@ pub fn display_deployment_summary(
         }
     }
 
-    println!("\n{}", "═══════════════════════════════════════════════════".green());
+    println!(
+        "\n{}",
+        "═══════════════════════════════════════════════════".green()
+    );
     println!(
         "\n✨ Next steps:\n  • Monitor verification at: https://registry.soroban.org/contracts/{}\n  • Share your deployment ID: {}\n",
         response.id.cyan(),
@@ -621,7 +654,10 @@ pub async fn run_deploy(
     json_output: bool,
 ) -> Result<()> {
     println!("\n🚀 Soroban Contract Deployment Manager");
-    println!("{}", "═══════════════════════════════════════════════════".cyan());
+    println!(
+        "{}",
+        "═══════════════════════════════════════════════════".cyan()
+    );
 
     // Step 1: Validate WASM file
     println!("\n📦 Step 1/6: Validating WASM file...");
@@ -637,8 +673,9 @@ pub async fn run_deploy(
         collect_metadata_interactive(wasm_path)?
     } else {
         // Validate that required metadata is provided
-        let name = name.ok_or_else(|| anyhow::anyhow!("--name is required when not using --interactive"))?;
-        
+        let name =
+            name.ok_or_else(|| anyhow::anyhow!("--name is required when not using --interactive"))?;
+
         DeploymentMetadata {
             name: name.to_string(),
             description: description.map(|s| s.to_string()),
@@ -698,8 +735,15 @@ pub async fn run_deploy(
                         .and_then(|ext| ext.to_str())
                         .unwrap_or("png")
                         .to_lowercase();
-                    
-                    match upload_icon_to_backend(api_url, &deployment_response.id, &icon_data, &file_ext).await {
+
+                    match upload_icon_to_backend(
+                        api_url,
+                        &deployment_response.id,
+                        &icon_data,
+                        &file_ext,
+                    )
+                    .await
+                    {
                         Ok(_) => {
                             println!("✓ Icon uploaded successfully");
                         }
@@ -734,4 +778,3 @@ pub async fn run_deploy(
 
     Ok(())
 }
-

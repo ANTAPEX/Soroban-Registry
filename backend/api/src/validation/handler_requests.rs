@@ -5,18 +5,18 @@ use serde::Deserialize;
 use shared::models::{
     AddCollaborativeCommentRequest, AdvanceCanaryRequest, BatchGasEstimateRequest,
     BatchMetadataUpdateRequest, BatchMethodEntry, BatchSimilarityAnalysisRequest, BatchVerifyItem,
-    BatchVerifyRequest,
-    CloneContractRequest, CreateAbTestRequest, CreateAlertConfigRequest, CreateBackupRequest,
-    CreateCanaryRequest, CreateCollaborativeReviewRequest, CreateContributorRequest,
-    CreateOrganizationRequest, CreateReviewRequest, CreateSecurityScannerRequest,
-    CreateWebhookRequest, DeprecateContractRequest, FederationOptRequest, FlagReviewRequest,
-    InviteMemberRequest, MethodParamHint, ModerateReviewRequest, RecordAbTestMetricRequest,
-    RecordCanaryMetricRequest, RecordCustomMetricRequest, RecordPerformanceBenchmarkRequest,
-    RecordPerformanceMetricRequest, RegisterFederatedRegistryRequest, RestoreBackupRequest,
-    RevertVersionRequest, ReviewVoteRequest, SimulateDeployRequest, SubscribeRequest,
-    SyncFederatedRegistryRequest, TriggerSecurityScanRequest, UpdateContributorRequest,
-    UpdateOrganizationRequest, UpdateReviewerStatusRequest, UpdateSecurityIssueRequest,
-    UpdateSubscriptionRequest, UpdateUserNotificationPreferencesRequest,
+    BatchVerifyRequest, CloneContractRequest, CreateAbTestRequest, CreateAlertConfigRequest,
+    CreateBackupRequest, CreateCanaryRequest, CreateCollaborativeReviewRequest,
+    CreateContributorRequest, CreateOrganizationRequest, CreateReviewRequest,
+    CreateSecurityScannerRequest, CreateWebhookRequest, DeprecateContractRequest,
+    FederationOptRequest, FlagReviewRequest, InviteMemberRequest, MethodParamHint,
+    ModerateReviewRequest, RecordAbTestMetricRequest, RecordCanaryMetricRequest,
+    RecordCustomMetricRequest, RecordPerformanceBenchmarkRequest, RecordPerformanceMetricRequest,
+    RegisterFederatedRegistryRequest, RestoreBackupRequest, RevertVersionRequest,
+    ReviewVoteRequest, SimulateDeployRequest, SubscribeRequest, SyncFederatedRegistryRequest,
+    TriggerSecurityScanRequest, UpdateContributorRequest, UpdateOrganizationRequest,
+    UpdateReviewerStatusRequest, UpdateSecurityIssueRequest, UpdateSubscriptionRequest,
+    UpdateUserNotificationPreferencesRequest,
 };
 
 use crate::abi_versioning_handlers::{CheckCompatibilityRequest, PublishAbiRequest};
@@ -30,13 +30,15 @@ use crate::compatibility_testing_handlers::RunCompatibilityTestRequest;
 use crate::dependency_handlers::DeclareDependenciesRequest;
 use crate::disaster_recovery_models::{
     CreateActionItemRequest, CreateDisasterRecoveryPlanRequest, CreateNotificationTemplateRequest,
-    CreatePostIncidentReportRequest, CreateUserNotificationPreferenceRequest, ExecuteRecoveryRequest,
-    SendNotificationRequest,
+    CreatePostIncidentReportRequest, CreateUserNotificationPreferenceRequest,
+    ExecuteRecoveryRequest, SendNotificationRequest,
 };
 use crate::error_logging::ErrorReportRequest;
 use crate::favorites_handlers::UpdateFavoritesRequest;
 use crate::formal_verification_handlers::TriggerVerificationRequest;
-use crate::governance_handlers::{CastVoteRequest, CreateProposalRequest, UpsertVotingRightsRequest};
+use crate::governance_handlers::{
+    CastVoteRequest, CreateProposalRequest, UpsertVotingRightsRequest,
+};
 use crate::handlers::compatibility::AddCompatibilityRequest;
 use crate::handlers::validators::{RegisterValidatorRequest, SubmitAttestationRequest};
 use crate::handlers::UploadContractSourceRequest;
@@ -65,10 +67,11 @@ use super::sanitizers::{
 };
 use super::validators::{
     validate_base64_size, validate_collection_size, validate_contract_id, validate_email,
-    validate_hex_length, validate_json_depth, validate_length, validate_name_format, validate_no_xss,
-    validate_one_of, validate_one_of_optional, validate_percentage, validate_rating, validate_semver,
-    validate_slug, validate_source_code_size, validate_stellar_address, validate_stellar_address_optional,
-    validate_tags, validate_url_optional, validate_wasm_hash,
+    validate_hex_length, validate_json_depth, validate_length, validate_name_format,
+    validate_no_xss, validate_one_of, validate_one_of_optional, validate_percentage,
+    validate_rating, validate_semver, validate_slug, validate_source_code_size,
+    validate_stellar_address, validate_stellar_address_optional, validate_tags,
+    validate_url_optional, validate_wasm_hash,
 };
 
 const MAX_NAME_LENGTH: usize = 255;
@@ -88,14 +91,25 @@ fn validate_positive_decimal(value: &Decimal) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_optional_text(builder: &mut ValidationBuilder, field: &str, value: &Option<String>, max: usize) {
+fn validate_optional_text(
+    builder: &mut ValidationBuilder,
+    field: &str,
+    value: &Option<String>,
+    max: usize,
+) {
     if let Some(v) = value {
         builder.check(field, || validate_length(v, 1, max));
         builder.check(field, || validate_no_xss(v));
     }
 }
 
-fn validate_text(builder: &mut ValidationBuilder, field: &str, value: &str, min: usize, max: usize) {
+fn validate_text(
+    builder: &mut ValidationBuilder,
+    field: &str,
+    value: &str,
+    min: usize,
+    max: usize,
+) {
     builder.check(field, || validate_length(value, min, max));
     builder.check(field, || validate_no_xss(value));
 }
@@ -136,9 +150,13 @@ impl Validatable for BatchContractIdsRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("contract_ids", || validate_collection_size(self.0.len(), 0, MAX_BATCH_SIZE));
+        builder.check("contract_ids", || {
+            validate_collection_size(self.0.len(), 0, MAX_BATCH_SIZE)
+        });
         for (i, id) in self.0.iter().enumerate() {
-            builder.check(&format!("contract_ids[{i}]"), || validate_batch_contract_lookup_id(id));
+            builder.check(&format!("contract_ids[{i}]"), || {
+                validate_batch_contract_lookup_id(id)
+            });
         }
         builder.build()
     }
@@ -236,7 +254,9 @@ impl Validatable for RecordMetricsBatchRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("metrics", || validate_collection_size(self.0.len(), 1, MAX_BATCH_SIZE));
+        builder.check("metrics", || {
+            validate_collection_size(self.0.len(), 1, MAX_BATCH_SIZE)
+        });
         for (i, item) in self.0.iter().enumerate() {
             if let Err(errors) = item.validate() {
                 for err in errors {
@@ -273,11 +293,15 @@ impl Validatable for RegisterValidatorRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("stellar_address", || validate_stellar_address(&self.stellar_address));
+        builder.check("stellar_address", || {
+            validate_stellar_address(&self.stellar_address)
+        });
         builder.check("name", || validate_length(&self.name, 1, MAX_NAME_LENGTH));
         builder.check("name", || validate_name_format(&self.name));
         builder.check("name", || validate_no_xss(&self.name));
-        builder.check("stake_amount", || validate_positive_decimal(&self.stake_amount));
+        builder.check("stake_amount", || {
+            validate_positive_decimal(&self.stake_amount)
+        });
         builder.build()
     }
 }
@@ -294,11 +318,18 @@ impl Validatable for SubmitAttestationRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("decision", || validate_one_of(&self.decision, &["valid", "invalid"]));
+        builder.check("decision", || {
+            validate_one_of(&self.decision, &["valid", "invalid"])
+        });
         if let Some(ref hash) = self.compiled_wasm_hash {
             builder.check("compiled_wasm_hash", || validate_wasm_hash(hash));
         }
-        validate_optional_text(&mut builder, "error_message", &self.error_message, MAX_MESSAGE_LENGTH);
+        validate_optional_text(
+            &mut builder,
+            "error_message",
+            &self.error_message,
+            MAX_MESSAGE_LENGTH,
+        );
         if let Some(ref sig) = self.signature {
             builder.check("signature", || validate_length(sig, 1, 4096));
         }
@@ -326,7 +357,9 @@ impl Validatable for auth_handlers::VerifyRequest {
         builder.check("address", || validate_stellar_address(&self.address));
         builder.check("public_key", || validate_hex_length(&self.public_key, 64));
         builder.check("signature", || validate_length(&self.signature, 1, 512));
-        builder.check("scopes", || validate_collection_size(self.scopes.len(), 0, 20));
+        builder.check("scopes", || {
+            validate_collection_size(self.scopes.len(), 0, 20)
+        });
         for (i, scope) in self.scopes.iter().enumerate() {
             builder.check(&format!("scopes[{i}]"), || validate_length(scope, 1, 64));
             builder.check(&format!("scopes[{i}]"), || validate_name_format(scope));
@@ -354,7 +387,9 @@ impl Validatable for UploadContractSourceRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("source_base64", || validate_base64_size(&self.source_base64, MAX_SOURCE_CODE_BYTES));
+        builder.check("source_base64", || {
+            validate_base64_size(&self.source_base64, MAX_SOURCE_CODE_BYTES)
+        });
         builder.check("source_format", || {
             validate_one_of(&self.source_format, &["rust", "wasm"])
         });
@@ -369,7 +404,12 @@ impl Validatable for RevertVersionRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        validate_optional_text(&mut builder, "change_notes", &self.change_notes, MAX_DESCRIPTION_LENGTH);
+        validate_optional_text(
+            &mut builder,
+            "change_notes",
+            &self.change_notes,
+            MAX_DESCRIPTION_LENGTH,
+        );
         builder.build()
     }
 }
@@ -388,7 +428,12 @@ impl Validatable for CreateOrganizationRequest {
         validate_text(&mut builder, "name", &self.name, 1, MAX_NAME_LENGTH);
         builder.check("name", || validate_name_format(&self.name));
         builder.check("slug", || validate_slug(&self.slug));
-        validate_optional_text(&mut builder, "description", &self.description, MAX_DESCRIPTION_LENGTH);
+        validate_optional_text(
+            &mut builder,
+            "description",
+            &self.description,
+            MAX_DESCRIPTION_LENGTH,
+        );
         builder.build()
     }
 }
@@ -407,7 +452,12 @@ impl Validatable for UpdateOrganizationRequest {
             validate_text(&mut builder, "name", name, 1, MAX_NAME_LENGTH);
             builder.check("name", || validate_name_format(name));
         }
-        validate_optional_text(&mut builder, "description", &self.description, MAX_DESCRIPTION_LENGTH);
+        validate_optional_text(
+            &mut builder,
+            "description",
+            &self.description,
+            MAX_DESCRIPTION_LENGTH,
+        );
         builder.build()
     }
 }
@@ -438,7 +488,13 @@ impl Validatable for ReportIncidentRequest {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         validate_text(&mut builder, "title", &self.title, 1, 255);
-        validate_text(&mut builder, "description", &self.description, 1, MAX_DESCRIPTION_LENGTH);
+        validate_text(
+            &mut builder,
+            "description",
+            &self.description,
+            1,
+            MAX_DESCRIPTION_LENGTH,
+        );
         validate_text(&mut builder, "reporter", &self.reporter, 1, 255);
         builder.check("affected_contract_ids", || {
             validate_collection_size(self.affected_contract_ids.len(), 0, MAX_BATCH_SIZE)
@@ -458,7 +514,13 @@ impl Validatable for UpdateIncidentStatusRequest {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         validate_text(&mut builder, "author", &self.author, 1, 255);
-        validate_text(&mut builder, "message", &self.message, 1, MAX_MESSAGE_LENGTH);
+        validate_text(
+            &mut builder,
+            "message",
+            &self.message,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
         builder.build()
     }
 }
@@ -472,7 +534,13 @@ impl Validatable for AddIncidentUpdateRequest {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         validate_text(&mut builder, "author", &self.author, 1, 255);
-        validate_text(&mut builder, "message", &self.message, 1, MAX_MESSAGE_LENGTH);
+        validate_text(
+            &mut builder,
+            "message",
+            &self.message,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
         builder.build()
     }
 }
@@ -498,9 +566,25 @@ impl Validatable for PublishAdvisoryRequest {
         let mut builder = ValidationBuilder::new();
         validate_text(&mut builder, "title", &self.title, 1, 255);
         validate_text(&mut builder, "summary", &self.summary, 1, 2000);
-        validate_text(&mut builder, "details", &self.details, 1, MAX_MESSAGE_LENGTH);
-        validate_optional_text(&mut builder, "affected_versions", &self.affected_versions, 500);
-        validate_optional_text(&mut builder, "mitigation", &self.mitigation, MAX_DESCRIPTION_LENGTH);
+        validate_text(
+            &mut builder,
+            "details",
+            &self.details,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
+        validate_optional_text(
+            &mut builder,
+            "affected_versions",
+            &self.affected_versions,
+            500,
+        );
+        validate_optional_text(
+            &mut builder,
+            "mitigation",
+            &self.mitigation,
+            MAX_DESCRIPTION_LENGTH,
+        );
         builder.build()
     }
 }
@@ -516,7 +600,12 @@ impl Validatable for NotifyAffectedUsersRequest {
         builder.check("channel", || {
             validate_one_of_optional(&self.channel, &["email", "webhook", "in_app"])
         });
-        validate_optional_text(&mut builder, "message_template", &self.message_template, MAX_MESSAGE_LENGTH);
+        validate_optional_text(
+            &mut builder,
+            "message_template",
+            &self.message_template,
+            MAX_MESSAGE_LENGTH,
+        );
         builder.build()
     }
 }
@@ -577,7 +666,9 @@ impl Validatable for CreateWebhookRequest {
             validate_collection_size(self.notification_types.len(), 1, 20)
         });
         if let Some(ref headers) = self.custom_headers {
-            builder.check("custom_headers", || validate_json_depth(headers, MAX_JSON_DEPTH));
+            builder.check("custom_headers", || {
+                validate_json_depth(headers, MAX_JSON_DEPTH)
+            });
         }
         builder.build()
     }
@@ -602,7 +693,9 @@ impl Validatable for CreateContributorRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("stellar_address", || validate_stellar_address(&self.stellar_address));
+        builder.check("stellar_address", || {
+            validate_stellar_address(&self.stellar_address)
+        });
         if let Some(ref name) = self.name {
             validate_text(&mut builder, "name", name, 1, MAX_NAME_LENGTH);
         }
@@ -656,7 +749,12 @@ impl Validatable for CreateCategoryRequest {
         let mut builder = ValidationBuilder::new();
         validate_text(&mut builder, "name", &self.name, 1, 100);
         builder.check("name", || validate_name_format(&self.name));
-        validate_optional_text(&mut builder, "description", &self.description, MAX_DESCRIPTION_LENGTH);
+        validate_optional_text(
+            &mut builder,
+            "description",
+            &self.description,
+            MAX_DESCRIPTION_LENGTH,
+        );
         builder.build()
     }
 }
@@ -675,7 +773,12 @@ impl Validatable for UpdateCategoryRequest {
             validate_text(&mut builder, "name", name, 1, 100);
             builder.check("name", || validate_name_format(name));
         }
-        validate_optional_text(&mut builder, "description", &self.description, MAX_DESCRIPTION_LENGTH);
+        validate_optional_text(
+            &mut builder,
+            "description",
+            &self.description,
+            MAX_DESCRIPTION_LENGTH,
+        );
         builder.build()
     }
 }
@@ -698,8 +801,12 @@ impl Validatable for ContractVerifyRequest {
             }
             validate_source_code_size(&self.source_code, MAX_SOURCE_CODE_BYTES)
         });
-        builder.check("compiler_version", || validate_semver(&self.compiler_version));
-        builder.check("build_params", || validate_json_depth(&self.build_params, MAX_JSON_DEPTH));
+        builder.check("compiler_version", || {
+            validate_semver(&self.compiler_version)
+        });
+        builder.check("build_params", || {
+            validate_json_depth(&self.build_params, MAX_JSON_DEPTH)
+        });
         validate_optional_text(&mut builder, "notes", &self.notes, MAX_DESCRIPTION_LENGTH);
         builder.build()
     }
@@ -716,7 +823,9 @@ impl Validatable for DeclareDependenciesRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("dependencies", || validate_collection_size(self.dependencies.len(), 0, 50));
+        builder.check("dependencies", || {
+            validate_collection_size(self.dependencies.len(), 0, 50)
+        });
         for (i, dep) in self.dependencies.iter().enumerate() {
             if let Err(errors) = dep.validate() {
                 for err in errors {
@@ -750,7 +859,13 @@ impl Validatable for RegisterMigrationRequest {
         });
         validate_text(&mut builder, "description", &self.description, 1, 500);
         validate_text(&mut builder, "filename", &self.filename, 1, 255);
-        validate_text(&mut builder, "sql_content", &self.sql_content, 1, MAX_MESSAGE_LENGTH);
+        validate_text(
+            &mut builder,
+            "sql_content",
+            &self.sql_content,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
         if let Some(ref down) = self.down_sql {
             builder.check("down_sql", || validate_length(down, 1, MAX_MESSAGE_LENGTH));
         }
@@ -776,10 +891,16 @@ impl Validatable for SimulateDeployRequest {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         builder.check("contract_id", || validate_contract_id(&self.contract_id));
-        builder.check("wasm_binary", || validate_base64_size(&self.wasm_binary, MAX_SOURCE_CODE_BYTES));
+        builder.check("wasm_binary", || {
+            validate_base64_size(&self.wasm_binary, MAX_SOURCE_CODE_BYTES)
+        });
         validate_text(&mut builder, "name", &self.name, 1, MAX_NAME_LENGTH);
-        builder.check("publisher_address", || validate_stellar_address(&self.publisher_address));
-        builder.check("tags", || validate_tags(&self.tags, MAX_TAGS_COUNT, MAX_TAG_LENGTH));
+        builder.check("publisher_address", || {
+            validate_stellar_address(&self.publisher_address)
+        });
+        builder.check("tags", || {
+            validate_tags(&self.tags, MAX_TAGS_COUNT, MAX_TAG_LENGTH)
+        });
         builder.build()
     }
 }
@@ -804,13 +925,17 @@ impl Validatable for BatchVerifyItem {
         let mut builder = ValidationBuilder::new();
         builder.check("contract_id", || validate_contract_id(&self.contract_id));
         if let Some(ref code) = self.source_code {
-            builder.check("source_code", || validate_source_code_size(code, MAX_SOURCE_CODE_BYTES));
+            builder.check("source_code", || {
+                validate_source_code_size(code, MAX_SOURCE_CODE_BYTES)
+            });
         }
         if let Some(ref version) = self.compiler_version {
             builder.check("compiler_version", || validate_semver(version));
         }
         if let Some(ref params) = self.build_params {
-            builder.check("build_params", || validate_json_depth(params, MAX_JSON_DEPTH));
+            builder.check("build_params", || {
+                validate_json_depth(params, MAX_JSON_DEPTH)
+            });
         }
         builder.build()
     }
@@ -825,7 +950,9 @@ impl Validatable for BatchVerifyRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("contracts", || validate_collection_size(self.contracts.len(), 1, MAX_BATCH_SIZE));
+        builder.check("contracts", || {
+            validate_collection_size(self.contracts.len(), 1, MAX_BATCH_SIZE)
+        });
         for (i, item) in self.contracts.iter().enumerate() {
             if let Err(errors) = item.validate() {
                 for err in errors {
@@ -851,7 +978,9 @@ impl Validatable for DeprecateContractRequest {
         if let Some(ref id) = self.replacement_contract_id {
             builder.check("replacement_contract_id", || validate_contract_id(id));
         }
-        builder.check("migration_guide_url", || validate_url_optional(&self.migration_guide_url));
+        builder.check("migration_guide_url", || {
+            validate_url_optional(&self.migration_guide_url)
+        });
         validate_optional_text(&mut builder, "notes", &self.notes, MAX_DESCRIPTION_LENGTH);
         builder.build()
     }
@@ -870,7 +999,12 @@ impl Validatable for CreateReviewRequest {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         builder.check("rating", || validate_rating(self.rating, 0.0, 5.0));
-        validate_optional_text(&mut builder, "review_text", &self.review_text, MAX_DESCRIPTION_LENGTH);
+        validate_optional_text(
+            &mut builder,
+            "review_text",
+            &self.review_text,
+            MAX_DESCRIPTION_LENGTH,
+        );
         if let Some(ref version) = self.version {
             builder.check("version", || validate_semver(version));
         }
@@ -904,7 +1038,9 @@ impl Validatable for ModerateReviewRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("action", || validate_one_of(&self.action, &["approve", "reject", "hide"]));
+        builder.check("action", || {
+            validate_one_of(&self.action, &["approve", "reject", "hide"])
+        });
         builder.build()
     }
 }
@@ -923,7 +1059,9 @@ impl Validatable for UpdateFavoritesRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("favorites", || validate_collection_size(self.favorites.len(), 0, 500));
+        builder.check("favorites", || {
+            validate_collection_size(self.favorites.len(), 0, 500)
+        });
         for (i, fav) in self.favorites.iter().enumerate() {
             builder.check(&format!("favorites[{i}]"), || validate_length(fav, 1, 128));
             builder.check(&format!("favorites[{i}]"), || validate_no_xss(fav));
@@ -967,8 +1105,16 @@ impl Validatable for ErrorReportRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        validate_text(&mut builder, "message", &self.message, 1, MAX_MESSAGE_LENGTH);
-        builder.check("metadata", || validate_json_depth(&self.metadata, MAX_JSON_DEPTH));
+        validate_text(
+            &mut builder,
+            "message",
+            &self.message,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
+        builder.check("metadata", || {
+            validate_json_depth(&self.metadata, MAX_JSON_DEPTH)
+        });
         builder.build()
     }
 }
@@ -982,7 +1128,12 @@ impl Validatable for ResolveAnomalyRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        validate_optional_text(&mut builder, "resolution_notes", &self.resolution_notes, MAX_DESCRIPTION_LENGTH);
+        validate_optional_text(
+            &mut builder,
+            "resolution_notes",
+            &self.resolution_notes,
+            MAX_DESCRIPTION_LENGTH,
+        );
         builder.build()
     }
 }
@@ -1042,7 +1193,9 @@ impl Validatable for BulkApplyRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("targets", || validate_collection_size(self.targets.len(), 1, MAX_BATCH_SIZE));
+        builder.check("targets", || {
+            validate_collection_size(self.targets.len(), 1, MAX_BATCH_SIZE)
+        });
         for (i, target) in self.targets.iter().enumerate() {
             if let Err(errors) = target.validate() {
                 for err in errors {
@@ -1091,7 +1244,9 @@ impl Validatable for BatchSimilarityAnalysisRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("contract_ids", || validate_collection_size(self.contract_ids.len(), 1, MAX_BATCH_SIZE));
+        builder.check("contract_ids", || {
+            validate_collection_size(self.contract_ids.len(), 1, MAX_BATCH_SIZE)
+        });
         for (i, id) in self.contract_ids.iter().enumerate() {
             builder.check(&format!("contract_ids[{i}]"), || validate_contract_id(id));
         }
@@ -1135,7 +1290,9 @@ impl Validatable for BatchMethodEntry {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         validate_text(&mut builder, "method_name", &self.method_name, 1, 255);
-        builder.check("params", || validate_collection_size(self.params.len(), 0, 50));
+        builder.check("params", || {
+            validate_collection_size(self.params.len(), 0, 50)
+        });
         for (i, param) in self.params.iter().enumerate() {
             if let Err(errors) = param.validate() {
                 for err in errors {
@@ -1156,7 +1313,9 @@ impl Validatable for BatchGasEstimateRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("methods", || validate_collection_size(self.methods.len(), 1, MAX_BATCH_SIZE));
+        builder.check("methods", || {
+            validate_collection_size(self.methods.len(), 1, MAX_BATCH_SIZE)
+        });
         for (i, method) in self.methods.iter().enumerate() {
             if let Err(errors) = method.validate() {
                 for err in errors {
@@ -1210,7 +1369,13 @@ impl Validatable for CreateDisasterRecoveryPlanRequest {
                 Ok(())
             }
         });
-        validate_text(&mut builder, "recovery_strategy", &self.recovery_strategy, 1, 255);
+        validate_text(
+            &mut builder,
+            "recovery_strategy",
+            &self.recovery_strategy,
+            1,
+            255,
+        );
         builder.build()
     }
 }
@@ -1239,7 +1404,13 @@ impl Validatable for CreateCanaryRequest {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         builder.check("contract_id", || validate_contract_id(&self.contract_id));
-        validate_text(&mut builder, "to_deployment_id", &self.to_deployment_id, 1, 128);
+        validate_text(
+            &mut builder,
+            "to_deployment_id",
+            &self.to_deployment_id,
+            1,
+            128,
+        );
         if let Some(threshold) = self.error_rate_threshold {
             builder.check("error_rate_threshold", || validate_percentage(threshold));
         }
@@ -1331,7 +1502,9 @@ impl Validatable for RegisterFederatedRegistryRequest {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         validate_text(&mut builder, "name", &self.name, 1, MAX_NAME_LENGTH);
-        builder.check("base_url", || validate_url_optional(&Some(self.base_url.clone())));
+        builder.check("base_url", || {
+            validate_url_optional(&Some(self.base_url.clone()))
+        });
         builder.build()
     }
 }
@@ -1358,7 +1531,9 @@ impl Validatable for FederationOptRequest {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         if let Some(ref filters) = self.registry_filters {
-            builder.check("registry_filters", || validate_collection_size(filters.len(), 0, MAX_BATCH_SIZE));
+            builder.check("registry_filters", || {
+                validate_collection_size(filters.len(), 0, MAX_BATCH_SIZE)
+            });
         }
         builder.build()
     }
@@ -1374,7 +1549,9 @@ impl Validatable for CreateCollaborativeReviewRequest {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         builder.check("version", || validate_semver(&self.version));
-        builder.check("reviewer_ids", || validate_collection_size(self.reviewer_ids.len(), 1, 20));
+        builder.check("reviewer_ids", || {
+            validate_collection_size(self.reviewer_ids.len(), 1, 20)
+        });
         builder.build()
     }
 }
@@ -1388,7 +1565,13 @@ impl Validatable for AddCollaborativeCommentRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        validate_text(&mut builder, "content", &self.content, 1, MAX_MESSAGE_LENGTH);
+        validate_text(
+            &mut builder,
+            "content",
+            &self.content,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
         validate_optional_text(&mut builder, "file_path", &self.file_path, 512);
         builder.build()
     }
@@ -1499,7 +1682,9 @@ impl Validatable for CreateAlertConfigRequest {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         builder.check("contract_id", || validate_contract_id(&self.contract_id));
-        builder.check("threshold_type", || validate_one_of(&self.threshold_type, &["above", "below", "equals"]));
+        builder.check("threshold_type", || {
+            validate_one_of(&self.threshold_type, &["above", "below", "equals"])
+        });
         builder.build()
     }
 }
@@ -1552,7 +1737,9 @@ impl Validatable for CreateSecurityScannerRequest {
         validate_text(&mut builder, "scanner_type", &self.scanner_type, 1, 64);
         builder.check("api_endpoint", || validate_url_optional(&self.api_endpoint));
         if let Some(ref config) = self.configuration {
-            builder.check("configuration", || validate_json_depth(config, MAX_JSON_DEPTH));
+            builder.check("configuration", || {
+                validate_json_depth(config, MAX_JSON_DEPTH)
+            });
         }
         builder.build()
     }
@@ -1585,7 +1772,13 @@ impl Validatable for UpdateReleaseNotesRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        validate_text(&mut builder, "notes_text", &self.notes_text, 1, MAX_MESSAGE_LENGTH);
+        validate_text(
+            &mut builder,
+            "notes_text",
+            &self.notes_text,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
         builder.build()
     }
 }
@@ -1610,7 +1803,12 @@ impl Validatable for PublishAbiRequest {
         let mut builder = ValidationBuilder::new();
         builder.check("version", || validate_semver(&self.version));
         builder.check("abi", || validate_json_depth(&self.abi, MAX_JSON_DEPTH));
-        validate_optional_text(&mut builder, "changelog", &self.changelog, MAX_MESSAGE_LENGTH);
+        validate_optional_text(
+            &mut builder,
+            "changelog",
+            &self.changelog,
+            MAX_MESSAGE_LENGTH,
+        );
         builder.build()
     }
 }
@@ -1684,7 +1882,13 @@ impl Validatable for CreateProposalRequest {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         validate_text(&mut builder, "title", &self.title, 1, 255);
-        validate_text(&mut builder, "description", &self.description, 1, MAX_MESSAGE_LENGTH);
+        validate_text(
+            &mut builder,
+            "description",
+            &self.description,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
         builder.build()
     }
 }
@@ -1740,9 +1944,13 @@ impl Validatable for CreateMultisigPolicyRequest {
                 Ok(())
             }
         });
-        builder.check("signer_addresses", || validate_collection_size(self.signer_addresses.len(), 1, 20));
+        builder.check("signer_addresses", || {
+            validate_collection_size(self.signer_addresses.len(), 1, 20)
+        });
         for (i, addr) in self.signer_addresses.iter().enumerate() {
-            builder.check(&format!("signer_addresses[{i}]"), || validate_stellar_address(addr));
+            builder.check(&format!("signer_addresses[{i}]"), || {
+                validate_stellar_address(addr)
+            });
         }
         builder.check("created_by", || validate_stellar_address(&self.created_by));
         builder.build()
@@ -1760,7 +1968,13 @@ impl Validatable for CreateDeployProposalRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        validate_text(&mut builder, "contract_name", &self.contract_name, 1, MAX_NAME_LENGTH);
+        validate_text(
+            &mut builder,
+            "contract_name",
+            &self.contract_name,
+            1,
+            MAX_NAME_LENGTH,
+        );
         builder.check("contract_id", || validate_contract_id(&self.contract_id));
         builder.check("wasm_hash", || validate_wasm_hash(&self.wasm_hash));
         builder.check("proposer", || validate_stellar_address(&self.proposer));
@@ -1777,8 +1991,15 @@ impl Validatable for SignProposalRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("signer_address", || validate_stellar_address(&self.signer_address));
-        validate_optional_text(&mut builder, "comment", &self.comment, MAX_DESCRIPTION_LENGTH);
+        builder.check("signer_address", || {
+            validate_stellar_address(&self.signer_address)
+        });
+        validate_optional_text(
+            &mut builder,
+            "comment",
+            &self.comment,
+            MAX_DESCRIPTION_LENGTH,
+        );
         builder.build()
     }
 }
@@ -1808,8 +2029,16 @@ impl Validatable for ChatMessage {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("role", || validate_one_of(&self.role, &["user", "assistant", "system"]));
-        validate_text(&mut builder, "content", &self.content, 1, MAX_MESSAGE_LENGTH);
+        builder.check("role", || {
+            validate_one_of(&self.role, &["user", "assistant", "system"])
+        });
+        validate_text(
+            &mut builder,
+            "content",
+            &self.content,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
         builder.build()
     }
 }
@@ -1824,7 +2053,9 @@ impl Validatable for ChatRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("messages", || validate_collection_size(self.messages.len(), 1, 50));
+        builder.check("messages", || {
+            validate_collection_size(self.messages.len(), 1, 50)
+        });
         for (i, msg) in self.messages.iter().enumerate() {
             if let Err(errors) = msg.validate() {
                 for err in errors {
@@ -1846,7 +2077,13 @@ impl Validatable for SuggestRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        validate_text(&mut builder, "request", &self.request, 1, MAX_MESSAGE_LENGTH);
+        validate_text(
+            &mut builder,
+            "request",
+            &self.request,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
         validate_optional_text(&mut builder, "context", &self.context, MAX_MESSAGE_LENGTH);
         builder.build()
     }
@@ -1886,7 +2123,9 @@ impl Validatable for ClientBreakerReport {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         validate_text(&mut builder, "endpoint", &self.endpoint, 1, 512);
-        builder.check("state", || validate_one_of(&self.state, &["open", "closed", "half_open"]));
+        builder.check("state", || {
+            validate_one_of(&self.state, &["open", "closed", "half_open"])
+        });
         builder.build()
     }
 }
@@ -1905,8 +2144,16 @@ impl Validatable for CreateNotificationTemplateRequest {
         let mut builder = ValidationBuilder::new();
         validate_text(&mut builder, "name", &self.name, 1, MAX_NAME_LENGTH);
         validate_text(&mut builder, "subject", &self.subject, 1, 255);
-        validate_text(&mut builder, "message_template", &self.message_template, 1, MAX_MESSAGE_LENGTH);
-        builder.check("channel", || validate_one_of(&self.channel, &["email", "webhook", "in_app"]));
+        validate_text(
+            &mut builder,
+            "message_template",
+            &self.message_template,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
+        builder.check("channel", || {
+            validate_one_of(&self.channel, &["email", "webhook", "in_app"])
+        });
         builder.build()
     }
 }
@@ -1923,8 +2170,12 @@ impl Validatable for CreateUserNotificationPreferenceRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        builder.check("notification_types", || validate_collection_size(self.notification_types.len(), 1, 20));
-        builder.check("channels", || validate_collection_size(self.channels.len(), 1, 10));
+        builder.check("notification_types", || {
+            validate_collection_size(self.notification_types.len(), 1, 20)
+        });
+        builder.check("channels", || {
+            validate_collection_size(self.channels.len(), 1, 10)
+        });
         builder.build()
     }
 }
@@ -1941,8 +2192,16 @@ impl Validatable for SendNotificationRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        validate_text(&mut builder, "notification_type", &self.notification_type, 1, 64);
-        builder.check("recipients", || validate_collection_size(self.recipients.len(), 1, MAX_BATCH_SIZE));
+        validate_text(
+            &mut builder,
+            "notification_type",
+            &self.notification_type,
+            1,
+            64,
+        );
+        builder.check("recipients", || {
+            validate_collection_size(self.recipients.len(), 1, MAX_BATCH_SIZE)
+        });
         builder.build()
     }
 }
@@ -1957,7 +2216,13 @@ impl Validatable for CreateActionItemRequest {
 
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
-        validate_text(&mut builder, "description", &self.description, 1, MAX_DESCRIPTION_LENGTH);
+        validate_text(
+            &mut builder,
+            "description",
+            &self.description,
+            1,
+            MAX_DESCRIPTION_LENGTH,
+        );
         validate_text(&mut builder, "owner", &self.owner, 1, 255);
         builder.build()
     }
@@ -1984,9 +2249,27 @@ impl Validatable for CreatePostIncidentReportRequest {
     fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut builder = ValidationBuilder::new();
         validate_text(&mut builder, "title", &self.title, 1, 255);
-        validate_text(&mut builder, "description", &self.description, 1, MAX_MESSAGE_LENGTH);
-        validate_text(&mut builder, "root_cause", &self.root_cause, 1, MAX_MESSAGE_LENGTH);
-        validate_text(&mut builder, "impact_assessment", &self.impact_assessment, 1, MAX_MESSAGE_LENGTH);
+        validate_text(
+            &mut builder,
+            "description",
+            &self.description,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
+        validate_text(
+            &mut builder,
+            "root_cause",
+            &self.root_cause,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
+        validate_text(
+            &mut builder,
+            "impact_assessment",
+            &self.impact_assessment,
+            1,
+            MAX_MESSAGE_LENGTH,
+        );
         validate_text(&mut builder, "created_by", &self.created_by, 1, 255);
         builder.build()
     }
@@ -2040,6 +2323,8 @@ mod tests {
         };
         let errors = req.validate().unwrap_err();
         assert!(!errors.is_empty());
-        assert!(errors.iter().any(|e| e.field == "stellar_address" || e.field == "name"));
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "stellar_address" || e.field == "name"));
     }
 }

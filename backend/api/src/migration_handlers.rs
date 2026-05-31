@@ -273,7 +273,11 @@ async fn audit(
     .await;
 
     if let Err(e) = result {
-        tracing::warn!(operation, ?version, "Failed to write migration audit entry: {e}");
+        tracing::warn!(
+            operation,
+            ?version,
+            "Failed to write migration audit entry: {e}"
+        );
     }
 }
 
@@ -593,15 +597,12 @@ async fn apply_migration_inner(
 
     // Execute each statement in sequence.
     for stmt in statements {
-        sqlx::query(stmt)
-            .execute(&state.db)
-            .await
-            .map_err(|e| {
-                ApiError::internal(format!(
-                    "Failed to execute statement for version {}: {e}",
-                    body.version
-                ))
-            })?;
+        sqlx::query(stmt).execute(&state.db).await.map_err(|e| {
+            ApiError::internal(format!(
+                "Failed to execute statement for version {}: {e}",
+                body.version
+            ))
+        })?;
     }
 
     let elapsed_ms = 0i32; // timing captured by outer apply_migration
@@ -735,7 +736,10 @@ async fn rollback_migration_inner(
     .map_err(|e| ApiError::internal(format!("DB error: {e}")))?;
 
     let migration = migration.ok_or_else(|| {
-        ApiError::not_found("NotFound", format!("Migration version {} not found", version))
+        ApiError::not_found(
+            "NotFound",
+            format!("Migration version {} not found", version),
+        )
     })?;
 
     if migration.rolled_back_at.is_some() {
@@ -898,7 +902,10 @@ pub async fn get_migration_version(
     .map_err(|e| ApiError::internal(format!("DB error: {e}")))?;
 
     migration.map(Json).ok_or_else(|| {
-        ApiError::not_found("NotFound", format!("Migration version {} not found", version))
+        ApiError::not_found(
+            "NotFound",
+            format!("Migration version {} not found", version),
+        )
     })
 }
 
@@ -937,33 +944,34 @@ pub async fn get_migration_audit(
     let limit = params.limit.unwrap_or(50).clamp(1, 500);
     let offset = params.offset.unwrap_or(0).max(0);
 
-    let total: i64 = match (&params.operation, &params.version) {
-        (Some(op), Some(v)) => sqlx::query_scalar(
-            "SELECT COUNT(*) FROM migration_audit_log WHERE operation = $1 AND version = $2",
-        )
-        .bind(op)
-        .bind(v)
-        .fetch_one(&state.db)
-        .await,
-        (Some(op), None) => sqlx::query_scalar(
-            "SELECT COUNT(*) FROM migration_audit_log WHERE operation = $1",
-        )
-        .bind(op)
-        .fetch_one(&state.db)
-        .await,
-        (None, Some(v)) => {
-            sqlx::query_scalar("SELECT COUNT(*) FROM migration_audit_log WHERE version = $1")
-                .bind(v)
-                .fetch_one(&state.db)
-                .await
+    let total: i64 =
+        match (&params.operation, &params.version) {
+            (Some(op), Some(v)) => sqlx::query_scalar(
+                "SELECT COUNT(*) FROM migration_audit_log WHERE operation = $1 AND version = $2",
+            )
+            .bind(op)
+            .bind(v)
+            .fetch_one(&state.db)
+            .await,
+            (Some(op), None) => {
+                sqlx::query_scalar("SELECT COUNT(*) FROM migration_audit_log WHERE operation = $1")
+                    .bind(op)
+                    .fetch_one(&state.db)
+                    .await
+            }
+            (None, Some(v)) => {
+                sqlx::query_scalar("SELECT COUNT(*) FROM migration_audit_log WHERE version = $1")
+                    .bind(v)
+                    .fetch_one(&state.db)
+                    .await
+            }
+            (None, None) => {
+                sqlx::query_scalar("SELECT COUNT(*) FROM migration_audit_log")
+                    .fetch_one(&state.db)
+                    .await
+            }
         }
-        (None, None) => {
-            sqlx::query_scalar("SELECT COUNT(*) FROM migration_audit_log")
-                .fetch_one(&state.db)
-                .await
-        }
-    }
-    .map_err(|e| ApiError::internal(format!("DB error: {e}")))?;
+        .map_err(|e| ApiError::internal(format!("DB error: {e}")))?;
 
     let entries: Vec<MigrationAuditEntry> = match (&params.operation, &params.version) {
         (Some(op), Some(v)) => sqlx::query_as(

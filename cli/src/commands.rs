@@ -175,21 +175,28 @@ pub async fn search(
     if json {
         let contracts: Vec<serde_json::Value> = items
             .iter()
-            .map(|c| -> Result<_> {
-                let contract_id = crate::conversions::as_str(&c["contract_id"], "contract_id")?;
-                Ok(serde_json::json!({
-                    "id":          contract_id.clone(),
-                    "name":        crate::conversions::as_str(&c["name"], "name")?,
-                    "is_verified": crate::conversions::as_bool(&c["is_verified"], "is_verified")?,
-                    "network":     crate::conversions::as_str(&c["network"], "network")?,
-                    "category":    c["category"].as_str().unwrap_or(""),
-                    "links": { "detail": format!("{}/contracts/{}", api_url, contract_id) },
-                }))
+            .map(|c| {
+                serde_json::json!({
+                    "id": c.get("id").and_then(|v| v.as_str()).unwrap_or(""),
+                    "name": c.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+                    "contract_id": c.get("contract_id").and_then(|v| v.as_str()).unwrap_or(""),
+                    "network": c.get("network").and_then(|v| v.as_str()).unwrap_or(""),
+                    "category": c.get("category").and_then(|v| v.as_str()).unwrap_or(""),
+                    "is_verified": c.get("is_verified").and_then(|v| v.as_bool()).unwrap_or(false),
+                    "health_score": c.get("health_score").and_then(|v| v.as_i64()).unwrap_or(0),
+                    "created_at": c.get("created_at").and_then(|v| v.as_str()).unwrap_or(""),
+                    "tags": c.get("tags").and_then(|v| v.as_array()).map(|arr| {
+                        arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect::<Vec<_>>()
+                    }).unwrap_or_default(),
+                })
             })
-            .collect::<Result<_, _>>()?;
+            .collect();
         println!(
             "{}",
-            serde_json::to_string_pretty(&serde_json::json!({ "contracts": contracts }))?
+            serde_json::to_string_pretty(&serde_json::json!({
+                "contracts": contracts,
+                "count": contracts.len()
+            }))?
         );
         return Ok(());
     }
@@ -1012,14 +1019,37 @@ pub async fn contract_list(
         anyhow::bail!("API returned error: {status}");
     }
 
-    let data: serde_json::Value =
-        serde_json::from_str(&body).context("Invalid list response")?;
+    let data: serde_json::Value = serde_json::from_str(&body).context("Invalid list response")?;
     let items = data["items"]
         .as_array()
         .context("Invalid response format")?;
 
     if format == "json" {
-        println!("{}", serde_json::to_string_pretty(&data)?);
+        let contracts: Vec<serde_json::Value> = items
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "id": c.get("id").and_then(|v| v.as_str()).unwrap_or(""),
+                    "name": c.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+                    "contract_id": c.get("contract_id").and_then(|v| v.as_str()).unwrap_or(""),
+                    "network": c.get("network").and_then(|v| v.as_str()).unwrap_or(""),
+                    "category": c.get("category").and_then(|v| v.as_str()).unwrap_or(""),
+                    "is_verified": c.get("is_verified").and_then(|v| v.as_bool()).unwrap_or(false),
+                    "health_score": c.get("health_score").and_then(|v| v.as_i64()).unwrap_or(0),
+                    "created_at": c.get("created_at").and_then(|v| v.as_str()).unwrap_or(""),
+                    "tags": c.get("tags").and_then(|v| v.as_array()).map(|arr| {
+                        arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect::<Vec<_>>()
+                    }).unwrap_or_default(),
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "contracts": contracts,
+                "count": contracts.len()
+            }))?
+        );
         return Ok(());
     }
 
@@ -3969,7 +3999,10 @@ pub async fn contract_stats(
     }
 
     let mut stats: serde_json::Value = response.json().await?;
-    if let Some(top) = stats.get_mut("top_contracts").and_then(serde_json::Value::as_array_mut) {
+    if let Some(top) = stats
+        .get_mut("top_contracts")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         top.truncate(top_n);
     }
 
@@ -4155,7 +4188,10 @@ fn format_stats_csv(stats: &serde_json::Value) -> Result<String> {
         }
     }
 
-    if let Some(networks) = stats.get("network_stats").and_then(serde_json::Value::as_array) {
+    if let Some(networks) = stats
+        .get("network_stats")
+        .and_then(serde_json::Value::as_array)
+    {
         for network in networks {
             writer.write_record([
                 "network",
@@ -4190,14 +4226,21 @@ fn format_stats_csv(stats: &serde_json::Value) -> Result<String> {
         }
     }
 
-    if let Some(top) = stats.get("top_contracts").and_then(serde_json::Value::as_array) {
+    if let Some(top) = stats
+        .get("top_contracts")
+        .and_then(serde_json::Value::as_array)
+    {
         for contract in top {
             writer.write_record([
                 "top_contract",
                 contract
                     .get("name")
                     .and_then(serde_json::Value::as_str)
-                    .or_else(|| contract.get("contract_id").and_then(serde_json::Value::as_str))
+                    .or_else(|| {
+                        contract
+                            .get("contract_id")
+                            .and_then(serde_json::Value::as_str)
+                    })
                     .unwrap_or("unknown"),
                 &contract
                     .get("interaction_count")

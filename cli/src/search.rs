@@ -1,7 +1,7 @@
-use crate::net::RequestBuilderExt;  
+use crate::net::RequestBuilderExt;
 use colored::Colorize;
-use std::time::Instant;
 use shared::models::Contract;
+use std::time::Instant;
 
 pub async fn run(
     query: &str,
@@ -17,19 +17,15 @@ pub async fn run(
     let start = Instant::now();
 
     let url = format!("{}/api/contracts", api_url);
-    let client = crate::net::client(); 
-    let mut all_contracts: Vec<Contract> = client
-        .get(&url)
-        .send_with_retry()  
-        .await?
-        .json()
-        .await?;
+    let client = crate::net::client();
+    let mut all_contracts: Vec<Contract> = client.get(&url).send_with_retry().await?.json().await?;
 
     // Full-text search match against query string
     let q = query.to_lowercase();
     all_contracts.retain(|c| {
         c.name.to_lowercase().contains(&q)
-            || c.description.as_deref()
+            || c.description
+                .as_deref()
                 .unwrap_or("")
                 .to_lowercase()
                 .contains(&q)
@@ -37,15 +33,15 @@ pub async fn run(
 
     // Network Filter execution
     if let Some(network_filter) = network {
-        all_contracts.retain(|c| {
-            format!("{:?}", c.network).to_lowercase() == network_filter.to_lowercase()
-        });
+        all_contracts
+            .retain(|c| format!("{:?}", c.network).to_lowercase() == network_filter.to_lowercase());
     }
 
     // Category Filter execution
     if let Some(category_filter) = category {
         all_contracts.retain(|c| {
-            c.category.as_deref()
+            c.category
+                .as_deref()
                 .unwrap_or("")
                 .eq_ignore_ascii_case(category_filter)
         });
@@ -64,7 +60,8 @@ pub async fn run(
         "name" => all_contracts.sort_by(|a, b| a.name.cmp(&b.name)),
         _ => {
             all_contracts.sort_by(|a, b| {
-                b.relevance_score.unwrap_or(0.0)
+                b.relevance_score
+                    .unwrap_or(0.0)
                     .partial_cmp(&a.relevance_score.unwrap_or(0.0))
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
@@ -82,7 +79,30 @@ pub async fn run(
 
     // Handle JSON format request option
     if output_json {
-        println!("{}", serde_json::to_string_pretty(&all_contracts)?);
+        let contracts: Vec<serde_json::Value> = all_contracts
+            .iter()
+            .map(|c| {
+                let tag_names: Vec<String> = c.tags.iter().map(|t| t.name.clone()).collect();
+                serde_json::json!({
+                    "id": c.id,
+                    "name": c.name,
+                    "contract_id": c.contract_id,
+                    "network": c.network,
+                    "category": c.category.as_deref().unwrap_or(""),
+                    "is_verified": c.is_verified,
+                    "health_score": c.health_score,
+                    "created_at": c.created_at.to_rfc3339(),
+                    "tags": tag_names,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "contracts": contracts,
+                "count": contracts.len()
+            }))?
+        );
         return Ok(());
     }
 
@@ -113,10 +133,16 @@ pub async fn run(
         println!("   {}", highlighted_desc);
         println!(
             "   {} {:?} | {} {}",
-            "Network:".dimmed(), contract.network,
-            "Category:".dimmed(), contract.category.as_deref().unwrap_or("unknown")
+            "Network:".dimmed(),
+            contract.network,
+            "Category:".dimmed(),
+            contract.category.as_deref().unwrap_or("unknown")
         );
-        println!("   {} {}", "Updated:".dimmed(), contract.updated_at.format("%Y-%m-%d %H:%M:%S"));
+        println!(
+            "   {} {}",
+            "Updated:".dimmed(),
+            contract.updated_at.format("%Y-%m-%d %H:%M:%S")
+        );
         println!();
     }
 

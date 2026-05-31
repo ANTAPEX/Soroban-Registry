@@ -77,10 +77,8 @@ pub async fn list_contracts(
 ) -> Result<()> {
     let limit = limit.min(100);
     let url = format!("{}/api/contracts", api_url);
-    let mut query: Vec<(&str, String)> = vec![
-        ("limit", limit.to_string()),
-        ("offset", offset.to_string()),
-    ];
+    let mut query: Vec<(&str, String)> =
+        vec![("limit", limit.to_string()), ("offset", offset.to_string())];
     if let Some(net) = network {
         query.push(("network", net.to_string()));
     }
@@ -325,7 +323,7 @@ fn print_yaml(contracts: &[ContractListItem]) {
         "contracts": contracts,
         "count": contracts.len()
     });
-    
+
     match output_format::render_yaml(&data) {
         Ok(yaml) => println!("{}", yaml),
         Err(e) => eprintln!("Error rendering YAML: {}", e),
@@ -392,10 +390,10 @@ pub async fn info(api_url: &str, id: &str, json_output: bool) -> Result<()> {
     if let Some(stats) = data.get("stats") {
         println!("\n{}", "Activity & Stats".bold().magenta());
         println!("{}", "-".repeat(40).magenta());
-        
+
         let deployments = stats["deployments_count"].as_u64().unwrap_or(0);
         let interactions = stats["interactions_count"].as_u64().unwrap_or(0);
-        
+
         println!("{:<15} {}", "Deployments:".bold(), deployments);
         println!("{:<15} {}", "Interactions:".bold(), interactions);
     }
@@ -403,8 +401,11 @@ pub async fn info(api_url: &str, id: &str, json_output: bool) -> Result<()> {
     if let Some(abi) = data.get("abi").and_then(|a| a.as_array()) {
         println!("\n{}", "ABI Methods Preview".bold().yellow());
         println!("{}", "-".repeat(40).yellow());
-        
-        let functions: Vec<_> = abi.iter().filter(|item| item["type"] == "function").collect();
+
+        let functions: Vec<_> = abi
+            .iter()
+            .filter(|item| item["type"] == "function")
+            .collect();
         if functions.is_empty() {
             println!("  No exposed functions found.");
         } else {
@@ -421,15 +422,19 @@ pub async fn info(api_url: &str, id: &str, json_output: bool) -> Result<()> {
     if let Some(versions) = data.get("versions").and_then(|v| v.as_array()) {
         println!("\n{}", "Version History".bold().blue());
         println!("{}", "-".repeat(40).blue());
-        
+
         if versions.is_empty() {
             println!("  No version history available.");
         } else {
             for (i, version) in versions.iter().take(3).enumerate() {
                 let ver_str = version["version"].as_str().unwrap_or("unknown");
                 let date = version["published_at"].as_str().unwrap_or("unknown");
-                let current_tag = if i == 0 { " (latest)".bright_black() } else { "".normal() };
-                
+                let current_tag = if i == 0 {
+                    " (latest)".bright_black()
+                } else {
+                    "".normal()
+                };
+
                 println!("  • v{} - {}{}", ver_str.cyan(), date, current_tag);
             }
         }
@@ -464,8 +469,15 @@ pub async fn run_details(
 
     if !response.status().is_success() {
         let status = response.status();
+        if status == StatusCode::NOT_FOUND {
+            anyhow::bail!("Contract not found for address: {}", address.bold());
+        }
         let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("API request failed with status {}: {}", status, body);
+        anyhow::bail!(
+            "Failed to fetch contract details: HTTP {} - {}",
+            status,
+            body
+        );
     }
 
     let contract: serde_json::Value = response

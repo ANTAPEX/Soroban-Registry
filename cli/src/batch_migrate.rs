@@ -252,7 +252,11 @@ async fn migrate_to_registry(
         .unwrap_or_default();
     let migrated = results
         .iter()
-        .filter(|item| item.get("success").and_then(Value::as_bool).unwrap_or(false))
+        .filter(|item| {
+            item.get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
         .count();
     let failed = results.len().saturating_sub(migrated);
 
@@ -274,7 +278,11 @@ async fn migrate_to_registry(
                     .and_then(Value::as_str)
                     .unwrap_or("<unknown>")
                     .to_string(),
-                status: if item.get("success").and_then(Value::as_bool).unwrap_or(false) {
+                status: if item
+                    .get("success")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
                     "migrated".to_string()
                 } else {
                     "failed".to_string()

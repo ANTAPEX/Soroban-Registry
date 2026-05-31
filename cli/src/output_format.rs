@@ -1,6 +1,5 @@
 /// Centralized output formatting module for machine-readable and human-readable output formats.
 /// Supports: Table (human-readable), JSON, CSV, and YAML (machine-readable).
-
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::str::FromStr;
@@ -85,18 +84,18 @@ pub fn render_yaml(data: &Value) -> Result<String> {
 
 /// Renders CSV output from a JSON array of objects
 pub fn render_csv(data: &Value) -> Result<String> {
-    let array = data.as_array().ok_or_else(|| {
-        anyhow!("CSV format requires an array of objects")
-    })?;
+    let array = data
+        .as_array()
+        .ok_or_else(|| anyhow!("CSV format requires an array of objects"))?;
 
     if array.is_empty() {
         return Ok(String::new());
     }
 
     // Extract headers from first object
-    let first_obj = array[0].as_object().ok_or_else(|| {
-        anyhow!("CSV format requires an array of objects")
-    })?;
+    let first_obj = array[0]
+        .as_object()
+        .ok_or_else(|| anyhow!("CSV format requires an array of objects"))?;
 
     let headers: Vec<String> = first_obj.keys().cloned().collect();
     let mut output = String::new();
@@ -107,9 +106,9 @@ pub fn render_csv(data: &Value) -> Result<String> {
 
     // Write rows
     for item in array {
-        let obj = item.as_object().ok_or_else(|| {
-            anyhow!("CSV format requires an array of objects")
-        })?;
+        let obj = item
+            .as_object()
+            .ok_or_else(|| anyhow!("CSV format requires an array of objects"))?;
 
         let row: Vec<String> = headers
             .iter()
@@ -164,7 +163,10 @@ mod tests {
 
     #[test]
     fn test_format_parsing() {
-        assert_eq!("table".parse::<OutputFormat>().unwrap(), OutputFormat::Table);
+        assert_eq!(
+            "table".parse::<OutputFormat>().unwrap(),
+            OutputFormat::Table
+        );
         assert_eq!("json".parse::<OutputFormat>().unwrap(), OutputFormat::Json);
         assert_eq!("csv".parse::<OutputFormat>().unwrap(), OutputFormat::Csv);
         assert_eq!("yaml".parse::<OutputFormat>().unwrap(), OutputFormat::Yaml);
@@ -174,7 +176,10 @@ mod tests {
 
     #[test]
     fn test_format_case_insensitive() {
-        assert_eq!("TABLE".parse::<OutputFormat>().unwrap(), OutputFormat::Table);
+        assert_eq!(
+            "TABLE".parse::<OutputFormat>().unwrap(),
+            OutputFormat::Table
+        );
         assert_eq!("JSON".parse::<OutputFormat>().unwrap(), OutputFormat::Json);
         assert_eq!("CSV".parse::<OutputFormat>().unwrap(), OutputFormat::Csv);
         assert_eq!("YAML".parse::<OutputFormat>().unwrap(), OutputFormat::Yaml);

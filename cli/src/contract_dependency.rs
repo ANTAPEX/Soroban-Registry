@@ -40,7 +40,11 @@ pub async fn run(api_url: &str, address: &str, depth: u32, json: bool) -> Result
 
     println!("{} {}", "Dependencies for".bold(), address.cyan());
 
-    let depends_on = value.get("dependsOn").and_then(Value::as_array).cloned().unwrap_or_default();
+    let depends_on = value
+        .get("dependsOn")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     println!("\n  {} ({})", "Depends on:".bold(), depends_on.len());
     for d in &depends_on {
         let addr = d.get("address").and_then(Value::as_str).unwrap_or("?");
@@ -48,7 +52,11 @@ pub async fn run(api_url: &str, address: &str, depth: u32, json: bool) -> Result
         println!("    → {} {}", addr.cyan(), name.dimmed());
     }
 
-    let dependents = value.get("dependents").and_then(Value::as_array).cloned().unwrap_or_default();
+    let dependents = value
+        .get("dependents")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     println!("\n  {} ({})", "Depended on by:".bold(), dependents.len());
     for d in &dependents {
         let addr = d.get("address").and_then(Value::as_str).unwrap_or("?");

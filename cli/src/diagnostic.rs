@@ -156,7 +156,10 @@ async fn check_api_connectivity(api_url: &str) -> CheckResult {
                 CheckResult {
                     name: "API Connectivity".to_string(),
                     status: CheckStatus::Warn,
-                    message: format!("API reachable but slow: {}ms (HTTP {})", elapsed, status_code),
+                    message: format!(
+                        "API reachable but slow: {}ms (HTTP {})",
+                        elapsed, status_code
+                    ),
                     detail: Some(format!("URL: {}", url)),
                     recommendation: Some("Check network conditions or API server load".to_string()),
                     duration_ms: Some(elapsed),
@@ -349,7 +352,9 @@ fn gather_system_info(api_url: &str) -> SystemInfo {
     sys.refresh_all();
 
     let os_name = sys.name().unwrap_or_else(|| "Unknown".to_string());
-    let os_version = sys.long_os_version().unwrap_or_else(|| "Unknown".to_string());
+    let os_version = sys
+        .long_os_version()
+        .unwrap_or_else(|| "Unknown".to_string());
     let cli_version = env!("CARGO_PKG_VERSION").to_string();
 
     let config_dir_bytes = dirs::home_dir().and_then(|h| {
@@ -462,16 +467,8 @@ async fn build_report(args: &DiagnosticArgs<'_>) -> DiagnosticReport {
 fn print_report(report: &DiagnosticReport, detailed: bool) {
     println!();
     println!("{}", "═══ Soroban Registry Diagnostics ═══".bold());
-    println!(
-        "  {} {}",
-        "Timestamp:".dimmed(),
-        report.timestamp
-    );
-    println!(
-        "  {} {}",
-        "CLI Version:".dimmed(),
-        report.cli_version
-    );
+    println!("  {} {}", "Timestamp:".dimmed(), report.timestamp);
+    println!("  {} {}", "CLI Version:".dimmed(), report.cli_version);
     println!("  {} {}", "API URL:".dimmed(), report.api_url);
     println!(
         "  {} {} ({})",
@@ -480,11 +477,7 @@ fn print_report(report: &DiagnosticReport, detailed: bool) {
         report.system.os_version
     );
     if let Some(bytes) = report.system.config_dir_bytes {
-        println!(
-            "  {} {} bytes",
-            "Config dir size:".dimmed(),
-            bytes
-        );
+        println!("  {} {} bytes", "Config dir size:".dimmed(), bytes);
     }
 
     println!();

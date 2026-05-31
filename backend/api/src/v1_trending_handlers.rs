@@ -45,17 +45,14 @@ impl TrendingWindow {
             "30d" => Ok(Self::D30),
             other => Err(ApiError::bad_request(
                 "INVALID_WINDOW",
-                format!(
-                    "window must be one of: 24h, 7d, 30d — got '{}'",
-                    other
-                ),
+                format!("window must be one of: 24h, 7d, 30d — got '{}'", other),
             )),
         }
     }
 
     fn interactions_column(&self) -> &'static str {
         match self {
-            Self::H24 => "interactions_7d",  // use 7d as closest proxy when 24h not available
+            Self::H24 => "interactions_7d", // use 7d as closest proxy when 24h not available
             Self::D7 => "interactions_7d",
             Self::D30 => "interactions_30d",
         }

@@ -723,14 +723,13 @@ async fn fetch_network_catalog_v1(
             let definition = definitions
                 .get(network.id.as_str())
                 .expect("configured network definition exists");
-            let network_stats =
-                stats
-                    .get(&network.network_type.to_string())
-                    .cloned()
-                    .unwrap_or(NetworkStatsV1 {
-                        contract_count: 0,
-                        transaction_volume_24h: 0,
-                    });
+            let network_stats = stats
+                .get(&network.network_type.to_string())
+                .cloned()
+                .unwrap_or(NetworkStatsV1 {
+                    contract_count: 0,
+                    transaction_volume_24h: 0,
+                });
 
             NetworkInfoV1 {
                 name: network.name,
@@ -838,6 +837,10 @@ pub struct PublisherContractsQuery {
     pub limit: i64,
     #[serde(default)]
     pub offset: i64,
+    /// Filter by network (mainnet, testnet, futurenet)
+    pub network: Option<Network>,
+    /// Filter by category (e.g., DeFi, NFT)
+    pub category: Option<String>,
 }
 
 fn default_contracts_limit() -> i64 {
@@ -4514,21 +4517,54 @@ pub async fn get_publisher_contracts(
     let limit = query.limit.clamp(1, 100);
     let offset = query.offset.max(0);
 
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contracts WHERE publisher_id = $1")
-        .bind(publisher_uuid)
+    let mut count_qb: QueryBuilder<'_, sqlx::Postgres> =
+        QueryBuilder::new("SELECT COUNT(*) FROM contracts WHERE publisher_id = ");
+    count_qb.push_bind(publisher_uuid);
+
+    if let Some(network) = &query.network {
+        count_qb.push(" AND network = ");
+        count_qb.push_bind(network);
+    }
+    if let Some(category) = &query.category {
+        let cat = category.trim();
+        if !cat.is_empty() {
+            count_qb.push(" AND category = ");
+            count_qb.push_bind(cat);
+        }
+    }
+
+    let total: i64 = count_qb
+        .build_query_scalar()
         .fetch_one(&state.db)
         .await
         .map_err(|err| db_internal_error("get publisher contracts count", err))?;
 
-    let contracts: Vec<Contract> = sqlx::query_as(
-        "SELECT * FROM contracts WHERE publisher_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
-    )
-    .bind(publisher_uuid)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|err| db_internal_error("get publisher contracts", err))?;
+    let mut qb: QueryBuilder<'_, sqlx::Postgres> =
+        QueryBuilder::new("SELECT * FROM contracts WHERE publisher_id = ");
+    qb.push_bind(publisher_uuid);
+
+    if let Some(network) = &query.network {
+        qb.push(" AND network = ");
+        qb.push_bind(network);
+    }
+    if let Some(category) = &query.category {
+        let cat = category.trim();
+        if !cat.is_empty() {
+            qb.push(" AND category = ");
+            qb.push_bind(cat);
+        }
+    }
+
+    qb.push(" ORDER BY created_at DESC LIMIT ");
+    qb.push_bind(limit);
+    qb.push(" OFFSET ");
+    qb.push_bind(offset);
+
+    let contracts: Vec<Contract> = qb
+        .build_query_as()
+        .fetch_all(&state.db)
+        .await
+        .map_err(|err| db_internal_error("get publisher contracts", err))?;
 
     let page = (offset / limit) + 1;
     let body = PaginatedResponse::new(contracts, total, page, limit);
@@ -6134,9 +6170,7 @@ pub async fn batch_update_contract_metadata(
     State(state): State<AppState>,
     ValidatedJson(req): ValidatedJson<shared::BatchMetadataUpdateRequest>,
 ) -> ApiResult<Json<shared::BatchMetadataUpdateResponse>> {
-    let batch_id = req
-        .batch_id
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let batch_id = req.batch_id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let user_id = req.user_id;
 
     let mut results: Vec<shared::BatchMetadataUpdateItemResult> = Vec::new();
@@ -7830,7 +7864,8 @@ pub async fn delete_favorite_search(
         .map_err(|err| db_internal_error("delete favorite search", err))?;
 
     if result.rows_affected() == 0 {
-        return Err(ApiError::not_found(            "FavoriteNotFound",
+        return Err(ApiError::not_found(
+            "FavoriteNotFound",
             "Favorite search not found",
         ));
     }
@@ -7849,33 +7884,33 @@ pub async fn handle_export_audit(
                created_at
         FROM audit_logs
         ORDER BY created_at DESC
-        "#
+        "#,
     )
     .fetch_all(&state.db)
     .await
-    .map_err(|e| ApiError::new(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "DatabaseError",
-        format!("Failed to export audit logs: {e}")
-    ))?;
+    .map_err(|e| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DatabaseError",
+            format!("Failed to export audit logs: {e}"),
+        )
+    })?;
 
     Ok(Json(logs))
 }
 
 // Axum Handler to enforce retention criteria
-pub async fn handle_retention_cleanup(
-    State(state): State<AppState>,
-) -> ApiResult<String> {
-    let result = sqlx::query(
-        "DELETE FROM audit_logs WHERE created_at < NOW() - INTERVAL '1 year'"
-    )
-    .execute(&state.db)
-    .await
-    .map_err(|e| ApiError::new(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "DatabaseError",
-        format!("Failed to prune logs: {e}")
-    ))?;
-    
+pub async fn handle_retention_cleanup(State(state): State<AppState>) -> ApiResult<String> {
+    let result = sqlx::query("DELETE FROM audit_logs WHERE created_at < NOW() - INTERVAL '1 year'")
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DatabaseError",
+                format!("Failed to prune logs: {e}"),
+            )
+        })?;
+
     Ok(format!("Pruned rows: {}", result.rows_affected()))
 }

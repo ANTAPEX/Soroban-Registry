@@ -28,7 +28,8 @@ mod output_format_tests {
 
     #[test]
     fn test_csv_output_format() {
-        let csv_output = "id,name,network,is_verified\n\"test-id-1\",\"TestContract\",\"testnet\",true\n";
+        let csv_output =
+            "id,name,network,is_verified\n\"test-id-1\",\"TestContract\",\"testnet\",true\n";
         assert!(csv_output.contains("id,name,network,is_verified"));
         assert!(csv_output.contains("test-id-1"));
         assert!(csv_output.contains("TestContract"));
@@ -56,8 +57,13 @@ mod output_format_tests {
     fn test_format_parsing_valid() {
         let formats = vec!["table", "json", "csv", "yaml", "yml"];
         for format in formats {
-            assert!(format.parse::<soroban_registry_cli::output_format::OutputFormat>().is_ok(),
-                    "Format '{}' should be valid", format);
+            assert!(
+                format
+                    .parse::<soroban_registry_cli::output_format::OutputFormat>()
+                    .is_ok(),
+                "Format '{}' should be valid",
+                format
+            );
         }
     }
 
@@ -65,8 +71,13 @@ mod output_format_tests {
     fn test_format_parsing_invalid() {
         let invalid_formats = vec!["invalid", "xml", "protobuf", "msgpack"];
         for format in invalid_formats {
-            assert!(format.parse::<soroban_registry_cli::output_format::OutputFormat>().is_err(),
-                    "Format '{}' should be invalid", format);
+            assert!(
+                format
+                    .parse::<soroban_registry_cli::output_format::OutputFormat>()
+                    .is_err(),
+                "Format '{}' should be invalid",
+                format
+            );
         }
     }
 
@@ -74,8 +85,13 @@ mod output_format_tests {
     fn test_format_case_insensitive() {
         let formats = vec!["TABLE", "JSON", "CSV", "YAML", "YML"];
         for format in formats {
-            assert!(format.parse::<soroban_registry_cli::output_format::OutputFormat>().is_ok(),
-                    "Format '{}' should be valid (case-insensitive)", format);
+            assert!(
+                format
+                    .parse::<soroban_registry_cli::output_format::OutputFormat>()
+                    .is_ok(),
+                "Format '{}' should be valid (case-insensitive)",
+                format
+            );
         }
     }
 
@@ -83,7 +99,7 @@ mod output_format_tests {
     fn test_csv_special_characters() {
         let csv_with_comma = "\"Alice, Bob\",\"test\"";
         assert!(csv_with_comma.contains("\"Alice, Bob\""));
-        
+
         let csv_with_quotes = "\"say \"\"hello\"\"\",\"test\"";
         assert!(csv_with_quotes.contains("\"\""));
     }
@@ -108,7 +124,7 @@ mod output_format_tests {
         });
 
         let json_str = serde_json::to_string_pretty(&data).unwrap();
-        
+
         // Verify all expected fields are present
         assert!(json_str.contains("\"id\""));
         assert!(json_str.contains("\"name\""));
