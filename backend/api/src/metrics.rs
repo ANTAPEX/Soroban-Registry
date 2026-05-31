@@ -132,6 +132,11 @@ pub static DB_CONNECTIONS_ACTIVE: Lazy<IntGauge> =
 pub static DB_CONNECTIONS_IDLE: Lazy<IntGauge> =
     gauge!("db_connections_idle", "Idle DB connections");
 pub static DB_QUERY_ERRORS: Lazy<IntCounter> = counter!("db_query_errors_total", "DB query errors");
+// Issue #887: application-side query observation counters.
+pub static DB_QUERIES_OBSERVED: Lazy<IntCounter> =
+    counter!("db_queries_observed_total", "Queries observed by the app-side analyzer");
+pub static DB_SLOW_QUERIES: Lazy<IntCounter> =
+    counter!("db_slow_queries_total", "Queries exceeding the slow threshold");
 pub static DB_TRANSACTIONS_TOTAL: Lazy<IntCounter> =
     counter!("db_transactions_total", "Total DB transactions");
 pub static DB_POOL_SIZE: Lazy<IntGauge> = gauge!("db_pool_size", "DB connection pool size");
@@ -348,6 +353,8 @@ pub fn register_all(r: &Registry) -> prometheus::Result<()> {
     r.register(Box::new(DB_CONNECTIONS_ACTIVE.clone()))?;
     r.register(Box::new(DB_CONNECTIONS_IDLE.clone()))?;
     r.register(Box::new(DB_QUERY_ERRORS.clone()))?;
+    r.register(Box::new(DB_QUERIES_OBSERVED.clone()))?;
+    r.register(Box::new(DB_SLOW_QUERIES.clone()))?;
     r.register(Box::new(DB_TRANSACTIONS_TOTAL.clone()))?;
     r.register(Box::new(DB_POOL_SIZE.clone()))?;
     r.register(Box::new(DB_CONNECTION_WAIT_MS.clone()))?;

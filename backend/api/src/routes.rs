@@ -14,12 +14,12 @@ use crate::{
                   usdc_handlers as mp_usdc},
     elasticsearch_handlers, integrity, metrics_handler, migration_handlers, mutation_testing_handlers,
     org_handlers, partition_manager, patch_handlers, performance_handlers,
-    plugin_marketplace_handlers, publisher_verification_handlers, query_monitor,
+    plugin_marketplace_handlers, publisher_verification_handlers, query_analysis, query_monitor,
     recommendation_handlers, report_handlers, resource_handlers, search_postgres,
     security_scan_handlers, signature_verification, similarity_handlers, simulation_handlers,
     state::AppState,
     state_monitor::handlers as state_monitor_handlers, stats, subscription_handlers,
-    v1_similar_handlers, v1_trending_handlers,
+    v1_search_handlers, v1_similar_handlers, v1_trending_handlers,
     verification_handlers, websocket, zk_proof_handlers,
 };
 
@@ -132,6 +132,49 @@ pub fn signature_verification_routes() -> Router<AppState> {
         .route(
             "/api/contracts/:id/signatures",
             get(signature_verification::list_contract_signatures),
+        // Application-side query logging & analysis (issue #887)
+        .merge(query_analysis_routes())
+}
+
+// ── Issue #887: application-side query logging and analysis ──────────────────
+
+pub fn query_analysis_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/api/admin/db/queries/stats",
+            get(query_analysis::get_query_stats),
+        )
+        .route(
+            "/api/admin/db/queries/frequent",
+            get(query_analysis::get_frequent_queries),
+        )
+        .route(
+            "/api/admin/db/queries/slow",
+            get(query_analysis::get_slow_queries),
+        )
+        .route(
+            "/api/admin/db/queries/n-plus-one",
+            get(query_analysis::get_nplus1),
+        )
+        .route(
+            "/api/admin/db/queries/trends",
+            get(query_analysis::get_query_trends),
+        )
+        .route(
+            "/api/admin/db/queries/incidents",
+            get(query_analysis::get_nplus1_incidents),
+        )
+        .route(
+            "/api/admin/db/queries/report",
+            get(query_analysis::get_query_report),
+        )
+        .route(
+            "/api/admin/db/queries/explain",
+            post(query_analysis::explain_query),
+        )
+        .route(
+            "/api/admin/db/queries/reset",
+            post(query_analysis::reset_query_stats),
         )
 }
 
@@ -778,6 +821,14 @@ pub fn health_routes() -> Router<AppState> {
         .route("/health/ready", get(handlers::health_check_ready))
         .route("/health/detailed", get(handlers::health_check_detailed))
         .route("/api/stats", get(stats::get_stats_handler))
+        .route(
+            "/api/v1/analytics/contracts",
+            get(crate::contract_analytics_handlers::get_contract_analytics),
+        )
+        .route(
+            "/api/analytics/contracts",
+            get(crate::contract_analytics_handlers::get_contract_analytics),
+        )
         // Registry-wide analytics summary (issue #415)
         .route(
             "/api/analytics/summary",
@@ -1441,6 +1492,11 @@ pub fn elasticsearch_search_routes() -> Router<AppState> {
 /// Routes for the v1 discovery and reporting endpoints.
 pub fn discovery_reporting_routes() -> Router<AppState> {
     Router::new()
+        // Issue: Advanced search endpoint
+        .route(
+            "/api/v1/contracts/search",
+            get(v1_search_handlers::advanced_search),
+        )
         // Issue #873: Contract issue reporting
         .route(
             "/api/v1/contracts/:id/report",

@@ -456,7 +456,7 @@ impl RequestId {
 /// shipper). The subscriber itself writes to stdout so the runtime can
 /// redirect / rotate as needed.
 pub fn init_json_tracing() {
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
     let service_name =
         std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "soroban-registry-api".to_string());
@@ -466,8 +466,14 @@ pub fn init_json_tracing() {
 
     global::set_text_map_propagator(TraceContextPropagator::new());
 
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "api=info,tower_http=info".into());
+    // Per-layer filtering (issue #887): the user-facing fmt/OTEL layers keep the
+    // configured RUST_LOG directives, while the sqlx query-capture layer attaches
+    // its own filter so it always sees every query regardless of RUST_LOG and
+    // without spamming the console. EnvFilter is not Clone, so we resolve the
+    // directive string once and build a fresh filter per layer.
+    let filter_directives =
+        std::env::var("RUST_LOG").unwrap_or_else(|_| "api=info,tower_http=info".to_string());
+    let make_env = || tracing_subscriber::EnvFilter::new(filter_directives.clone());
 
     let writer = if let Ok(log_dir) = std::env::var("API_LOG_DIR") {
         let file_appender = tracing_appender::rolling::daily(log_dir, "api.log");
@@ -481,7 +487,8 @@ pub fn init_json_tracing() {
     let fmt_layer = tracing_subscriber::fmt::layer()
         .json()
         .with_current_span(true)
-        .with_writer(writer);
+        .with_writer(writer)
+        .with_filter(make_env());
 
     if let Some(endpoint) = otlp_endpoint {
         // Retrieve sampling rate from env (default to 1.0 which is 100%)
@@ -514,9 +521,9 @@ pub fn init_json_tracing() {
             Ok(provider) => {
                 let tracer = provider.tracer(service_name);
                 tracing_subscriber::registry()
-                    .with(env_filter)
                     .with(fmt_layer)
-                    .with(tracing_opentelemetry::layer().with_tracer(tracer))
+                    .with(tracing_opentelemetry::layer().with_tracer(tracer).with_filter(make_env()))
+                    .with(crate::query_analysis::capture_layer())
                     .init();
                 return;
             }
@@ -527,8 +534,8 @@ pub fn init_json_tracing() {
     }
 
     tracing_subscriber::registry()
-        .with(env_filter)
         .with(fmt_layer)
+        .with(crate::query_analysis::capture_layer())
         .init();
 }
 

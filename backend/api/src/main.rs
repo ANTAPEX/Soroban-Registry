@@ -109,6 +109,9 @@ async fn main() -> Result<()> {
     // Spawn the periodic data integrity verification task (Issue #886)
     api::integrity::spawn_integrity_verification_task(pool.clone());
 
+    // Spawn the query-analysis flush + N+1 persistence task (Issue #887)
+    api::query_analysis::spawn_query_analysis_task(pool.clone());
+
     // Create prometheus registry for metrics
     let registry = Registry::new();
     if let Err(e) = api::metrics::register_all(&registry) {
