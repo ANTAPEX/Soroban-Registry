@@ -1,24 +1,22 @@
 #[cfg(feature = "openapi")]
 use crate::openapi;
 use crate::{
-    ab_test_handlers, abi_versioning_handlers,
-    ai::handlers as ai_handlers,
-    analytics_handlers, archival, auth, auth_handlers, batch_verify_handlers, breaking_changes,
-    bulk_operations_handlers, canary_handlers, category_handlers, client_observability_handlers,
-    clone_federation_handlers, collaborative_reviews, compatibility_testing_handlers,
-    contract_events, contract_stats_handlers, contributor_handlers, custom_metrics_handlers,
-    dependency_handlers, deprecated_contracts_handlers, deprecation_handlers,
-    elasticsearch_handlers, error_logging, formal_verification_handlers, gas_estimation_handlers,
-    governance_handlers, graph_analysis_handlers, handlers, integrity, interoperability_handlers,
-    marketplace::{
-        license_handlers as mp_license, metering as mp_metering, pricing_handlers as mp_pricing,
-        stripe_handlers as mp_stripe, usdc_handlers as mp_usdc,
-    },
-    metrics_handler, migration_handlers, mutation_testing_handlers, org_handlers,
-    partition_manager, patch_handlers, performance_handlers, plugin_marketplace_handlers,
-    publisher_verification_handlers, query_analysis, query_monitor, recommendation_handlers,
-    report_handlers, resource_handlers, search_postgres, security_scan_handlers,
-    signature_verification, similarity_handlers, simulation_handlers,
+    ab_test_handlers, abi_versioning_handlers, ai::handlers as ai_handlers, analytics_handlers,
+    archival, auth, auth_handlers, batch_verify_handlers, breaking_changes, bulk_operations_handlers,
+    canary_handlers, category_handlers, client_observability_handlers, clone_federation_handlers,
+    collaborative_reviews, compatibility_testing_handlers, contract_events,
+    contract_stats_handlers, contributor_handlers, custom_metrics_handlers, dependency_handlers,
+    deprecated_contracts_handlers, deprecation_handlers, error_logging,
+    formal_verification_handlers, gas_estimation_handlers,
+    governance_handlers, graph_analysis_handlers, handlers, interoperability_handlers,
+    marketplace::{license_handlers as mp_license, metering as mp_metering,
+                  pricing_handlers as mp_pricing, stripe_handlers as mp_stripe,
+                  usdc_handlers as mp_usdc},
+    db_pool, elasticsearch_handlers, integrity, metrics_handler, migration_handlers, mutation_testing_handlers,
+    org_handlers, partition_manager, patch_handlers, performance_handlers,
+    plugin_marketplace_handlers, publisher_verification_handlers, query_analysis, query_monitor,
+    recommendation_handlers, report_handlers, resource_handlers, search_postgres,
+    security_scan_handlers, signature_verification, similarity_handlers, simulation_handlers,
     state::AppState,
     state_monitor::handlers as state_monitor_handlers,
     stats, subscription_handlers, v1_search_handlers, v1_similar_handlers, v1_trending_handlers,
@@ -1366,6 +1364,10 @@ pub fn collaborative_review_routes() -> Router<AppState> {
 
 pub fn query_monitor_routes() -> Router<AppState> {
     Router::new()
+        .route(
+            "/api/admin/db/pool-stats",
+            get(db_pool::get_pool_stats),
+        )
         .route(
             "/api/admin/db/slow-queries",
             get(query_monitor::get_slow_queries),

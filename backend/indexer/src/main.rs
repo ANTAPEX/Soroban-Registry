@@ -45,10 +45,25 @@ struct IndexerService {
 impl IndexerService {
     /// Initialize the indexer service
     async fn new(config: ServiceConfig) -> Result<Self> {
-        // Initialize database connection
+        // Initialize database connection pool (Issue #876)
+        let connect_options = config
+            .database
+            .connection_string
+            .parse::<sqlx::postgres::PgConnectOptions>()?
+            .log_slow_statements(
+                log::LevelFilter::Warn,
+                std::time::Duration::from_millis(
+                    config.database.slow_query_threshold_ms as u64,
+                ),
+            );
+
         let db_pool = sqlx::postgres::PgPoolOptions::new()
+            .min_connections(config.database.min_connections)
             .max_connections(config.database.max_connections)
-            .connect(&config.database.connection_string)
+            .acquire_timeout(std::time::Duration::from_secs(30))
+            .idle_timeout(std::time::Duration::from_secs(config.database.idle_timeout_secs))
+            .max_lifetime(std::time::Duration::from_secs(config.database.max_lifetime_secs))
+            .connect_with(connect_options)
             .await?;
 
         let rpc_client = StellarRpcClient::new(config.network.rpc_endpoint.clone());

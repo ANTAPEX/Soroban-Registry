@@ -64,25 +64,76 @@ async fn main() -> Result<()> {
         .map(|n| n.get())
         .unwrap_or(4);
 
-    let max_pool_size = std::env::var("DB_MAX_POOL_SIZE")
+    // Issue #876: Connection pool configuration
+    let min_pool_size: u32 = std::env::var("DB_MIN_POOL_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+
+    let max_pool_size: u32 = std::env::var("DB_MAX_POOL_SIZE")
         .ok()
         .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or((logical_cores * 2).max(10) as u32);
+        .unwrap_or_else(|| (logical_cores * 2).max(10) as u32)
+        .min(50); // hard cap per spec
+
+    let acquire_timeout_secs: u64 = std::env::var("DB_ACQUIRE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+
+    let idle_timeout_secs: u64 = std::env::var("DB_IDLE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(600); // 10 minutes
+
+    let max_lifetime_secs: u64 = std::env::var("DB_MAX_LIFETIME_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1800); // 30 minutes
+
+    let query_timeout_ms: u64 = std::env::var("DB_QUERY_TIMEOUT_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30000); // 30 seconds
+
+    let statement_cache_capacity: usize = std::env::var("DB_STATEMENT_CACHE_CAPACITY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(250);
+
+    let slow_query_threshold_ms: f64 = std::env::var("DB_SLOW_QUERY_THRESHOLD_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100.0);
 
     tracing::info!(
-        max_pool_size = max_pool_size,
-        logical_cores = logical_cores,
+        min_pool_size,
+        max_pool_size,
+        acquire_timeout_secs,
+        idle_timeout_secs,
+        max_lifetime_secs,
+        query_timeout_ms,
+        statement_cache_capacity,
+        slow_query_threshold_ms,
+        logical_cores,
         "Initializing database connection pool"
     );
 
+    // Prepared statement cache + query timeout (statement_timeout) per connection
+    let connect_options = config
+        .database_url
+        .parse::<sqlx::postgres::PgConnectOptions>()?
+        .statement_cache_capacity(statement_cache_capacity)
+        .log_slow_statements(log::LevelFilter::Warn, Duration::from_millis(slow_query_threshold_ms as u64))
+        .options([("statement_timeout", query_timeout_ms)]);
+
     let pool = PgPoolOptions::new()
+        .min_connections(min_pool_size)
         .max_connections(max_pool_size)
-        .acquire_timeout(std::time::Duration::from_secs(30))
-        .connect_with(
-            config
-                .database_url
-                .parse::<sqlx::postgres::PgConnectOptions>()?,
-        )
+        .acquire_timeout(Duration::from_secs(acquire_timeout_secs))
+        .idle_timeout(Duration::from_secs(idle_timeout_secs))
+        .max_lifetime(Duration::from_secs(max_lifetime_secs))
+        .connect_with(connect_options)
         .await?;
 
     // Run migrations (skip if SKIP_MIGRATIONS=true, useful when migrations were applied manually)
@@ -261,6 +312,9 @@ async fn main() -> Result<()> {
 
     // Spawn the background DB and cache monitoring task
     db_monitoring::spawn_db_monitoring_task(pool.clone(), state.cache.clone());
+
+    // Spawn query monitor: snapshots pg_stat_statements and logs slow queries (Issue #876)
+    api::query_monitor::spawn_query_monitor_task(pool.clone(), slow_query_threshold_ms);
 
     // Spawn the health monitor background task (Issue #333)
     let hm_state = state.clone();
