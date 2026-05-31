@@ -19,6 +19,21 @@
 //!    gone. The one remaining fallible path (attaching response headers) logs
 //!    a warning instead of crashing.
 //!
+//! ## Write-endpoint protection
+//!
+//! Mutation endpoints (POST, PUT, PATCH, DELETE) consume more server resources
+//! and can cause irreversible state changes.  They are subject to a separate,
+//! tighter quota:
+//!
+//! - Anonymous write limit: 100 req/hour  (`RATE_LIMIT_WRITE_ANON_PER_HOUR`)
+//! - Authenticated write limit: 300 req/hour (`RATE_LIMIT_WRITE_AUTH_PER_HOUR`)
+//!
+//! ## Exempt paths
+//!
+//! Health probes (`/health*`), the Prometheus metrics scrape endpoint
+//! (`/metrics`), and internal admin flows (`/api/admin/*`) bypass the rate
+//! limiter so monitoring systems and operators are never blocked.
+//!
 //! ## Horizontal scaling note
 //!
 //! This rate limiter is **per-instance**.  When running multiple API replicas
@@ -47,9 +62,14 @@ use tokio::sync::Mutex;
 
 use crate::error::ApiError;
 
-// Issue #609: 1,000 requests per hour per IP (anonymous), 1,000 per hour authenticated
+// Read limits — 1,000 requests per hour per client (issue #609).
 const DEFAULT_ANON_LIMIT: u32 = 1_000;
 const DEFAULT_AUTH_LIMIT: u32 = 1_000;
+
+// Write limits — tighter quota for mutation endpoints.
+const DEFAULT_WRITE_ANON_LIMIT: u32 = 100;
+const DEFAULT_WRITE_AUTH_LIMIT: u32 = 300;
+
 const DEFAULT_WINDOW_SECONDS: u64 = 3_600; // 1 hour
 #[allow(dead_code)]
 const DEFAULT_CONTRACTS_PAGE_SIZE: u32 = 50;
@@ -64,6 +84,17 @@ const EVICTION_INTERVAL: Duration = Duration::from_secs(5 * 60); // every 5 minu
 const HEADER_RATE_LIMIT_LIMIT: HeaderName = HeaderName::from_static("x-ratelimit-limit");
 const HEADER_RATE_LIMIT_REMAINING: HeaderName = HeaderName::from_static("x-ratelimit-remaining");
 const HEADER_RATE_LIMIT_RESET: HeaderName = HeaderName::from_static("x-ratelimit-reset");
+
+/// Paths that bypass rate limiting entirely.
+///
+/// Health probes must not be rate-limited so that load balancers and
+/// orchestrators always get a response.  The Prometheus scrape endpoint
+/// `/metrics` and internal admin APIs are also exempt.
+fn is_exempt_path(path: &str) -> bool {
+    path.starts_with("/health")
+        || path == "/metrics"
+        || path.starts_with("/api/admin/")
+}
 
 #[derive(Clone)]
 pub struct RateLimitState {
@@ -177,20 +208,39 @@ impl RateLimitState {
     }
 
     fn select_limit_and_key<B>(&self, request: &Request<B>) -> (u32, BucketKey) {
+        let method = request.method();
+        let path = request.uri().path();
+        let query = request.uri().query();
+        let is_write = is_write_method(method);
+
         if let Some(token) = extract_auth_token(request) {
+            let limit = if is_write {
+                self.config.write_auth_limit
+            } else {
+                self.config.auth_limit
+            };
+            let bucket_suffix = if is_write { "write" } else { "read" };
             return (
-                self.config.auth_limit,
+                limit,
                 BucketKey {
-                    client_key: format!("auth:{token}"),
+                    client_key: format!("auth:{bucket_suffix}:{token}"),
                 },
             );
         }
 
-        let path = request.uri().path();
-        let query = request.uri().query();
+        let ip = extract_client_ip(request);
+        if is_write {
+            return (
+                self.config.write_anonymous_limit,
+                BucketKey {
+                    client_key: format!("anon:write:{ip}"),
+                },
+            );
+        }
+
         let base_limit = self.config.anonymous_limit;
         let limit = if let Some(page_size) =
-            contracts_page_size_rate_limit(request.method(), path, query)
+            contracts_page_size_rate_limit(method, path, query)
         {
             scale_limit_by_page_size(base_limit, page_size)
         } else {
@@ -200,7 +250,7 @@ impl RateLimitState {
         (
             limit,
             BucketKey {
-                client_key: format!("anon:{}", extract_client_ip(request)),
+                client_key: format!("anon:read:{ip}"),
             },
         )
     }
@@ -209,13 +259,14 @@ impl RateLimitState {
 struct RateLimitConfig {
     anonymous_limit: u32,
     auth_limit: u32,
+    write_anonymous_limit: u32,
+    write_auth_limit: u32,
     window: Duration,
 }
 
 impl RateLimitConfig {
     fn from_env() -> Self {
-        // Issue #609: configurable per-IP limits; defaults to 1000 req/hour.
-        // Env vars: RATE_LIMIT_ANON_PER_HOUR (preferred) or legacy RATE_LIMIT_ANON_PER_MINUTE / RATE_LIMIT_READ_PER_MINUTE
+        // Read limits — configurable per-IP; defaults to 1000 req/hour (issue #609).
         let anonymous_limit = env_u32_with_fallback(
             "RATE_LIMIT_ANON_PER_HOUR",
             "RATE_LIMIT_ANON_PER_MINUTE",
@@ -226,18 +277,31 @@ impl RateLimitConfig {
             "RATE_LIMIT_AUTH_PER_MINUTE",
             DEFAULT_AUTH_LIMIT,
         );
+        // Write limits — stricter quota for mutation endpoints.
+        let write_anonymous_limit = env_u32(
+            "RATE_LIMIT_WRITE_ANON_PER_HOUR",
+            DEFAULT_WRITE_ANON_LIMIT,
+        );
+        let write_auth_limit = env_u32(
+            "RATE_LIMIT_WRITE_AUTH_PER_HOUR",
+            DEFAULT_WRITE_AUTH_LIMIT,
+        );
         let window_seconds = env_u64("RATE_LIMIT_WINDOW_SECONDS", DEFAULT_WINDOW_SECONDS).max(1);
 
         tracing::info!(
             anonymous_limit,
             auth_limit,
+            write_anonymous_limit,
+            write_auth_limit,
             window_seconds,
-            "Rate limiter configured (issue #609: 1000 req/hour per IP default)"
+            "Rate limiter configured"
         );
 
         Self {
             anonymous_limit,
             auth_limit,
+            write_anonymous_limit,
+            write_auth_limit,
             window: Duration::from_secs(window_seconds),
         }
     }
@@ -247,6 +311,25 @@ impl RateLimitConfig {
         Self {
             anonymous_limit,
             auth_limit,
+            write_anonymous_limit: anonymous_limit / 10,
+            write_auth_limit: auth_limit / 3,
+            window,
+        }
+    }
+
+    #[cfg(test)]
+    fn for_tests_with_write(
+        anonymous_limit: u32,
+        auth_limit: u32,
+        write_anonymous_limit: u32,
+        write_auth_limit: u32,
+        window: Duration,
+    ) -> Self {
+        Self {
+            anonymous_limit,
+            auth_limit,
+            write_anonymous_limit,
+            write_auth_limit,
             window,
         }
     }
@@ -273,17 +356,28 @@ pub async fn rate_limit_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Response {
+    // Health probes, metrics scrapes, and admin paths bypass rate limiting.
+    if is_exempt_path(request.uri().path()) {
+        return next.run(request).await;
+    }
+
     // Extract request metadata before awaiting to avoid borrowing `request` across `.await`.
     let (limit, key) = rate_limiter.select_limit_and_key(&request);
     let decision = rate_limiter.check_request(key, limit).await;
 
     if !decision.allowed {
-        let mut response =
-            ApiError::rate_limited("Too many requests. Please retry after the indicated time.")
-                .with_details(serde_json::json!({
-                    "retry_after_seconds": decision.reset_seconds
-                }))
-                .into_response();
+        let is_write = is_write_method(request.method());
+        let detail = if is_write {
+            "Write quota exhausted. Reduce request frequency or wait for the window to reset."
+        } else {
+            "Too many requests. Please retry after the indicated time."
+        };
+        let mut response = ApiError::rate_limited(detail)
+            .with_details(serde_json::json!({
+                "retry_after_seconds": decision.reset_seconds,
+                "limit_type": if is_write { "write" } else { "read" }
+            }))
+            .into_response();
         attach_rate_limit_headers(&mut response, &decision);
         response.headers_mut().insert(
             RETRY_AFTER,
@@ -367,7 +461,6 @@ fn parse_ip_addr(raw: &str) -> Option<IpAddr> {
         .or_else(|| raw.parse::<SocketAddr>().ok().map(|addr| addr.ip()))
 }
 
-#[allow(dead_code)]
 fn is_write_method(method: &Method) -> bool {
     matches!(
         *method,
@@ -820,5 +913,235 @@ mod tests {
         }
 
         assert_eq!(state.buckets.lock().await.len(), 0);
+    }
+
+    // ── Write endpoint protection tests ──────────────────────────────────────
+
+    fn test_app_with_write(
+        read_limit: u32,
+        write_limit: u32,
+        window: Duration,
+    ) -> Router<()> {
+        let limiter = RateLimitState::new(RateLimitConfig::for_tests_with_write(
+            read_limit,
+            read_limit,
+            write_limit,
+            write_limit,
+            window,
+        ));
+
+        Router::new()
+            .route("/read", get(|| async { "read" }))
+            .route("/write", post(|| async { "written" }))
+            .route("/health", get(|| async { "ok" }))
+            .route("/health/ready", get(|| async { "ok" }))
+            .route("/metrics", get(|| async { "# metrics" }))
+            .route("/api/admin/audit-logs", get(|| async { "[]" }))
+            .layer(middleware::from_fn_with_state(
+                limiter,
+                rate_limit_middleware,
+            ))
+    }
+
+    #[tokio::test]
+    async fn write_requests_use_tighter_limit_than_reads() {
+        // Read limit: 100, write limit: 2. After 2 POSTs the third is blocked.
+        // GETs should still be allowed up to the read limit.
+        let app = test_app_with_write(100, 2, Duration::from_secs(60));
+        let ip = "198.51.100.99";
+
+        // First two POSTs succeed.
+        for _ in 0..2 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/write")
+                    .method("POST")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "first two write requests should not be rate limited"
+            );
+        }
+
+        // Third POST is blocked.
+        let limited = call(
+            &app,
+            Request::builder()
+                .uri("/write")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(limited.headers().contains_key(RETRY_AFTER));
+
+        // GET requests are still within their separate read quota.
+        let read_response = call(
+            &app,
+            Request::builder()
+                .uri("/read")
+                .method("GET")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_ne!(read_response.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn write_limit_response_body_contains_limit_type_write() {
+        let app = test_app_with_write(100, 1, Duration::from_secs(60));
+        let ip = "203.0.113.55";
+
+        // Use up the single write slot.
+        call(
+            &app,
+            Request::builder()
+                .uri("/write")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        let response = call(
+            &app,
+            Request::builder()
+                .uri("/write")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let body =
+            axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["details"]["limit_type"], "write");
+    }
+
+    #[tokio::test]
+    async fn health_endpoint_is_not_rate_limited() {
+        // Very tight limits — both read and write — to verify health bypasses.
+        let app = test_app_with_write(1, 1, Duration::from_secs(60));
+        let ip = "192.0.2.1";
+
+        // Send many requests to /health; none should be rate limited.
+        for i in 0..20 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/health")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request {i} to /health should not be rate limited"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn health_ready_endpoint_is_exempt() {
+        let app = test_app_with_write(1, 1, Duration::from_secs(60));
+        let ip = "192.0.2.2";
+
+        for i in 0..5 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/health/ready")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request {i} to /health/ready should not be rate limited"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_is_exempt() {
+        let app = test_app_with_write(1, 1, Duration::from_secs(60));
+        let ip = "192.0.2.3";
+
+        for i in 0..5 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/metrics")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request {i} to /metrics should not be rate limited"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn admin_endpoint_is_exempt_from_rate_limiting() {
+        let app = test_app_with_write(1, 1, Duration::from_secs(60));
+        let ip = "192.0.2.4";
+
+        for i in 0..5 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/api/admin/audit-logs")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request {i} to /api/admin/* should not be rate limited"
+            );
+        }
+    }
+
+    #[test]
+    fn is_exempt_path_recognises_health_metrics_and_admin() {
+        assert!(is_exempt_path("/health"));
+        assert!(is_exempt_path("/health/live"));
+        assert!(is_exempt_path("/health/ready"));
+        assert!(is_exempt_path("/health/detailed"));
+        assert!(is_exempt_path("/metrics"));
+        assert!(is_exempt_path("/api/admin/migrations/status"));
+        assert!(!is_exempt_path("/api/contracts"));
+        assert!(!is_exempt_path("/api/contracts/verify"));
+        assert!(!is_exempt_path("/api/publishers"));
     }
 }
