@@ -81,48 +81,37 @@ pub async fn list_contracts(
     sort_order: Option<&str>,
     output_format: OutputFormat,
 ) -> Result<()> {
-    // Build query parameters - ensure limit is reasonable
-    let limit = limit.min(100); // API probably has a max limit
-    let mut params = vec![format!("limit={}", limit), format!("offset={}", offset)];
-
+    let limit = limit.min(100);
+    let url = format!("{}/api/contracts", api_url);
+    let mut query: Vec<(&str, String)> = vec![
+        ("limit", limit.to_string()),
+        ("offset", offset.to_string()),
+    ];
     if let Some(net) = network {
-        params.push(format!("network={}", net));
+        query.push(("network", net.to_string()));
     }
-
     if let Some(cat) = category {
-        params.push(format!("category={}", cat));
+        query.push(("category", cat.to_string()));
     }
-
-    // Add sorting parameters (API will handle them server-side)
     if let Some(sort) = sort_by {
-        params.push(format!("sort_by={}", sort));
+        query.push(("sort_by", sort.to_string()));
     }
     if let Some(order) = sort_order {
-        params.push(format!("sort_order={}", order));
+        query.push(("sort_order", order.to_string()));
     }
 
-    let query_string = params.join("&");
-    let url = format!("{}/api/contracts?{}", api_url, query_string);
+    log::debug!("Fetching contracts from: {url}");
 
-    log::debug!("Fetching contracts from: {}", url);
-
-    let client = crate::net::client();
-    let response = client
-        .get(&url)
-        .send_with_retry()
+    let (status, body) = crate::cached_http::cached_get(&url, &query)
         .await
         .context("Failed to fetch contracts from API")?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("API request failed with status {}: {}", status, body);
+    if !status.is_success() {
+        anyhow::bail!("API request failed with status {status}: {body}");
     }
 
-    let response_body: serde_json::Value = response
-        .json()
-        .await
-        .context("Failed to parse contracts response")?;
+    let response_body: serde_json::Value =
+        serde_json::from_str(&body).context("Failed to parse contracts response")?;
 
     // Extract contracts from response
     let contracts_array = response_body
@@ -338,24 +327,26 @@ fn print_csv(contracts: &[ContractListItem]) {
 
 pub async fn info(api_url: &str, id: &str, json_output: bool) -> Result<()> {
     let t0 = std::time::Instant::now();
-    let client = crate::net::client();
-    
-    // Assuming the backend accepts query params to eagerly load relationships
-    let url = format!("{}/api/contracts/{}?include_stats=true&include_versions=true&include_abi=true", api_url, id);
-    
-    let response = client
-        .get(&url)
-        .send_with_retry()
+
+    let url = format!("{}/api/contracts/{}", api_url, id);
+    let query = vec![
+        ("include_stats", "true".to_string()),
+        ("include_versions", "true".to_string()),
+        ("include_abi", "true".to_string()),
+    ];
+
+    let (status, body) = crate::cached_http::cached_get(&url, &query)
         .await
         .context("Failed to connect to the registry API")?;
 
-    if response.status() == StatusCode::NOT_FOUND {
+    if status == StatusCode::NOT_FOUND {
         anyhow::bail!("Contract not found for address or slug: {}", id.bold());
-    } else if !response.status().is_success() {
-        anyhow::bail!("Failed to fetch contract info: HTTP {}", response.status());
+    } else if !status.is_success() {
+        anyhow::bail!("Failed to fetch contract info: HTTP {status}");
     }
 
-    let data: serde_json::Value = response.json().await.context("Invalid JSON response from server")?;
+    let data: serde_json::Value =
+        serde_json::from_str(&body).context("Invalid JSON response from server")?;
 
     if json_output {
         println!("{}", serde_json::to_string_pretty(&data)?);

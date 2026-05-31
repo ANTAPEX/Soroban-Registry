@@ -693,10 +693,205 @@ pub struct CachedEntry {
     pub detail: Option<serde_json::Value>,
 }
 
-pub fn get(_address: &str, _network: &str) -> anyhow::Result<Option<CachedEntry>> {
-    Ok(None)
+// ── Runtime HTTP cache (#972) ─────────────────────────────────────────────────
+
+/// Build a deterministic cache key for a GET request.
+pub fn http_cache_key(url: &str, query: &[(&str, String)]) -> String {
+    let mut pairs: Vec<(String, String)> = query
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect();
+    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    let query_str = pairs
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    if query_str.is_empty() {
+        format!("GET:{url}")
+    } else {
+        format!("GET:{url}?{query_str}")
+    }
 }
 
-pub fn set(_address: &str, _network: &str, _result: serde_json::Value, _detail: Option<serde_json::Value>) -> anyhow::Result<()> {
+fn verify_cache_key(address: &str, network: &str) -> String {
+    format!("verify:{address}:{network}")
+}
+
+fn read_entry_from_disk(key: &str) -> Result<Option<CacheEntry>> {
+    let dir = cache_dir()?;
+    if !dir.exists() {
+        return Ok(None);
+    }
+    let path = dir.join(key_to_filename(key));
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read cache entry: {}", path.display()))?;
+    let entry: CacheEntry = serde_json::from_str(&raw)
+        .with_context(|| format!("Failed to parse cache entry: {}", path.display()))?;
+    Ok(Some(entry))
+}
+
+fn write_entry_to_disk(key: &str, body: &str) -> Result<()> {
+    let dir = cache_dir()?;
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("Failed to create cache dir: {}", dir.display()))?;
+
+    let cfg = load_config()?;
+    let entry = CacheEntry {
+        key: key.to_string(),
+        created_at: now_unix(),
+        ttl_seconds: cfg.ttl_seconds,
+        compressed: false,
+        size_bytes: body.len() as u64,
+        hits: 0,
+        body: body.to_string(),
+    };
+
+    enforce_max_disk_size(&dir, &cfg)?;
+
+    let path = dir.join(key_to_filename(key));
+    fs::write(&path, serde_json::to_string_pretty(&entry)?)
+        .with_context(|| format!("Failed to write cache entry: {}", path.display()))?;
     Ok(())
+}
+
+fn enforce_max_disk_size(dir: &Path, cfg: &CacheConfig) -> Result<()> {
+    if cfg.max_disk_bytes == 0 {
+        return Ok(());
+    }
+    let mut entries = load_entries(dir);
+    let total: u64 = entries.iter().map(|e| e.size_bytes).sum();
+    if total <= cfg.max_disk_bytes {
+        return Ok(());
+    }
+    entries.sort_by_key(|e| e.created_at);
+    let mut current = total;
+    for entry in entries {
+        if current <= cfg.max_disk_bytes {
+            break;
+        }
+        delete_entry_file(dir, &entry.key);
+        current = current.saturating_sub(entry.size_bytes);
+    }
+    Ok(())
+}
+
+fn touch_entry(key: &str, mut entry: CacheEntry) -> Result<CacheEntry> {
+    entry.hits = entry.hits.saturating_add(1);
+    let dir = cache_dir()?;
+    let path = dir.join(key_to_filename(key));
+    fs::write(&path, serde_json::to_string_pretty(&entry)?)
+        .with_context(|| format!("Failed to update cache entry hits: {}", path.display()))?;
+    Ok(entry)
+}
+
+/// Load a cached HTTP response body when fresh.
+pub fn get_http_entry(key: &str) -> Result<Option<CacheEntry>> {
+    let Some(entry) = read_entry_from_disk(key)? else {
+        return Ok(None);
+    };
+    if entry.is_stale() {
+        let dir = cache_dir()?;
+        delete_entry_file(&dir, key);
+        return Ok(None);
+    }
+    let entry = touch_entry(key, entry)?;
+    Ok(Some(entry))
+}
+
+/// Store a successful GET response body.
+pub fn set_http_entry(key: &str, body: &str) -> Result<()> {
+    write_entry_to_disk(key, body)
+}
+
+/// Verification result cache (used by `contract verify`).
+pub fn get(address: &str, network: &str) -> anyhow::Result<Option<CachedEntry>> {
+    let key = verify_cache_key(address, network);
+    let Some(entry) = get_http_entry(&key)? else {
+        return Ok(None);
+    };
+    let wrapper: serde_json::Value = serde_json::from_str(&entry.body)?;
+    Ok(Some(CachedEntry {
+        result: wrapper
+            .get("result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        detail: wrapper.get("detail").cloned(),
+    }))
+}
+
+pub fn set(
+    address: &str,
+    network: &str,
+    result: serde_json::Value,
+    detail: Option<serde_json::Value>,
+) -> anyhow::Result<()> {
+    let key = verify_cache_key(address, network);
+    let wrapper = serde_json::json!({
+        "result": result,
+        "detail": detail,
+    });
+    set_http_entry(&key, &wrapper.to_string())
+}
+
+#[cfg(test)]
+mod runtime_cache_tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[test]
+    fn http_cache_key_is_stable() {
+        let key_a = http_cache_key(
+            "http://localhost/api/contracts",
+            &[("query", "token".into()), ("limit", "10".into())],
+        );
+        let key_b = http_cache_key(
+            "http://localhost/api/contracts",
+            &[("limit", "10".into()), ("query", "token".into())],
+        );
+        assert_eq!(key_a, key_b);
+    }
+
+    #[test]
+    fn set_and_get_round_trip() {
+        let _guard = test_lock();
+        let key = format!("test-entry-{}", now_unix());
+        set_http_entry(&key, r#"{"ok":true}"#).unwrap();
+        let entry = get_http_entry(&key).expect("read cache");
+        assert!(entry.is_some());
+        assert_eq!(entry.unwrap().body, r#"{"ok":true}"#);
+        let dir = cache_dir().unwrap();
+        delete_entry_file(&dir, &key);
+    }
+
+    #[test]
+    fn stale_entry_is_evicted_on_read() {
+        let _guard = test_lock();
+        let key = format!("stale-entry-{}", now_unix());
+        let dir = cache_dir().unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        let stale = CacheEntry {
+            key: key.clone(),
+            created_at: now_unix().saturating_sub(10_000),
+            ttl_seconds: 1,
+            compressed: false,
+            size_bytes: 2,
+            hits: 0,
+            body: "{}".to_string(),
+        };
+        let path = dir.join(key_to_filename(&key));
+        fs::write(&path, serde_json::to_string(&stale).unwrap()).unwrap();
+        assert!(get_http_entry(&key).unwrap().is_none());
+        delete_entry_file(&dir, &key);
+    }
 }
