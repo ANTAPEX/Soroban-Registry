@@ -11,6 +11,11 @@ mod batch_deploy;
 mod batch_export;
 mod batch_import;
 mod batch_register;
+mod audit_command;
+mod backup;
+mod batch_ops;
+mod batch_register;
+mod batch_update;
 mod batch_verify;
 mod cicd;
 mod codegen;
@@ -32,6 +37,12 @@ mod coverage;
 mod dashboard;
 mod deploy;
 mod env;
+mod contract_verify;
+mod contracts;
+mod conversions;
+mod coverage;
+mod dashboard;
+mod deploy;
 mod events;
 mod export;
 mod formal_verification;
@@ -65,6 +76,14 @@ mod wizard;
 
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+// Added the search module
+    mod search;
+    mod diagnostic;
+    mod cache;
+    mod auth;
+
+use anyhow::Result;
+use clap::{ArgAction, Parser, Subcommand};
 use colored::Colorize;
 use patch::Severity;
 
@@ -105,6 +124,10 @@ pub struct Cli {
     /// Check for CLI updates before running the command.
     #[arg(long, global = true)]
     pub check_updates: bool,
+
+    /// Automatically run diagnostics when a command fails
+    #[arg(long, global = true)]
+    pub auto_diag: bool,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -507,6 +530,8 @@ pub enum Commands {
     /// Perf contract execution performance
     #[command(name = "perf")]
     Perf {
+    /// Profile contract execution performance
+    Profile {
         /// Path to contract file
         contract_path: String,
 
@@ -873,6 +898,9 @@ pub enum Commands {
     /// Register multiple contracts from a YAML or JSON manifest file
     BatchRegister {
         /// Path to the manifest file (.yaml, .yml, or .json)
+    /// Register multiple contracts from a YAML, JSON, CSV, or JSONL manifest file
+    BatchRegister {
+        /// Path to the manifest file (.yaml, .yml, .json, .csv, or .jsonl)
         #[arg(long)]
         manifest: String,
 
@@ -974,6 +1002,42 @@ pub enum Commands {
         /// Output directory for archive imports
         #[arg(long, default_value = "./imported")]
         output_dir: String,
+
+        /// Number of contracts to register concurrently (default: 1 = sequential)
+        #[arg(long, value_name = "N")]
+        concurrent: Option<usize>,
+
+        /// Retry each failed contract once after the initial pass
+        #[arg(long)]
+        retry: bool,
+    },
+
+    /// Update metadata for multiple contracts in bulk (#849)
+    BatchUpdate {
+        /// Path to a YAML or JSON manifest file describing the updates
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Filter contracts from the API (e.g. "category=defi" or "network=mainnet")
+        #[arg(long)]
+        filter: Option<String>,
+
+        /// Show what would change without making any writes
+        #[arg(long)]
+        preview: bool,
+
+        /// Only update contracts where this field=value condition is true
+        #[arg(long, value_name = "CONDITION")]
+        r#if: Option<String>,
+
+        /// User ID to attribute the update to
+        #[arg(long)]
+        user_id: Option<String>,
+
+        /// On partial failure, rollback all successfully applied contracts
+        #[arg(long)]
+        rollback_on_error: bool,
+
         /// Output results as machine-readable JSON
         #[arg(long)]
         json: bool,
@@ -1035,11 +1099,45 @@ pub enum Commands {
     Env {
         #[command(subcommand)]
         action: EnvCommands,
+    /// Run diagnostics and health checks on the CLI environment
+    Diagnostic {
+        #[command(subcommand)]
+        action: DiagnosticCommands,
     },
 
     /// External command (may be provided by an installed plugin)
     #[command(external_subcommand)]
     External(Vec<String>),
+}
+
+/// Sub-commands for the `diagnostic` group
+#[derive(Debug, Subcommand)]
+pub enum DiagnosticCommands {
+    /// Execute all diagnostic checks and print results
+    Run {
+        #[arg(long)]
+        detailed: bool,
+        #[arg(long)]
+        export: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Generate a comprehensive diagnostic report
+    Report {
+        #[arg(long)]
+        detailed: bool,
+        #[arg(long)]
+        export: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export raw diagnostic data to a JSON file
+    Export {
+        /// Output file path
+        output: String,
+        #[arg(long)]
+        detailed: bool,
+    },
 }
 
 /// Sub-commands for the `network` group
@@ -1725,6 +1823,11 @@ pub enum ContractCommands {
     /// Usage: soroban-registry contract verify <address> --network <network> [--json] [--strict] [--batch] [--no-cache]
     Verify {
         /// On-chain contract address to verify (or comma-separated list for batch verification)
+    /// Verify a deployed contract's authenticity against the on-chain registry
+    ///
+    /// Usage: soroban-registry contract verify <address> --network <network> [--json]
+    Verify {
+        /// On-chain contract address to verify
         address: String,
 
         /// Stellar network (mainnet | testnet | futurenet)
@@ -2301,6 +2404,76 @@ pub enum WebhookCommands {
 }
 
 /// Sub-commands for the `migrate` group
+}
+
+/// Sub-commands for the `webhook` group
+#[derive(Debug, Subcommand)]
+pub enum WebhookCommands {
+    /// Register a new webhook subscription
+    Create {
+        /// Endpoint URL to receive events (must be HTTPS in production)
+        #[arg(long)]
+        url: String,
+
+        /// Comma-separated list of events to subscribe to.
+        /// Valid: contract.published, contract.verified,
+        ///        contract.failed_verification, version.created
+        #[arg(long)]
+        events: String,
+
+        /// Optional HMAC-SHA256 secret key (auto-generated if omitted)
+        #[arg(long)]
+        secret: Option<String>,
+    },
+
+    /// List all registered webhooks
+    List {},
+
+    /// Delete a webhook by ID
+    Delete {
+        /// Webhook ID to delete
+        webhook_id: String,
+    },
+
+    /// Send a test event to a webhook
+    Test {
+        /// Webhook ID to test
+        webhook_id: String,
+    },
+
+    /// View delivery logs for a webhook
+    Logs {
+        /// Webhook ID
+        webhook_id: String,
+
+        /// Maximum number of log entries to show
+        #[arg(long, default_value = "20")]
+        limit: usize,
+    },
+
+    /// Manually retry a dead-letter delivery
+    Retry {
+        /// Delivery ID to retry
+        delivery_id: String,
+    },
+
+    /// Verify a webhook payload signature locally
+    VerifySig {
+        /// HMAC secret key used for signing
+        #[arg(long)]
+        secret: String,
+
+        /// Raw JSON payload body
+        #[arg(long)]
+        payload: String,
+
+        /// Signature header value (e.g. sha256=abc123...)
+        #[arg(long)]
+        signature: String,
+    },
+}
+
+/// Sub-commands for the `migrate` group
 #[derive(Debug, Subcommand)]
 pub enum MigrateCommands {
     /// Preview migration outcome (dry-run)
@@ -2403,6 +2576,7 @@ async fn main() -> Result<()> {
         Some(cli.api_url.clone())
     };
     let runtime = config::resolve_runtime_config(cli.network.clone(), cli_api_base, cli.timeout, cli.profile.clone())?;
+    let runtime = config::resolve_runtime_config(cli.network.clone(), cli_api_base, cli.timeout)?;
     cli.api_url = runtime.api_base;
     cli.network = Some(runtime.network.to_string());
     cli.timeout = Some(runtime.timeout);
@@ -2425,6 +2599,23 @@ async fn main() -> Result<()> {
     log::debug!("API URL: {}", cli.api_url);
 
     handle_command(cli).await
+    let auto_diag = cli.auto_diag;
+    let api_url_clone = cli.api_url.clone();
+    let result = handle_command(cli).await;
+    if result.is_err() && auto_diag {
+        eprintln!(
+            "\n{}",
+            "Auto-diagnostics triggered by command failure:".yellow().bold()
+        );
+        let _ = diagnostic::run_diagnostic(diagnostic::DiagnosticArgs {
+            api_url: &api_url_clone,
+            detailed: false,
+            export: None,
+            json: false,
+        })
+        .await;
+    }
+    result
 }
 
 pub async fn handle_command(cli: Cli) -> Result<()> {
@@ -2435,6 +2626,7 @@ pub async fn handle_command(cli: Cli) -> Result<()> {
         _ => {
             // ── Resolve network ───────────────────────────────────────────────────────
             let cfg_network = config::resolve_network(cli.network.clone(), cli.profile.clone())?;
+            let cfg_network = config::resolve_network(cli.network.clone())?;
             let mut net_str = cfg_network.to_string();
             if net_str == "auto" {
                 net_str = "mainnet".to_string();
@@ -2635,6 +2827,34 @@ pub async fn dispatch_command(
         Commands::Info { id, json, raw } => {
             let use_json = json || raw;
             contracts::info(&cli.api_url, &id, use_json).await?;
+        Commands::Diagnostic { action } => match action {
+            DiagnosticCommands::Run { detailed, export, json } => {
+                log::debug!("Command: diagnostic run");
+                diagnostic::run_diagnostic(diagnostic::DiagnosticArgs {
+                    api_url: &cli.api_url,
+                    detailed,
+                    export: export.as_deref(),
+                    json,
+                })
+                .await?;
+            }
+            DiagnosticCommands::Report { detailed, export, json } => {
+                log::debug!("Command: diagnostic report");
+                diagnostic::generate_report(diagnostic::DiagnosticArgs {
+                    api_url: &cli.api_url,
+                    detailed,
+                    export: export.as_deref(),
+                    json,
+                })
+                .await?;
+            }
+            DiagnosticCommands::Export { output, detailed } => {
+                log::debug!("Command: diagnostic export | output={}", output);
+                diagnostic::export_diagnostic(&output, detailed, &cli.api_url).await?;
+            }
+        },
+        Commands::Info { id } => {
+            commands::contract_info(&cli.api_url, &id).await?;
         }
         Commands::Compare {
             ids,
@@ -2669,6 +2889,29 @@ pub async fn dispatch_command(
             )
             .await?;
         }
+       Commands::Search {
+    query,
+    verified_only,
+    network,
+    category,
+    sort,
+    limit,
+    offset,
+    json,
+} => {
+    search::run(
+        &query,
+        verified_only,
+        network.as_ref(),
+        category.as_ref(),
+        sort.as_ref(),
+        limit,
+        offset,
+        json,
+        &cli.api_url,
+    )
+    .await?;
+}
         Commands::Stats {
             timeframe,
             format,
@@ -2884,6 +3127,16 @@ pub async fn dispatch_command(
                 report_output: None,
             };
             crate::import::run(opts).await?;
+            crate::import::run(
+                &cli.api_url,
+                &file,
+                format.as_deref(),
+                network,
+                &output_dir,
+                validate,
+                dry_run,
+            )
+            .await?;
         }
         Commands::Doc {
             contract_path,
@@ -3149,6 +3402,7 @@ pub async fn dispatch_command(
             .await?;
         }
         Commands::Perf {
+        Commands::Profile {
             contract_path,
             method,
             output,
@@ -3158,6 +3412,7 @@ pub async fn dispatch_command(
         } => {
             log::debug!(
                 "Command: perf | contract_path={} method={:?} output={:?} flamegraph={:?} compare={:?} recommendations={}",
+                "Command: profile | contract_path={} method={:?} output={:?} flamegraph={:?} compare={:?} recommendations={}",
                 contract_path,
                 method,
                 output,
@@ -3746,6 +4001,14 @@ pub async fn dispatch_command(
                     no_cache
                 );
                 contract_verify::run(&cli.api_url, &address, &network, json, strict, batch, no_cache).await?;
+            } => {
+                log::debug!(
+                    "Command: contract verify | address={} network={} json={}",
+                    address,
+                    network,
+                    json
+                );
+                contract_verify::run(&cli.api_url, &address, &network, json).await?;
             }
             ContractCommands::Details {
                 address,
@@ -4122,6 +4385,16 @@ pub async fn dispatch_command(
                 manifest,
                 dry_run,
                 publisher
+            concurrent,
+            retry,
+        } => {
+            log::debug!(
+                "Command: batch-register | manifest={} dry_run={} publisher={:?} concurrent={:?} retry={}",
+                manifest,
+                dry_run,
+                publisher,
+                concurrent,
+                retry
             );
             batch_register::run_batch_register(
                 &cli.api_url,
@@ -4206,6 +4479,30 @@ pub async fn dispatch_command(
                 &output_dir,
                 json,
             )
+                concurrent,
+                retry,
+            )
+            .await?;
+        }
+        Commands::BatchUpdate {
+            file,
+            filter,
+            preview,
+            r#if: condition,
+            user_id,
+            rollback_on_error,
+            json,
+        } => {
+            batch_update::run_batch_update(batch_update::BatchUpdateArgs {
+                api_url: &cli.api_url,
+                file: file.as_deref(),
+                filter: filter.as_deref(),
+                preview,
+                condition: condition.as_deref(),
+                user_id: user_id.as_deref(),
+                rollback_on_error,
+                json,
+            })
             .await?;
         }
         Commands::Batch {
