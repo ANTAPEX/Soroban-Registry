@@ -12,7 +12,7 @@ use crate::{
     marketplace::{license_handlers as mp_license, metering as mp_metering,
                   pricing_handlers as mp_pricing, stripe_handlers as mp_stripe,
                   usdc_handlers as mp_usdc},
-    elasticsearch_handlers, integrity, metrics_handler, migration_handlers, mutation_testing_handlers,
+    db_pool, elasticsearch_handlers, integrity, metrics_handler, migration_handlers, mutation_testing_handlers,
     org_handlers, partition_manager, patch_handlers, performance_handlers,
     plugin_marketplace_handlers, publisher_verification_handlers, query_analysis, query_monitor,
     recommendation_handlers, report_handlers, resource_handlers, search_postgres,
@@ -1354,6 +1354,10 @@ pub fn collaborative_review_routes() -> Router<AppState> {
 
 pub fn query_monitor_routes() -> Router<AppState> {
     Router::new()
+        .route(
+            "/api/admin/db/pool-stats",
+            get(db_pool::get_pool_stats),
+        )
         .route(
             "/api/admin/db/slow-queries",
             get(query_monitor::get_slow_queries),
