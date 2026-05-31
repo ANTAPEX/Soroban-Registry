@@ -1,5 +1,6 @@
 use moka::future::Cache as MokaCache;
 use redis::aio::ConnectionManager;
+use redis::AsyncCommands;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +13,14 @@ pub struct CacheConfig {
     pub redis_enabled: bool,
     pub redis_url: Option<String>,
     pub contracts_ttl: u64,
+    /// TTL for contract metadata in Redis (seconds). Default: 3600 (1 hour)
+    pub metadata_ttl_secs: u64,
+    /// TTL for ABI data in Redis (seconds). Default: 86400 (24 hours)
+    pub abi_ttl_secs: u64,
+    /// TTL for search results in Redis (seconds). Default: 300 (5 minutes)
+    pub search_ttl_secs: u64,
+    /// TTL for stats/analytics in Redis (seconds). Default: 300 (5 minutes)
+    pub stats_ttl_secs: u64,
 }
 
 impl Default for CacheConfig {
@@ -21,7 +30,11 @@ impl Default for CacheConfig {
             max_capacity: 10_000,
             redis_enabled: false,
             redis_url: None,
-            contracts_ttl: 300,
+            contracts_ttl: 3600,
+            metadata_ttl_secs: 3600,
+            abi_ttl_secs: 86400,
+            search_ttl_secs: 300,
+            stats_ttl_secs: 300,
         }
     }
 }
@@ -47,6 +60,25 @@ impl CacheConfig {
         if let Ok(ttl_str) = std::env::var("CONTRACTS_CACHE_TTL") {
             if let Ok(ttl) = ttl_str.parse::<u64>() {
                 config.contracts_ttl = ttl;
+                config.metadata_ttl_secs = ttl;
+            }
+        }
+
+        if let Ok(ttl_str) = std::env::var("ABI_CACHE_TTL") {
+            if let Ok(ttl) = ttl_str.parse::<u64>() {
+                config.abi_ttl_secs = ttl;
+            }
+        }
+
+        if let Ok(ttl_str) = std::env::var("SEARCH_CACHE_TTL") {
+            if let Ok(ttl) = ttl_str.parse::<u64>() {
+                config.search_ttl_secs = ttl;
+            }
+        }
+
+        if let Ok(ttl_str) = std::env::var("STATS_CACHE_TTL") {
+            if let Ok(ttl) = ttl_str.parse::<u64>() {
+                config.stats_ttl_secs = ttl;
             }
         }
 
@@ -95,12 +127,13 @@ impl CacheLayer {
             .max_capacity(config.max_capacity)
             .weigher(|_k, v: &String| -> u32 { v.len().try_into().unwrap_or(u32::MAX) })
             .time_to_live(Duration::from_secs(3600))
+            .support_invalidation_closures()
             .build();
 
         let contracts_cache = MokaCache::builder()
             .max_capacity(config.max_capacity)
             .weigher(|_k, v: &String| -> u32 { v.len().try_into().unwrap_or(u32::MAX) })
-            .time_to_live(Duration::from_secs(config.contracts_ttl))
+            .time_to_live(Duration::from_secs(config.metadata_ttl_secs))
             .build();
 
         let contract_access_cache = MokaCache::builder()
@@ -153,10 +186,31 @@ impl CacheLayer {
             return None;
         }
 
-        // Check L1 cache (Moka)
+        // L1: Moka
         if let Some(abi) = self.abi_cache.get(contract_id).await {
             crate::metrics::ABI_CACHE_HITS.inc();
             return Some(abi);
+        }
+
+        // L2: Redis
+        if let Some(cm) = &self.redis_cm {
+            let key = format!("abi:{}", contract_id);
+            let mut conn = cm.clone();
+            match conn.get::<_, Option<String>>(&key).await {
+                Ok(Some(val)) => {
+                    crate::metrics::REDIS_CACHE_HITS.inc();
+                    crate::metrics::ABI_CACHE_HITS.inc();
+                    // Backfill L1
+                    self.abi_cache.insert(contract_id.to_string(), val.clone()).await;
+                    return Some(val);
+                }
+                Ok(None) => {
+                    crate::metrics::REDIS_CACHE_MISSES.inc();
+                }
+                Err(e) => {
+                    tracing::warn!("Redis get_abi error: {}", e);
+                }
+            }
         }
 
         crate::metrics::ABI_CACHE_MISSES.inc();
@@ -168,8 +222,20 @@ impl CacheLayer {
             return;
         }
 
-        // Put to L1 cache
-        self.abi_cache.insert(contract_id.to_string(), abi).await;
+        // L1
+        self.abi_cache.insert(contract_id.to_string(), abi.clone()).await;
+
+        // L2: Redis with 24h TTL
+        if let Some(cm) = &self.redis_cm {
+            let key = format!("abi:{}", contract_id);
+            let mut conn = cm.clone();
+            if let Err(e) = conn
+                .set_ex::<_, _, ()>(&key, &abi, self.config.abi_ttl_secs as usize)
+                .await
+            {
+                tracing::warn!("Redis put_abi error: {}", e);
+            }
+        }
     }
 
     pub async fn invalidate_abi(&self, contract_id: &str) {
@@ -177,8 +243,15 @@ impl CacheLayer {
             return;
         }
 
-        // Invalidate cache entry
         self.abi_cache.invalidate(contract_id).await;
+
+        if let Some(cm) = &self.redis_cm {
+            let key = format!("abi:{}", contract_id);
+            let mut conn = cm.clone();
+            if let Err(e) = conn.del::<_, ()>(&key).await {
+                tracing::warn!("Redis invalidate_abi error: {}", e);
+            }
+        }
     }
 
     pub async fn get_verification(&self, bytecode_hash: &str) -> Option<String> {
@@ -270,21 +343,262 @@ impl CacheLayer {
         if !self.config.enabled {
             return None;
         }
-        self.contracts_cache.get(key).await
+
+        // L1: Moka
+        if let Some(val) = self.contracts_cache.get(key).await {
+            crate::metrics::CONTRACTS_CACHE_HITS.inc();
+            return Some(val);
+        }
+
+        // L2: Redis
+        if let Some(cm) = &self.redis_cm {
+            let rkey = format!("contracts:{}", key);
+            let mut conn = cm.clone();
+            match conn.get::<_, Option<String>>(&rkey).await {
+                Ok(Some(val)) => {
+                    crate::metrics::REDIS_CACHE_HITS.inc();
+                    crate::metrics::CONTRACTS_CACHE_HITS.inc();
+                    self.contracts_cache.insert(key.to_string(), val.clone()).await;
+                    return Some(val);
+                }
+                Ok(None) => {
+                    crate::metrics::REDIS_CACHE_MISSES.inc();
+                }
+                Err(e) => {
+                    tracing::warn!("Redis get_contracts error: {}", e);
+                }
+            }
+        }
+
+        crate::metrics::CONTRACTS_CACHE_MISSES.inc();
+        None
     }
 
     pub async fn put_contracts(&self, key: String, value: String) {
         if !self.config.enabled {
             return;
         }
-        self.contracts_cache.insert(key, value).await;
+
+        // L1
+        self.contracts_cache.insert(key.clone(), value.clone()).await;
+
+        // L2: Redis with metadata TTL (1h)
+        if let Some(cm) = &self.redis_cm {
+            let rkey = format!("contracts:{}", key);
+            let mut conn = cm.clone();
+            if let Err(e) = conn
+                .set_ex::<_, _, ()>(&rkey, &value, self.config.metadata_ttl_secs as usize)
+                .await
+            {
+                tracing::warn!("Redis put_contracts error: {}", e);
+            }
+        }
     }
 
     pub async fn invalidate_contracts(&self) {
         if !self.config.enabled {
             return;
         }
+
         self.contracts_cache.invalidate_all();
+        // Also clear per-contract metadata from the generic cache
+        self.generic_cache.invalidate_entries_if(|k, _| k.starts_with("meta:")).ok();
+
+        // Flush the contracts:* and meta:* namespaces from Redis
+        if let Some(cm) = &self.redis_cm {
+            let mut conn = cm.clone();
+            for pattern in &["contracts:*", "meta:*"] {
+                match conn.keys::<_, Vec<String>>(pattern).await {
+                    Ok(keys) if !keys.is_empty() => {
+                        if let Err(e) = conn.del::<_, ()>(keys).await {
+                            tracing::warn!("Redis invalidate_contracts del error ({}): {}", pattern, e);
+                        }
+                    }
+                    Err(e) => tracing::warn!("Redis invalidate_contracts scan error ({}): {}", pattern, e),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Get a single contract's metadata by its contract_id string.
+    pub async fn get_contract_meta(&self, contract_id: &str) -> Option<String> {
+        if !self.config.enabled {
+            return None;
+        }
+
+        let ns_key = format!("meta:{}", contract_id);
+
+        // L1
+        if let Some(val) = self.generic_cache.get(&ns_key).await {
+            crate::metrics::CONTRACTS_CACHE_HITS.inc();
+            return Some(val);
+        }
+
+        // L2: Redis
+        if let Some(cm) = &self.redis_cm {
+            let mut conn = cm.clone();
+            match conn.get::<_, Option<String>>(&ns_key).await {
+                Ok(Some(val)) => {
+                    crate::metrics::REDIS_CACHE_HITS.inc();
+                    crate::metrics::CONTRACTS_CACHE_HITS.inc();
+                    self.generic_cache.insert(ns_key, val.clone()).await;
+                    return Some(val);
+                }
+                Ok(None) => {
+                    crate::metrics::REDIS_CACHE_MISSES.inc();
+                }
+                Err(e) => {
+                    tracing::warn!("Redis get_contract_meta error: {}", e);
+                }
+            }
+        }
+
+        crate::metrics::CONTRACTS_CACHE_MISSES.inc();
+        None
+    }
+
+    pub async fn put_contract_meta(&self, contract_id: &str, value: String) {
+        if !self.config.enabled {
+            return;
+        }
+
+        let ns_key = format!("meta:{}", contract_id);
+        self.generic_cache.insert(ns_key.clone(), value.clone()).await;
+
+        if let Some(cm) = &self.redis_cm {
+            let mut conn = cm.clone();
+            if let Err(e) = conn
+                .set_ex::<_, _, ()>(&ns_key, &value, self.config.metadata_ttl_secs as usize)
+                .await
+            {
+                tracing::warn!("Redis put_contract_meta error: {}", e);
+            }
+        }
+    }
+
+    pub async fn invalidate_contract_meta(&self, contract_id: &str) {
+        if !self.config.enabled {
+            return;
+        }
+
+        let ns_key = format!("meta:{}", contract_id);
+        self.generic_cache.invalidate(&ns_key).await;
+
+        if let Some(cm) = &self.redis_cm {
+            let mut conn = cm.clone();
+            if let Err(e) = conn.del::<_, ()>(&ns_key).await {
+                tracing::warn!("Redis invalidate_contract_meta error: {}", e);
+            }
+        }
+    }
+
+    /// Cache search results keyed by a query fingerprint (SHA-256 hex of the serialized params).
+    pub async fn get_search(&self, fingerprint: &str) -> Option<String> {
+        if !self.config.enabled {
+            return None;
+        }
+
+        let ns_key = format!("search:{}", fingerprint);
+
+        if let Some(val) = self.generic_cache.get(&ns_key).await {
+            crate::metrics::CACHE_HITS.inc();
+            return Some(val);
+        }
+
+        if let Some(cm) = &self.redis_cm {
+            let mut conn = cm.clone();
+            match conn.get::<_, Option<String>>(&ns_key).await {
+                Ok(Some(val)) => {
+                    crate::metrics::REDIS_CACHE_HITS.inc();
+                    crate::metrics::CACHE_HITS.inc();
+                    self.generic_cache.insert(ns_key, val.clone()).await;
+                    return Some(val);
+                }
+                Ok(None) => {
+                    crate::metrics::REDIS_CACHE_MISSES.inc();
+                }
+                Err(e) => {
+                    tracing::warn!("Redis get_search error: {}", e);
+                }
+            }
+        }
+
+        crate::metrics::CACHE_MISSES.inc();
+        None
+    }
+
+    pub async fn put_search(&self, fingerprint: &str, value: String) {
+        if !self.config.enabled {
+            return;
+        }
+
+        let ns_key = format!("search:{}", fingerprint);
+        self.generic_cache.insert(ns_key.clone(), value.clone()).await;
+
+        if let Some(cm) = &self.redis_cm {
+            let mut conn = cm.clone();
+            if let Err(e) = conn
+                .set_ex::<_, _, ()>(&ns_key, &value, self.config.search_ttl_secs as usize)
+                .await
+            {
+                tracing::warn!("Redis put_search error: {}", e);
+            }
+        }
+    }
+
+    /// Cache stats/analytics results.
+    pub async fn get_stats(&self, key: &str) -> Option<String> {
+        if !self.config.enabled {
+            return None;
+        }
+
+        let ns_key = format!("stats:{}", key);
+
+        if let Some(val) = self.generic_cache.get(&ns_key).await {
+            crate::metrics::CACHE_HITS.inc();
+            return Some(val);
+        }
+
+        if let Some(cm) = &self.redis_cm {
+            let mut conn = cm.clone();
+            match conn.get::<_, Option<String>>(&ns_key).await {
+                Ok(Some(val)) => {
+                    crate::metrics::REDIS_CACHE_HITS.inc();
+                    crate::metrics::CACHE_HITS.inc();
+                    self.generic_cache.insert(ns_key, val.clone()).await;
+                    return Some(val);
+                }
+                Ok(None) => {
+                    crate::metrics::REDIS_CACHE_MISSES.inc();
+                }
+                Err(e) => {
+                    tracing::warn!("Redis get_stats error: {}", e);
+                }
+            }
+        }
+
+        crate::metrics::CACHE_MISSES.inc();
+        None
+    }
+
+    pub async fn put_stats(&self, key: &str, value: String) {
+        if !self.config.enabled {
+            return;
+        }
+
+        let ns_key = format!("stats:{}", key);
+        self.generic_cache.insert(ns_key.clone(), value.clone()).await;
+
+        if let Some(cm) = &self.redis_cm {
+            let mut conn = cm.clone();
+            if let Err(e) = conn
+                .set_ex::<_, _, ()>(&ns_key, &value, self.config.stats_ttl_secs as usize)
+                .await
+            {
+                tracing::warn!("Redis put_stats error: {}", e);
+            }
+        }
     }
 
     pub async fn ping(&self) -> anyhow::Result<()> {
@@ -297,14 +611,13 @@ impl CacheLayer {
         Ok(())
     }
 
-    /// Starts an asynchronous startup warmup task querying the top 100 contracts
+    /// Starts an asynchronous startup warmup task querying the top 1000 contracts
     pub fn warm_up(self: Arc<Self>, pool: PgPool) {
         if !self.config.enabled {
             return;
         }
         tokio::spawn(async move {
             tracing::info!("Starting startup cache warmup...");
-            // Query top 100 contracts by query frequency from contract_interactions or just get contracts
             let top_contracts: Vec<(uuid::Uuid, String, Option<String>)> = sqlx::query_as(
                 r#"
                 SELECT c.id, c.contract_id, c.wasm_hash
@@ -312,14 +625,17 @@ impl CacheLayer {
                 LEFT JOIN contract_interactions ci ON c.id = ci.contract_id
                 GROUP BY c.id
                 ORDER BY COUNT(ci.id) DESC
-                LIMIT 100
+                LIMIT 1000
                 "#,
             )
             .fetch_all(&pool)
             .await
             .unwrap_or_default();
 
+            let warmed = top_contracts.len();
+
             for (id, contract_id, wasm_hash) in top_contracts {
+                // Warm ABI cache (24h TTL)
                 if let Ok(Some(abi)) = sqlx::query_scalar::<_, serde_json::Value>(
                     "SELECT abi FROM contract_abis WHERE contract_id = $1 ORDER BY created_at DESC LIMIT 1"
                 )
@@ -328,9 +644,21 @@ impl CacheLayer {
                     self.put_abi(&contract_id, abi.to_string()).await;
                 }
 
+                // Warm contract metadata cache (1h TTL)
+                if let Ok(Some(contract_json)) = sqlx::query_scalar::<_, serde_json::Value>(
+                    "SELECT row_to_json(c) FROM contracts c WHERE id = $1"
+                )
+                .bind(id)
+                .fetch_optional(&pool)
+                .await
+                {
+                    self.put_contract_meta(&contract_id, contract_json.to_string()).await;
+                    self.put_contract_meta(&id.to_string(), contract_json.to_string()).await;
+                }
+
                 if let Some(w_hash) = wasm_hash {
                     if let Ok(Some(ver_res)) = sqlx::query_scalar::<_, String>(
-                        "SELECT status::text FROM formal_verification_results LIMIT 1", // fallback fake
+                        "SELECT status::text FROM formal_verification_results LIMIT 1",
                     )
                     .fetch_optional(&pool)
                     .await
@@ -341,7 +669,7 @@ impl CacheLayer {
                     }
                 }
             }
-            tracing::info!("Completed startup cache warmup.");
+            tracing::info!("Completed startup cache warmup ({} contracts).", warmed);
         });
     }
 }

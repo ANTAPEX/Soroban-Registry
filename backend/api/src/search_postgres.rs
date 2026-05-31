@@ -276,6 +276,20 @@ pub async fn fulltext_search_handler(
         ));
     }
 
+    // Build a stable fingerprint for this query to use as cache key
+    let fingerprint = {
+        use sha2::{Digest, Sha256};
+        let canonical = serde_json::to_string(&params).unwrap_or_else(|_| query.to_string());
+        let hash = Sha256::digest(canonical.as_bytes());
+        hex::encode(hash)
+    };
+
+    if let Some(cached) = state.cache.get_search(&fingerprint).await {
+        if let Ok(result) = serde_json::from_str::<SearchResult>(&cached) {
+            return Ok(Json(result));
+        }
+    }
+
     let search_req = SearchQuery {
         query: query.to_string(),
         categories: params.category.as_ref().map(|c| vec![c.clone()]),
@@ -304,10 +318,14 @@ pub async fn fulltext_search_handler(
         .await
         .map_err(|e| ApiError::internal_error("SEARCH_ERROR", e.to_string()))?;
 
+    if let Ok(serialized) = serde_json::to_string(&result) {
+        state.cache.put_search(&fingerprint, serialized).await;
+    }
+
     Ok(Json(result))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SearchQueryParams {
     pub q: Option<String>,
     pub category: Option<String>,

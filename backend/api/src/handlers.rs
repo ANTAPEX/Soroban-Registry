@@ -1393,6 +1393,12 @@ pub async fn health_check_detailed(State(state): State<AppState>) -> (StatusCode
     tag = "Observability"
 )]
 pub async fn get_stats(State(state): State<AppState>) -> ApiResult<Json<Value>> {
+    if let Some(cached) = state.cache.get_stats("global").await {
+        if let Ok(val) = serde_json::from_str::<Value>(&cached) {
+            return Ok(Json(val));
+        }
+    }
+
     let total_contracts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contracts")
         .fetch_one(&state.db)
         .await
@@ -1409,11 +1415,17 @@ pub async fn get_stats(State(state): State<AppState>) -> ApiResult<Json<Value>> 
         .await
         .map_err(|err| db_internal_error("count publishers", err))?;
 
-    Ok(Json(json!({
+    let stats = json!({
         "total_contracts": total_contracts,
         "verified_contracts": verified_contracts,
         "total_publishers": total_publishers,
-    })))
+    });
+
+    if let Ok(serialized) = serde_json::to_string(&stats) {
+        state.cache.put_stats("global", serialized).await;
+    }
+
+    Ok(Json(stats))
 }
 
 #[utoipa::path(
@@ -2027,6 +2039,14 @@ pub async fn list_contracts(
         params.query.as_deref(),
         limit,
     );
+
+    // Write to cache after successful DB fetch
+    if !cache_key.is_empty() {
+        if let Ok(serialized) = serde_json::to_string(&response) {
+            state.cache.put_contracts(cache_key, serialized).await;
+        }
+    }
+
     Json(response).into_response()
 }
 
@@ -2680,6 +2700,27 @@ pub async fn get_contract(
     Path(id): Path<String>,
     Query(query): Query<GetContractQuery>,
 ) -> ApiResult<Json<ContractGetResponse>> {
+    // Only cache public contract fetches (no auth context, no network override)
+    // to avoid leaking private data through the cache.
+    let cache_key = if claims.is_none() && query.network.is_none() {
+        Some(id.clone())
+    } else {
+        None
+    };
+
+    if let Some(ref key) = cache_key {
+        if let Some(cached) = state.cache.get_contract_meta(key).await {
+            if let Ok(contract) = serde_json::from_str::<Contract>(&cached) {
+                track_contract_access(&state, contract.id).await;
+                return Ok(Json(ContractGetResponse {
+                    contract,
+                    current_network: None,
+                    network_config: None,
+                }));
+            }
+        }
+    }
+
     let mut contract: Contract = if let Ok(contract_uuid) = Uuid::parse_str(&id) {
         sqlx::query_as("SELECT * FROM contracts WHERE id = $1")
             .bind(contract_uuid)
@@ -2737,6 +2778,19 @@ pub async fn get_contract(
             color: r.color,
         })
         .collect();
+
+    // Cache public contracts after tags are populated
+    if contract.visibility == shared::VisibilityType::Public {
+        if let Some(ref key) = cache_key {
+            if let Ok(serialized) = serde_json::to_string(&contract) {
+                state.cache.put_contract_meta(key, serialized.clone()).await;
+                // Also cache by the canonical contract_id string so both UUID and slug lookups hit
+                if key != &contract.contract_id {
+                    state.cache.put_contract_meta(&contract.contract_id, serialized).await;
+                }
+            }
+        }
+    }
 
     // Visibility check
     if contract.visibility == shared::VisibilityType::Private {
@@ -3214,6 +3268,8 @@ pub async fn revert_contract_version(
     state.cache.invalidate_abi(&contract_id).await;
     state.cache.invalidate_abi(&contract_uuid.to_string()).await;
     state.cache.invalidate_contracts().await;
+    state.cache.invalidate_contract_meta(&contract_id).await;
+    state.cache.invalidate_contract_meta(&contract_uuid.to_string()).await;
 
     Ok(Json(version_row))
 }
@@ -3960,6 +4016,8 @@ pub async fn create_contract_version(
         .cache
         .invalidate_abi(&format!("{}@{}", contract_id, req.version))
         .await;
+    state.cache.invalidate_contract_meta(&contract_id).await;
+    state.cache.invalidate_contract_meta(&contract_uuid.to_string()).await;
 
     // Store differential patch for the new version (Issue #501).
     let new_snapshot = crate::patch_handlers::VersionSnapshot {
@@ -5637,6 +5695,8 @@ pub async fn update_contract_metadata(
     }
 
     state.cache.invalidate_contracts().await;
+    state.cache.invalidate_contract_meta(&after.contract_id).await;
+    state.cache.invalidate_contract_meta(&after.id.to_string()).await;
 
     // Increment usage counter asynchronously (fire-and-forget)
     // Failures are logged but never block the main request
