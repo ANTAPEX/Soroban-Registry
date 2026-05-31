@@ -226,7 +226,7 @@ async fn run_batch(
     let mut batch_errors = Vec::new();
     let mut batch_warnings = Vec::new();
 
-    for address in addresses {
+    for address in &addresses {
         if !json {
             print!("  Verifying {}... ", address.bright_black());
         }
@@ -318,7 +318,6 @@ impl Default for VerificationResult {
             verified_at: None,
         }
     }
-}
 }
 
 async fn fetch_contract(

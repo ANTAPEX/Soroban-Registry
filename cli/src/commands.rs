@@ -134,7 +134,6 @@ pub async fn search(
     json: bool,
 ) -> Result<()> {
     let t0 = std::time::Instant::now();
-    let client = crate::net::client();
 
     let mut params: Vec<(&str, String)> = vec![
         ("query", query.to_string()),
@@ -160,14 +159,17 @@ pub async fn search(
         params.push(("sort", s.to_string()));
     }
 
-    let response = client
-        .get(format!("{}/api/contracts", api_url))
-        .query(&params)
-        .send_with_retry()
+    let url = format!("{}/api/contracts", api_url);
+    let query: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
+    let (status, body) = crate::cached_http::cached_get(&url, &query)
         .await
         .context("Failed to search contracts")?;
 
-    let data: serde_json::Value = response.json().await?;
+    if !status.is_success() {
+        anyhow::bail!("Search request failed with status {status}");
+    }
+
+    let data: serde_json::Value = serde_json::from_str(&body).context("Invalid search response")?;
     let items = data["items"].as_array().context("Invalid response")?;
 
     if json {
@@ -989,8 +991,7 @@ pub async fn contract_list(
     category: Option<String>,
     format: &str,
 ) -> Result<()> {
-    let client = crate::net::client();
-    let mut query = vec![
+    let mut query: Vec<(&str, String)> = vec![
         ("page_size", limit.to_string()),
         ("page", ((offset / limit) + 1).to_string()),
     ];
@@ -1003,18 +1004,16 @@ pub async fn contract_list(
     }
 
     let url = format!("{}/api/contracts", api_url.trim_end_matches('/'));
-    let response = client
-        .get(&url)
-        .query(&query)
-        .send_with_retry()
+    let (status, body) = crate::cached_http::cached_get(&url, &query)
         .await
         .context("Failed to list contracts")?;
 
-    if !response.status().is_success() {
-        anyhow::bail!("API returned error: {}", response.status());
+    if !status.is_success() {
+        anyhow::bail!("API returned error: {status}");
     }
 
-    let data: serde_json::Value = response.json().await?;
+    let data: serde_json::Value =
+        serde_json::from_str(&body).context("Invalid list response")?;
     let items = data["items"]
         .as_array()
         .context("Invalid response format")?;

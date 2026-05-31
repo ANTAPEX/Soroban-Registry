@@ -586,7 +586,7 @@ pub fn display_deployment_summary(
     if !abi_info.functions.is_empty() {
         println!("\n📚 Contract Functions ({} total):", abi_info.functions.len());
         for func in &abi_info.functions {
-            println!("  • {}({})", func.name.cyan(), func.inputs.iter().map(|i| &i.name).collect::<Vec<_>>().join(", "));
+            println!("  • {}({})", func.name.cyan(), func.inputs.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(", "));
         }
     }
 

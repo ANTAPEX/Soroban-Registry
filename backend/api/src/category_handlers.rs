@@ -52,8 +52,7 @@ pub struct DeleteCategoryQuery {
     pub force: bool,
 }
 
-/// Raw row returned by the list query (includes computed usage_count).
-/// Must be `pub` so that graphql modules can reference it.
+// Raw row returned by the list query (includes computed usage_count, contract_count, new_24h, trending).
 #[derive(Debug, Clone, FromRow)]
 pub struct CategoryRow {
     pub id: Uuid,
@@ -63,6 +62,9 @@ pub struct CategoryRow {
     pub parent_id: Option<Uuid>,
     pub is_default: bool,
     pub usage_count: i64,
+    pub contract_count: i64,
+    pub new_24h: i64,
+    pub trending: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -78,6 +80,9 @@ pub struct CategoryResponse {
     pub parent_id: Option<String>,
     pub is_default: bool,
     pub usage_count: i64,
+    pub contract_count: i64,
+    pub new_24h: i64,
+    pub trending: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -92,6 +97,9 @@ impl From<CategoryRow> for CategoryResponse {
             parent_id: row.parent_id.map(|id| id.to_string()),
             is_default: row.is_default,
             usage_count: row.usage_count,
+            contract_count: row.contract_count,
+            new_24h: row.new_24h,
+            trending: row.trending,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
@@ -135,7 +143,10 @@ const LIST_QUERY: &str = r#"
         cc.is_default,
         cc.created_at,
         cc.updated_at,
-        COUNT(c.id) AS usage_count
+        COUNT(c.id) AS usage_count,
+        COUNT(c.id) AS contract_count,
+        COUNT(c.id) FILTER (WHERE c.created_at > NOW() - INTERVAL '24 hour') AS new_24h,
+        COUNT(c.id) FILTER (WHERE c.created_at > NOW() - INTERVAL '7 day') AS trending
     FROM contract_categories cc
     LEFT JOIN contracts c ON c.category = cc.name
     GROUP BY cc.id
@@ -171,24 +182,136 @@ fn parse_optional_parent_id(raw: &Option<String>) -> ApiResult<Option<Uuid>> {
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct CategoriesResponse {
+    pub categories: Vec<CategoryResponse>,
+    pub recommendations: Vec<CategoryRecommendation>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct CategoryRecommendation {
+    pub name: String,
+    pub reason: String,
+}
+
 #[utoipa::path(
     get,
     path = "/api/categories",
     responses(
-        (status = 200, description = "List of contract categories with usage counts", body = [CategoryResponse])
+        (status = 200, description = "List of contract categories with usage counts", body = CategoriesResponse)
     ),
     tag = "Categories"
 )]
 pub async fn list_categories(
     State(state): State<AppState>,
-) -> ApiResult<Json<Vec<CategoryResponse>>> {
-    let rows: Vec<CategoryRow> = sqlx::query_as(LIST_QUERY)
-        .fetch_all(&state.db)
-        .await
-        .map_err(|err| db_err("list categories", err))?;
+    Query(params): Query<CategoryQuery>,
+) -> ApiResult<Json<CategoriesResponse>> {
+    #[derive(Debug, Deserialize)]
+    struct CategoryQuery {
+        network: Option<String>,
+        sort_by: Option<String>,
+    }
 
-    Ok(Json(rows.into_iter().map(CategoryResponse::from).collect()))
-}
+    // Build cache key based on parameters
+    let cache_key = format!("categories:{:?}:{:?}", params.network, params.sort_by);
+    let (cached_opt, hit) = state.cache.get("category", &cache_key).await;
+    if hit {
+        if let Some(json_str) = cached_opt {
+            if let Ok(res) = serde_json::from_str::<CategoriesResponse>(&json_str) {
+                return Ok(Json(res));
+            }
+        }
+    }
+
+    // Construct query with optional network filter
+    let query_str = if params.network.is_some() {
+        // network filter applied
+        r#"
+        SELECT
+            cc.id,
+            cc.name,
+            cc.slug,
+            cc.description,
+            cc.parent_id,
+            cc.is_default,
+            cc.created_at,
+            cc.updated_at,
+            COUNT(c.id) AS usage_count,
+            COUNT(c.id) AS contract_count,
+            COUNT(c.id) FILTER (WHERE c.created_at > NOW() - INTERVAL '24 hour') AS new_24h,
+            COUNT(c.id) FILTER (WHERE c.created_at > NOW() - INTERVAL '7 day') AS trending
+        FROM contract_categories cc
+        LEFT JOIN contracts c ON c.category = cc.name AND c.network = $1
+        GROUP BY cc.id
+        ORDER BY cc.is_default DESC, cc.name ASC
+        "#
+    } else {
+        // no network filter
+        LIST_QUERY
+    };
+
+    let rows: Vec<CategoryRow> = if let Some(net) = &params.network {
+        sqlx::query_as(query_str)
+            .bind(net)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|err| db_err("list categories", err))?
+    } else {
+        sqlx::query_as(query_str)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|err| db_err("list categories", err))?
+    };
+
+    let mut categories: Vec<CategoryResponse> = rows.into_iter().map(CategoryResponse::from).collect();
+
+        // Return categories with recommendations
+    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    pub struct CategoriesResponse {
+        pub categories: Vec<CategoryResponse>,
+        pub recommendations: Vec<CategoryRecommendation>,
+    }
+
+    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    pub struct CategoryRecommendation {
+        pub name: String,
+        pub reason: String,
+    }
+
+    if let Some(sort) = params.sort_by {
+        match sort.as_str() {
+            "name" => categories.sort_by(|a, b| a.name.cmp(&b.name)),
+            "count" => categories.sort_by(|a, b| b.contract_count.cmp(&a.contract_count)),
+            "trending" => categories.sort_by(|a, b| b.trending.cmp(&a.trending)),
+            _ => {}
+        }
+    }
+
+    // Cache the result for 6 hours
+    if let Ok(json) = serde_json::to_string(&categories) {
+        let _ = state.cache.put("category", &cache_key, json, Some(std::time::Duration::from_secs(21600))).await;
+    }
+
+    // Compute recommendations (top 3 trending)
+    let mut recommendations: Vec<CategoryRecommendation> = categories
+        .iter()
+        .sorted_by_key(|c| -c.trending)
+        .take(3)
+        .map(|c| CategoryRecommendation {
+            name: c.name.clone(),
+            reason: "Trending".to_string(),
+        })
+        .collect();
+
+    // Build response wrapper
+    let response = CategoriesResponse {
+        categories,
+        recommendations,
+    };
+
+    Ok(Json(response))
+    }
+
 
 #[utoipa::path(
     get,

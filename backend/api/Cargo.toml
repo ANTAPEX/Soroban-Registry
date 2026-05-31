@@ -74,6 +74,7 @@ utoipa-swagger-ui = { workspace = true, optional = true }
 async-graphql = { workspace = true }
 async-graphql-axum = { workspace = true }
 futures-util = "0.3"
+flate2 = "1.0"
 stellar-strkey = "0.0.16"
 stellar-xdr = { version = "26.0.0", features = ["curr", "std", "base64"] }
 

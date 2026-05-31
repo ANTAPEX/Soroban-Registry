@@ -6,6 +6,7 @@ pub mod validators;
 use crate::validation::extractors::ValidatedJson;
 use crate::validation::handler_requests::BatchContractIdsRequest;
 use axum::{
+    body::Body,
     extract::{
         rejection::{JsonRejection, QueryRejection},
         Path, Query, State,
@@ -16,8 +17,10 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use flate2::{write::GzEncoder, Compression};
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use shared::models::SourceFormat;
 use shared::{
     pagination::Cursor, AdvancedSearchRequest, AnalyticsEventType, AuditActionType,
@@ -41,7 +44,8 @@ use shared::{
 // Duplicate definitions have been removed to maintain a single source of truth.
 // ────────────────────────────────────────────────────────────────────────────
 use sqlx::{Postgres, QueryBuilder};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io::Write;
 use std::path::{Path as StdPath, PathBuf};
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -4205,6 +4209,17 @@ pub async fn get_publisher_contracts(
 pub struct ContractAbiQuery {
     pub version: Option<String>,
     pub bypass_cache: Option<bool>,
+    pub format: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ContractAbiRow {
+    contract_uuid: Uuid,
+    contract_id: String,
+    version: Option<String>,
+    abi: Value,
+    compiler: Option<String>,
+    generated_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Fetch ABI JSON string for contract (by id or id@version)
@@ -4240,12 +4255,190 @@ pub async fn get_contract_abi(
     Path(id): Path<String>,
     Query(query): Query<ContractAbiQuery>,
     State(state): State<AppState>,
-) -> ApiResult<Json<Value>> {
-    let bypass = query.bypass_cache.unwrap_or(false);
-    let abi_json = resolve_contract_abi(&state, &id, query.version.as_deref(), bypass).await?;
-    let abi: Value = serde_json::from_str(&abi_json)
-        .map_err(|e| ApiError::internal(format!("Invalid ABI JSON: {}", e)))?;
-    Ok(Json(json!({ "abi": abi })))
+) -> ApiResult<Response> {
+    build_contract_abi_response(HeaderMap::new(), Path(id), Query(query), State(state)).await
+}
+
+pub async fn get_contract_abi_v1(
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(query): Query<ContractAbiQuery>,
+    State(state): State<AppState>,
+) -> ApiResult<Response> {
+    build_contract_abi_response(headers, Path(id), Query(query), State(state)).await
+}
+
+async fn build_contract_abi_response(
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(query): Query<ContractAbiQuery>,
+    State(state): State<AppState>,
+) -> ApiResult<Response> {
+    let format = query.format.as_deref().unwrap_or("v1");
+    if !matches!(format, "v1" | "v2") {
+        return Err(ApiError::bad_request(
+            "InvalidAbiFormat",
+            "format must be v1 or v2",
+        ));
+    }
+
+    let cache_key = format!(
+        "abi-response:{}:{}:{}",
+        id,
+        query.version.as_deref().unwrap_or("latest"),
+        format
+    );
+    let body = if let Some(cached) = state
+        .cache
+        .get_abi(&cache_key, query.bypass_cache.unwrap_or(false))
+        .await
+    {
+        cached
+    } else {
+        let row = fetch_contract_abi_row(&state, &id, query.version.as_deref()).await?;
+        let envelope = contract_abi_envelope(&row, format)?;
+        let encoded = serde_json::to_string(&envelope)
+            .map_err(|e| ApiError::internal(format!("serialize ABI response: {}", e)))?;
+        state.cache.put_abi(&cache_key, encoded.clone()).await;
+        encoded
+    };
+
+    let hash = abi_hash(&body);
+    let accepts_gzip = headers
+        .get(header::ACCEPT_ENCODING)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(',').any(|part| part.trim().starts_with("gzip")))
+        .unwrap_or(false);
+
+    let mut builder = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::CACHE_CONTROL, "public, max-age=86400")
+        .header("X-ABI-Hash", hash);
+
+    if accepts_gzip {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder
+            .write_all(body.as_bytes())
+            .map_err(|_| ApiError::internal("Failed to compress ABI response"))?;
+        let compressed = encoder
+            .finish()
+            .map_err(|_| ApiError::internal("Failed to finalize ABI compression"))?;
+        builder = builder.header(header::CONTENT_ENCODING, "gzip");
+        return builder
+            .body(Body::from(compressed))
+            .map_err(|_| ApiError::internal("Failed to build ABI response"));
+    }
+
+    builder
+        .body(Body::from(body))
+        .map_err(|_| ApiError::internal("Failed to build ABI response"))
+}
+
+async fn fetch_contract_abi_row(
+    state: &AppState,
+    id: &str,
+    version: Option<&str>,
+) -> ApiResult<ContractAbiRow> {
+    let contract_uuid = fetch_contract_identity(state, id).await?.0;
+
+    if let Some(version) = version {
+        return sqlx::query_as::<_, ContractAbiRow>(
+            "SELECT c.id AS contract_uuid,
+                    c.contract_id,
+                    ca.version,
+                    ca.abi,
+                    v.compiler_version AS compiler,
+                    ca.created_at AS generated_at
+             FROM contracts c
+             JOIN contract_abis ca ON ca.contract_id = c.id
+             LEFT JOIN verifications v ON v.contract_id = c.id
+             WHERE c.id = $1 AND ca.version = $2
+             ORDER BY v.verified_at DESC NULLS LAST
+             LIMIT 1",
+        )
+        .bind(contract_uuid)
+        .bind(version)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|err| db_internal_error("fetch contract ABI version", err))?
+        .ok_or_else(|| ApiError::not_found("AbiNotFound", "ABI version not found"));
+    }
+
+    if let Some(row) = sqlx::query_as::<_, ContractAbiRow>(
+        "SELECT c.id AS contract_uuid,
+                c.contract_id,
+                ca.version,
+                ca.abi,
+                v.compiler_version AS compiler,
+                ca.created_at AS generated_at
+         FROM contracts c
+         JOIN contract_abis ca ON ca.contract_id = c.id
+         LEFT JOIN verifications v ON v.contract_id = c.id
+         WHERE c.id = $1
+         ORDER BY ca.created_at DESC, v.verified_at DESC NULLS LAST
+         LIMIT 1",
+    )
+    .bind(contract_uuid)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|err| db_internal_error("fetch latest contract ABI", err))?
+    {
+        return Ok(row);
+    }
+
+    sqlx::query_as::<_, ContractAbiRow>(
+        "SELECT c.id AS contract_uuid,
+                c.contract_id,
+                NULL::VARCHAR AS version,
+                c.abi,
+                v.compiler_version AS compiler,
+                c.updated_at AS generated_at
+         FROM contracts c
+         LEFT JOIN verifications v ON v.contract_id = c.id
+         WHERE c.id = $1 AND c.abi IS NOT NULL
+         ORDER BY v.verified_at DESC NULLS LAST
+         LIMIT 1",
+    )
+    .bind(contract_uuid)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|err| db_internal_error("fetch fallback contract ABI", err))?
+    .ok_or_else(|| ApiError::not_found("AbiNotFound", "No ABI found for contract"))
+}
+
+fn contract_abi_envelope(row: &ContractAbiRow, format: &str) -> ApiResult<Value> {
+    let metadata = json!({
+        "contract_uuid": row.contract_uuid,
+        "contract_id": row.contract_id,
+        "version": row.version.as_deref().unwrap_or("latest"),
+        "compiler": row.compiler.as_deref().unwrap_or("unknown"),
+        "generated_at": row.generated_at,
+        "format": format,
+    });
+
+    match format {
+        "v1" => Ok(json!({
+            "metadata": metadata,
+            "abi": row.abi,
+        })),
+        "v2" => {
+            let mut envelope = BTreeMap::new();
+            envelope.insert("metadata", metadata);
+            envelope.insert("spec", row.abi.clone());
+            Ok(json!(envelope))
+        }
+        _ => Err(ApiError::bad_request(
+            "InvalidAbiFormat",
+            "format must be v1 or v2",
+        )),
+    }
+}
+
+fn abi_hash(body: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(body.as_bytes());
+    format!("sha256:{:x}", hasher.finalize())
 }
 
 #[utoipa::path(
@@ -7352,4 +7545,3 @@ pub async fn handle_retention_cleanup(
     
     Ok(format!("Pruned rows: {}", result.rows_affected()))
 }
-

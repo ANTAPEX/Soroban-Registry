@@ -159,6 +159,7 @@ dependencies = [
  "ed25519-dalek",
  "elasticsearch",
  "envy",
+ "flate2",
  "futures-util",
  "hex",
  "hmac",

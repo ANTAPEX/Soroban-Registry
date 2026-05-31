@@ -383,6 +383,10 @@ pub fn contract_routes() -> Router<AppState> {
             get(handlers::get_contract_abi).post(abi_versioning_handlers::publish_abi),
         )
         .route(
+            "/api/v1/contracts/:id/abi",
+            get(handlers::get_contract_abi_v1),
+        )
+        .route(
             "/api/contracts/:id/abi/:version",
             get(abi_versioning_handlers::get_abi_version),
         )

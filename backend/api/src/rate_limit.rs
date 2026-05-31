@@ -55,6 +55,7 @@ const DEFAULT_WINDOW_SECONDS: u64 = 3_600; // 1 hour
 const DEFAULT_CONTRACTS_PAGE_SIZE: u32 = 50;
 #[allow(dead_code)]
 const MAX_CONTRACTS_PAGE_SIZE: u32 = 1000;
+const ABI_ENDPOINT_LIMIT_PER_MINUTE: u32 = 1_000;
 #[allow(dead_code)]
 const ENDPOINT_LIMIT_ENV_PREFIX: &str = "RATE_LIMIT_ENDPOINT_";
 
@@ -317,6 +318,19 @@ impl RateLimitState {
     ///    (upgrade to pro/enterprise requires the header or a future DB lookup).
     fn select_limit_and_key<B>(&self, request: &Request<B>) -> (u32, u32, BucketKey, ApiTier) {
         let tier = extract_api_tier(request);
+        let path = request.uri().path();
+        let query = request.uri().query();
+
+        if is_contract_abi_endpoint(request.method(), path) {
+            return (
+                ABI_ENDPOINT_LIMIT_PER_MINUTE * 60,
+                ABI_ENDPOINT_LIMIT_PER_MINUTE,
+                BucketKey {
+                    client_key: format!("abi:{}:{}", path, extract_client_ip(request)),
+                },
+                tier,
+            );
+        }
 
         if let Some(token) = extract_auth_token(request) {
             let hourly = self.config.hourly_limit_for_tier(&tier);
@@ -331,8 +345,6 @@ impl RateLimitState {
             );
         }
 
-        let path = request.uri().path();
-        let query = request.uri().query();
         let hourly_base = self.config.hourly_limit_for_tier(&tier);
         let hourly = if let Some(page_size) =
             contracts_page_size_rate_limit(request.method(), path, query)
@@ -577,6 +589,10 @@ fn contracts_page_size_rate_limit(method: &Method, path: &str, query: Option<&st
     }
 
     Some(extract_page_size(query).unwrap_or(DEFAULT_CONTRACTS_PAGE_SIZE))
+}
+
+fn is_contract_abi_endpoint(method: &Method, path: &str) -> bool {
+    *method == Method::GET && path.starts_with("/api/v1/contracts/") && path.ends_with("/abi")
 }
 
 fn extract_page_size(query: Option<&str>) -> Option<u32> {
