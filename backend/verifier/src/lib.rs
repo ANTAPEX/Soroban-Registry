@@ -18,12 +18,50 @@ use tracing::instrument;
 const DEFAULT_SOROBAN_SDK_VERSION: &str = "21.7.7";
 const BUILD_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Precise reason a source-level verification step failed.
+///
+/// Returned alongside the boolean `verified` flag so callers can present
+/// actionable guidance without exposing internal compiler details.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VerificationFailureKind {
+    /// The compiled wasm hash does not match the deployed wasm hash.
+    /// Suggests source code, compiler version, or build flags differ.
+    SourceMismatch {
+        compiled_hash: String,
+        deployed_hash: String,
+        hint: String,
+    },
+    /// The ABI embedded in the registry cannot be parsed against the contract
+    /// specification.  The `detail` field contains a sanitised error summary.
+    AbiMismatch { detail: String },
+    /// The contract does not exist on the specified network.
+    NetworkMismatch { network: String },
+    /// No on-chain wasm artifact was found to verify against.
+    MissingArtifact,
+}
+
+impl std::fmt::Display for VerificationFailureKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SourceMismatch { hint, .. } => write!(f, "source_mismatch: {hint}"),
+            Self::AbiMismatch { detail } => write!(f, "abi_mismatch: {detail}"),
+            Self::NetworkMismatch { network } => {
+                write!(f, "network_mismatch: contract not found on {network}")
+            }
+            Self::MissingArtifact => write!(f, "missing_artifact: no on-chain artifact found"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VerificationResult {
     pub verified: bool,
     pub compiled_wasm_hash: String,
     pub deployed_wasm_hash: String,
     pub message: Option<String>,
+    /// Structured failure reason; `None` when `verified` is `true`.
+    pub failure_kind: Option<VerificationFailureKind>,
 }
 
 #[instrument(skip(source_code, build_params), fields(component = "verifier", deployed_wasm_hash = %deployed_wasm_hash))]
@@ -57,17 +95,27 @@ pub async fn verify_contract(
             compiled_wasm_hash: compiled_hash,
             deployed_wasm_hash: deployed_normalized,
             message: None,
+            failure_kind: None,
         });
     }
 
+    let hint = "Check that the compiler version, build flags, and source code match the \
+                deployed artifact exactly."
+        .to_string();
+
     Ok(VerificationResult {
         verified: false,
-        compiled_wasm_hash: compiled_hash.clone(),
-        deployed_wasm_hash: deployed_normalized.clone(),
         message: Some(format!(
-            "Bytecode mismatch: compiled hash {} does not match deployed hash {}",
+            "Bytecode mismatch: compiled hash {} does not match deployed hash {}. {hint}",
             compiled_hash, deployed_normalized
         )),
+        failure_kind: Some(VerificationFailureKind::SourceMismatch {
+            compiled_hash: compiled_hash.clone(),
+            deployed_hash: deployed_normalized.clone(),
+            hint,
+        }),
+        compiled_wasm_hash: compiled_hash,
+        deployed_wasm_hash: deployed_normalized,
     })
 }
 
@@ -241,6 +289,7 @@ mod tests {
         assert!(result.verified);
         assert_eq!(result.compiled_wasm_hash, expected_hash);
         assert!(result.message.is_none());
+        assert!(result.failure_kind.is_none());
     }
 
     #[tokio::test]
@@ -255,7 +304,46 @@ mod tests {
         assert!(!result.verified);
         assert!(result
             .message
+            .as_deref()
             .unwrap_or_default()
             .contains("Bytecode mismatch"));
+    }
+
+    #[tokio::test]
+    async fn mismatch_produces_source_mismatch_failure_kind() {
+        let compiled = b"contract-a";
+        let deployed = b"contract-b";
+        let source = format!("wasm_base64:{}", BASE64.encode(compiled));
+        let deployed_hash = hash_wasm(deployed);
+
+        let result = verify_contract(&source, &deployed_hash, None, None)
+            .await
+            .expect("verification should complete without error");
+
+        assert!(!result.verified);
+        match result.failure_kind {
+            Some(VerificationFailureKind::SourceMismatch {
+                compiled_hash,
+                deployed_hash: dh,
+                ..
+            }) => {
+                assert_eq!(compiled_hash, hash_wasm(compiled));
+                assert_eq!(dh, deployed_hash);
+            }
+            other => panic!("expected SourceMismatch, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_source_returns_error_not_mismatch() {
+        let result = verify_contract("", "a".repeat(64).as_str(), None, None).await;
+        assert!(result.is_err(), "empty source should be rejected");
+    }
+
+    #[tokio::test]
+    async fn invalid_deployed_hash_returns_error() {
+        let source = format!("wasm_base64:{}", BASE64.encode(b"wasm"));
+        let result = verify_contract(&source, "not-a-hex-hash", None, None).await;
+        assert!(result.is_err(), "invalid hash should be rejected");
     }
 }

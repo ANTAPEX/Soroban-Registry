@@ -2104,6 +2104,28 @@ fn render_contract_export(
             })
             .map_err(|err| ApiError::internal(format!("Failed to render JSON export: {err}")))
         }
+        ContractExportFormat::Jsonl => {
+            // Header line: one JSON object carrying the export metadata.
+            let mut out = serde_json::to_string(&serde_json::json!({
+                "_type": "export_metadata",
+                "exported_at": metadata.exported_at,
+                "format": "jsonl",
+                "total_count": metadata.total_count,
+                "async_export": metadata.async_export,
+                "filters": metadata.filters,
+            }))
+            .map_err(|err| ApiError::internal(format!("Failed to render JSONL header: {err}")))?;
+            out.push('\n');
+
+            for contract in contracts {
+                let line = serde_json::to_string(contract).map_err(|err| {
+                    ApiError::internal(format!("Failed to render JSONL record: {err}"))
+                })?;
+                out.push_str(&line);
+                out.push('\n');
+            }
+            Ok(out)
+        }
         ContractExportFormat::Yaml => serde_yaml::to_string(&ContractMetadataExportEnvelope {
             metadata: metadata.clone(),
             contracts: contracts.to_vec(),
@@ -7444,6 +7466,126 @@ mod tests {
         assert_eq!(sanitized.offset, None);
         assert_eq!(sanitized.cursor, None);
         assert_eq!(sanitized.category.as_deref(), Some("DeFi"));
+    }
+
+    fn minimal_export_metadata(format: ContractExportFormat) -> ContractExportMetadata {
+        ContractExportMetadata {
+            exported_at: Utc::now(),
+            format,
+            total_count: 0,
+            async_export: false,
+            filters: ContractSearchParams::default(),
+        }
+    }
+
+    #[test]
+    fn jsonl_export_empty_produces_only_header_line() {
+        let metadata = minimal_export_metadata(ContractExportFormat::Jsonl);
+        let output = render_contract_export(&ContractExportFormat::Jsonl, &metadata, &[])
+            .expect("jsonl export should render with no records");
+
+        let lines: Vec<&str> = output.lines().collect();
+        // Only the metadata header line should be present.
+        assert_eq!(lines.len(), 1, "empty export should have exactly one line");
+        let header: serde_json::Value =
+            serde_json::from_str(lines[0]).expect("header should be valid JSON");
+        assert_eq!(header["_type"], "export_metadata");
+        assert_eq!(header["format"], "jsonl");
+        assert_eq!(header["total_count"], 0);
+    }
+
+    #[test]
+    fn jsonl_export_with_records_produces_one_line_per_record_plus_header() {
+        let metadata = ContractExportMetadata {
+            exported_at: Utc::now(),
+            format: ContractExportFormat::Jsonl,
+            total_count: 2,
+            async_export: false,
+            filters: ContractSearchParams::default(),
+        };
+        let record = ContractMetadataExportRecord {
+            id: Uuid::nil(),
+            logical_id: None,
+            contract_id: "CJSONLTEST".to_string(),
+            wasm_hash: "aabbccdd".to_string(),
+            name: "JSONL Contract".to_string(),
+            description: None,
+            publisher_id: Uuid::nil(),
+            publisher_stellar_address: "GJSONLADDR".to_string(),
+            publisher_username: None,
+            network: "testnet".to_string(),
+            is_verified: false,
+            category: None,
+            tags: vec![],
+            maturity: None,
+            health_score: 0,
+            is_maintenance: false,
+            deployment_count: 0,
+            audit_status: None,
+            visibility: "public".to_string(),
+            organization_id: None,
+            network_configs: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            verified_at: None,
+            last_verified_at: None,
+            last_accessed_at: None,
+        };
+        let records = vec![record.clone(), record];
+        let output = render_contract_export(&ContractExportFormat::Jsonl, &metadata, &records)
+            .expect("jsonl export should render");
+
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(
+            lines.len(),
+            3,
+            "should have 1 header + 2 record lines, got {}: {:?}",
+            lines.len(),
+            lines
+        );
+        // Every line is valid JSON.
+        for line in &lines {
+            serde_json::from_str::<serde_json::Value>(line)
+                .expect("each line should be valid JSON");
+        }
+        // First line is the metadata header.
+        let header: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(header["_type"], "export_metadata");
+        // Record lines contain the contract_id.
+        assert!(lines[1].contains("CJSONLTEST"));
+    }
+
+    #[test]
+    fn jsonl_format_display_is_jsonl() {
+        assert_eq!(ContractExportFormat::Jsonl.to_string(), "jsonl");
+    }
+
+    #[test]
+    fn jsonl_format_content_type_is_json() {
+        assert_eq!(
+            ContractExportFormat::Jsonl.content_type(),
+            "application/json"
+        );
+    }
+
+    #[test]
+    fn csv_export_empty_has_header_row_only() {
+        let metadata = minimal_export_metadata(ContractExportFormat::Csv);
+        let output = render_contract_export(&ContractExportFormat::Csv, &metadata, &[])
+            .expect("csv export should render with no records");
+
+        // Must have metadata comments and the column header row; no data rows.
+        assert!(output.contains("# exported_at="));
+        assert!(output.contains("id,logical_id,contract_id"));
+        let data_lines: Vec<&str> = output
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .skip(1) // skip the column header
+            .collect();
+        assert!(
+            data_lines.is_empty(),
+            "empty csv export should have no data rows, found: {data_lines:?}"
+        );
     }
 }
 

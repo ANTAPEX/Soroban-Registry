@@ -599,6 +599,15 @@ pub fn contract_routes() -> Router<AppState> {
             "/api/contracts/batch-verify",
             post(batch_verify_handlers::batch_verify_contracts),
         )
+        // Async batch verification job endpoints
+        .route(
+            "/api/contracts/batch-verify/jobs",
+            post(batch_verify_handlers::submit_batch_verify_job),
+        )
+        .route(
+            "/api/contracts/batch-verify/jobs/:job_id",
+            get(batch_verify_handlers::get_batch_verify_job),
+        )
         .route(
             "/api/contracts/similarity/analyze",
             post(similarity_handlers::analyze_contract_similarity_batch),
