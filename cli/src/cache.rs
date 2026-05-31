@@ -687,3 +687,16 @@ fn print_config(cfg: &CacheConfig) {
     println!("{}", "═".repeat(50).cyan());
     println!();
 }
+
+pub struct CachedEntry {
+    pub result: serde_json::Value,
+    pub detail: Option<serde_json::Value>,
+}
+
+pub fn get(_address: &str, _network: &str) -> anyhow::Result<Option<CachedEntry>> {
+    Ok(None)
+}
+
+pub fn set(_address: &str, _network: &str, _result: serde_json::Value, _detail: Option<serde_json::Value>) -> anyhow::Result<()> {
+    Ok(())
+}

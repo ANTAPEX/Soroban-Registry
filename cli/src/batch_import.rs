@@ -85,16 +85,20 @@ pub async fn run_batch_import(
             );
         }
 
-        match import::run(
+        let opts = import::ImportOptions {
             api_url,
             file_path,
             format,
-            None,
+            network_flag: None,
             output_dir,
-            true,
+            validate: true,
             dry_run,
-        )
-        .await
+            on_duplicate: import::OnDuplicate::parse(on_duplicate)?,
+            network_map: std::collections::HashMap::new(),
+            atomic,
+            report_output: None,
+        };
+        match import::run(opts).await
         {
             Ok(_) => {
                 results.push(ImportResult {

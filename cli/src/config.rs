@@ -17,6 +17,7 @@ const ENV_NETWORK: &str = "SOROBAN_REGISTRY_NETWORK";
 const ENV_API_URL: &str = "SOROBAN_REGISTRY_API_URL";
 const ENV_API_BASE: &str = "SOROBAN_REGISTRY_API_BASE";
 const ENV_TIMEOUT: &str = "SOROBAN_REGISTRY_TIMEOUT";
+const ENV_PROFILE: &str = "SOROBAN_REGISTRY_PROFILE";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -55,12 +56,14 @@ impl FromStr for Network {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 struct ConfigFile {
+    current_profile: Option<String>,
     defaults: Option<DefaultsSection>,
+    profiles: Option<std::collections::HashMap<String, DefaultsSection>>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 struct DefaultsSection {
     network: Option<String>,
     api_base: Option<String>,
@@ -74,18 +77,46 @@ pub struct RuntimeConfig {
     pub timeout: u64,
 }
 
-pub fn resolve_network(cli_network: Option<String>) -> Result<Network> {
-    let cfg = resolve_runtime_config(cli_network, None, None)?;
+pub fn resolve_network(cli_network: Option<String>, cli_profile: Option<String>) -> Result<Network> {
+    let cfg = resolve_runtime_config(cli_network, None, None, cli_profile)?;
     Ok(cfg.network)
+}
+
+pub fn resolve_profile_overrides(
+    config: &ConfigFile,
+    cli_profile: Option<String>,
+    env_profile: Option<String>,
+) -> (Option<String>, DefaultsSection) {
+    let active_profile_name = cli_profile
+        .or(env_profile)
+        .or_else(|| config.current_profile.clone());
+
+    let mut defaults = config.defaults.clone().unwrap_or_default();
+
+    if let Some(profile_name) = &active_profile_name {
+        if let Some(profiles) = &config.profiles {
+            if let Some(profile) = profiles.get(profile_name) {
+                if let Some(n) = &profile.network { defaults.network = Some(n.clone()); }
+                if let Some(a) = &profile.api_base { defaults.api_base = Some(a.clone()); }
+                if let Some(t) = profile.timeout { defaults.timeout = Some(t); }
+            }
+        }
+    }
+
+    (active_profile_name, defaults)
 }
 
 pub fn resolve_runtime_config(
     cli_network: Option<String>,
     cli_api_base: Option<String>,
     cli_timeout: Option<u64>,
+    cli_profile: Option<String>,
 ) -> Result<RuntimeConfig> {
-    let defaults = load_defaults_section()?;
     let env_overrides = read_env_overrides()?;
+    let config = load_config_file_safely().unwrap_or_default();
+    
+    let (_, defaults) = resolve_profile_overrides(&config, cli_profile, env_overrides.profile.clone());
+
     resolve_runtime_config_with_sources(
         cli_network,
         cli_api_base,
@@ -98,25 +129,55 @@ pub fn resolve_runtime_config(
 pub fn show_config() -> Result<()> {
     migrate_legacy_config()?;
     let path = config_file_path().context("Could not determine home directory")?;
-    let defaults = load_defaults_section()?;
-
+    let config = load_config_file_safely().unwrap_or_default();
+    
     println!("Config file: {}", path.display());
-    println!(
-        "defaults.network = {}",
-        defaults.network.unwrap_or_else(|| "testnet".to_string())
-    );
-    println!(
-        "defaults.api_base = {}",
-        defaults
-            .api_base
-            .unwrap_or_else(|| DEFAULT_API_BASE.to_string())
-    );
-    println!(
-        "defaults.timeout = {}",
-        defaults.timeout.unwrap_or(DEFAULT_TIMEOUT_SECS)
-    );
+    let active_profile = config.current_profile.as_deref().unwrap_or("default");
+    println!("Active profile: {}", active_profile);
+    
+    let defaults = config.defaults.unwrap_or_default();
+    println!("defaults.network = {}", defaults.network.as_deref().unwrap_or("testnet"));
+    println!("defaults.api_base = {}", defaults.api_base.as_deref().unwrap_or(DEFAULT_API_BASE));
+    println!("defaults.timeout = {}", defaults.timeout.unwrap_or(DEFAULT_TIMEOUT_SECS));
+
+    if let Some(profiles) = config.profiles {
+        for (name, prof) in profiles {
+            println!("\n[profile: {}]", name);
+            if let Some(n) = &prof.network { println!("  network = {}", n); }
+            if let Some(a) = &prof.api_base { println!("  api_base = {}", a); }
+            if let Some(t) = prof.timeout { println!("  timeout = {}", t); }
+        }
+    }
 
     Ok(())
+}
+
+pub fn set_profile(profile_name: &str) -> Result<()> {
+    migrate_legacy_config()?;
+    let path = config_file_path().context("Could not determine home directory")?;
+    ensure_config_file_exists(&path)?;
+
+    let mut config = load_config_file(&path).unwrap_or_default();
+    config.current_profile = Some(profile_name.to_string());
+    
+    let toml_str = toml::to_string_pretty(&config)?;
+    fs::write(&path, toml_str)?;
+    println!("Active profile set to '{}'", profile_name);
+    Ok(())
+}
+
+fn load_config_file_safely() -> Result<ConfigFile> {
+    migrate_legacy_config()?;
+    let path = match config_file_path() {
+        Some(p) => p,
+        None => return Ok(ConfigFile::default()),
+    };
+
+    if !path.exists() {
+        return Ok(ConfigFile::default());
+    }
+
+    load_config_file(&path)
 }
 
 pub fn edit_config() -> Result<()> {
@@ -138,22 +199,12 @@ pub fn edit_config() -> Result<()> {
 }
 
 fn load_defaults_section() -> Result<DefaultsSection> {
-    migrate_legacy_config()?;
-    let path = match config_file_path() {
-        Some(p) => p,
-        None => return Ok(DefaultsSection::default()),
-    };
-
-    if !path.exists() {
-        return Ok(DefaultsSection::default());
-    }
-
-    let config = load_config_file(&path)?;
-    Ok(config.defaults.unwrap_or_default())
+    Ok(load_config_file_safely()?.defaults.unwrap_or_default())
 }
 
 #[derive(Debug, Clone, Default)]
 struct EnvOverrides {
+    profile: Option<String>,
     network: Option<String>,
     api_base: Option<String>,
     timeout: Option<u64>,
@@ -192,6 +243,7 @@ fn resolve_runtime_config_with_sources(
 }
 
 fn read_env_overrides() -> Result<EnvOverrides> {
+    let profile = read_env_string(ENV_PROFILE);
     let network = read_env_string(ENV_NETWORK);
 
     // Keep support for the existing API URL variable while also allowing API_BASE.
@@ -203,6 +255,7 @@ fn read_env_overrides() -> Result<EnvOverrides> {
     };
 
     Ok(EnvOverrides {
+        profile,
         network,
         api_base,
         timeout,
@@ -341,10 +394,14 @@ mod tests {
         let config_path = dir.path().join("config.toml");
         fs::write(
             &config_path,
-            r#"[defaults]
+            r#"current_profile = "dev"
+[defaults]
 network = "mainnet"
 api_base = "http://localhost:9000"
 timeout = 55
+
+[profiles.dev]
+network = "testnet"
 "#,
         )
         .unwrap();
@@ -355,6 +412,7 @@ timeout = 55
         assert_eq!(defaults.network.as_deref(), Some("mainnet"));
         assert_eq!(defaults.api_base.as_deref(), Some("http://localhost:9000"));
         assert_eq!(defaults.timeout, Some(55));
+        assert_eq!(parsed.current_profile.as_deref(), Some("dev"));
     }
 
     #[test]
@@ -403,6 +461,7 @@ timeout = 55
             timeout: Some(45),
         };
         let env = EnvOverrides {
+            profile: None,
             network: Some("mainnet".to_string()),
             api_base: Some("https://env.example".to_string()),
             timeout: Some(90),
@@ -430,6 +489,7 @@ timeout = 55
             timeout: Some(45),
         };
         let env = EnvOverrides {
+            profile: None,
             network: Some("mainnet".to_string()),
             api_base: Some("https://env.example".to_string()),
             timeout: Some(90),
@@ -480,5 +540,62 @@ timeout = 55
         )
         .unwrap_err();
         assert!(err.to_string().contains("timeout must be greater than 0"));
+    }
+
+    #[test]
+    fn test_resolve_profile_overrides_uses_cli() {
+        let mut config = ConfigFile::default();
+        let mut profiles = std::collections::HashMap::new();
+        
+        let mut prod = DefaultsSection::default();
+        prod.network = Some("mainnet".to_string());
+        prod.timeout = Some(100);
+        profiles.insert("prod".to_string(), prod);
+        
+        config.profiles = Some(profiles);
+        config.current_profile = Some("dev".to_string());
+        
+        let (active, defaults) = resolve_profile_overrides(&config, Some("prod".to_string()), None);
+        
+        assert_eq!(active.unwrap(), "prod");
+        assert_eq!(defaults.network.unwrap(), "mainnet");
+        assert_eq!(defaults.timeout.unwrap(), 100);
+    }
+
+    #[test]
+    fn test_resolve_profile_overrides_uses_env() {
+        let mut config = ConfigFile::default();
+        let mut profiles = std::collections::HashMap::new();
+        
+        let mut dev = DefaultsSection::default();
+        dev.network = Some("testnet".to_string());
+        dev.api_base = Some("https://dev.example".to_string());
+        profiles.insert("dev".to_string(), dev);
+        
+        config.profiles = Some(profiles);
+        
+        let (active, defaults) = resolve_profile_overrides(&config, None, Some("dev".to_string()));
+        
+        assert_eq!(active.unwrap(), "dev");
+        assert_eq!(defaults.network.unwrap(), "testnet");
+        assert_eq!(defaults.api_base.unwrap(), "https://dev.example");
+    }
+
+    #[test]
+    fn test_resolve_profile_overrides_uses_config_current() {
+        let mut config = ConfigFile::default();
+        let mut profiles = std::collections::HashMap::new();
+        
+        let mut default_prof = DefaultsSection::default();
+        default_prof.network = Some("futurenet".to_string());
+        profiles.insert("default".to_string(), default_prof);
+        
+        config.profiles = Some(profiles);
+        config.current_profile = Some("default".to_string());
+        
+        let (active, defaults) = resolve_profile_overrides(&config, None, None);
+        
+        assert_eq!(active.unwrap(), "default");
+        assert_eq!(defaults.network.unwrap(), "futurenet");
     }
 }

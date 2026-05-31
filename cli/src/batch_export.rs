@@ -108,6 +108,8 @@ pub async fn run_batch_export(
             format: export_format,
             filters: vec![],
             page_size: 100,
+            compress: false,
+            include_related: false,
         })
         .await
         {
@@ -237,6 +239,8 @@ fn get_extension(format: RegistryExportFormat) -> &'static str {
         RegistryExportFormat::Csv => "csv",
         RegistryExportFormat::Markdown => "md",
         RegistryExportFormat::Archive => "tar.gz",
+        RegistryExportFormat::JsonLines => "jsonl",
+        RegistryExportFormat::Sqlite => "sqlite",
     }
 }
 
