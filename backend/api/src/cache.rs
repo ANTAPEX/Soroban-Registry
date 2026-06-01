@@ -228,7 +228,9 @@ impl CacheLayer {
                     crate::metrics::REDIS_CACHE_HITS.inc();
                     crate::metrics::ABI_CACHE_HITS.inc();
                     // Backfill L1
-                    self.abi_cache.insert(contract_id.to_string(), val.clone()).await;
+                    self.abi_cache
+                        .insert(contract_id.to_string(), val.clone())
+                        .await;
                     return Some(val);
                 }
                 Ok(None) => {
@@ -250,7 +252,9 @@ impl CacheLayer {
         }
 
         // L1
-        self.abi_cache.insert(contract_id.to_string(), abi.clone()).await;
+        self.abi_cache
+            .insert(contract_id.to_string(), abi.clone())
+            .await;
 
         // L2: Redis with 24h TTL
         if let Some(cm) = &self.redis_cm {
@@ -385,7 +389,9 @@ impl CacheLayer {
                 Ok(Some(val)) => {
                     crate::metrics::REDIS_CACHE_HITS.inc();
                     crate::metrics::CONTRACTS_CACHE_HITS.inc();
-                    self.contracts_cache.insert(key.to_string(), val.clone()).await;
+                    self.contracts_cache
+                        .insert(key.to_string(), val.clone())
+                        .await;
                     return Some(val);
                 }
                 Ok(None) => {
@@ -407,7 +413,9 @@ impl CacheLayer {
         }
 
         // L1
-        self.contracts_cache.insert(key.clone(), value.clone()).await;
+        self.contracts_cache
+            .insert(key.clone(), value.clone())
+            .await;
 
         // L2: Redis with metadata TTL (1h)
         if let Some(cm) = &self.redis_cm {
@@ -429,7 +437,9 @@ impl CacheLayer {
 
         self.contracts_cache.invalidate_all();
         // Also clear per-contract metadata from the generic cache
-        self.generic_cache.invalidate_entries_if(|k, _| k.starts_with("meta:")).ok();
+        self.generic_cache
+            .invalidate_entries_if(|k, _| k.starts_with("meta:"))
+            .ok();
 
         // Flush the contracts:* and meta:* namespaces from Redis
         if let Some(cm) = &self.redis_cm {
@@ -438,10 +448,16 @@ impl CacheLayer {
                 match conn.keys::<_, Vec<String>>(pattern).await {
                     Ok(keys) if !keys.is_empty() => {
                         if let Err(e) = conn.del::<_, ()>(keys).await {
-                            tracing::warn!("Redis invalidate_contracts del error ({}): {}", pattern, e);
+                            tracing::warn!(
+                                "Redis invalidate_contracts del error ({}): {}",
+                                pattern,
+                                e
+                            );
                         }
                     }
-                    Err(e) => tracing::warn!("Redis invalidate_contracts scan error ({}): {}", pattern, e),
+                    Err(e) => {
+                        tracing::warn!("Redis invalidate_contracts scan error ({}): {}", pattern, e)
+                    }
                     _ => {}
                 }
             }
@@ -491,7 +507,9 @@ impl CacheLayer {
         }
 
         let ns_key = format!("meta:{}", contract_id);
-        self.generic_cache.insert(ns_key.clone(), value.clone()).await;
+        self.generic_cache
+            .insert(ns_key.clone(), value.clone())
+            .await;
 
         if let Some(cm) = &self.redis_cm {
             let mut conn = cm.clone();
@@ -516,6 +534,58 @@ impl CacheLayer {
             let mut conn = cm.clone();
             if let Err(e) = conn.del::<_, ()>(&ns_key).await {
                 tracing::warn!("Redis invalidate_contract_meta error: {}", e);
+            }
+        }
+    }
+
+    /// Get a cached vulnerability assessment. These use the 24h ABI cache
+    /// because vulnerability assessments have the same TTL requirement.
+    pub async fn get_vulnerability_assessment(&self, contract_id: &str) -> Option<String> {
+        if !self.config.enabled {
+            return None;
+        }
+
+        let ns_key = format!("vulnerability_assessment:{}", contract_id);
+
+        if let Some(val) = self.abi_cache.get(&ns_key).await {
+            crate::metrics::CACHE_HITS.inc();
+            return Some(val);
+        }
+
+        if let Some(cm) = &self.redis_cm {
+            let mut conn = cm.clone();
+            match conn.get::<_, Option<String>>(&ns_key).await {
+                Ok(Some(val)) => {
+                    crate::metrics::REDIS_CACHE_HITS.inc();
+                    crate::metrics::CACHE_HITS.inc();
+                    self.abi_cache.insert(ns_key, val.clone()).await;
+                    return Some(val);
+                }
+                Ok(None) => {
+                    crate::metrics::REDIS_CACHE_MISSES.inc();
+                }
+                Err(e) => {
+                    tracing::warn!("Redis get_vulnerability_assessment error: {}", e);
+                }
+            }
+        }
+
+        crate::metrics::CACHE_MISSES.inc();
+        None
+    }
+
+    pub async fn put_vulnerability_assessment(&self, contract_id: &str, value: String) {
+        if !self.config.enabled {
+            return;
+        }
+
+        let ns_key = format!("vulnerability_assessment:{}", contract_id);
+        self.abi_cache.insert(ns_key.clone(), value.clone()).await;
+
+        if let Some(cm) = &self.redis_cm {
+            let mut conn = cm.clone();
+            if let Err(e) = conn.set_ex::<_, _, ()>(&ns_key, &value, 24 * 3600).await {
+                tracing::warn!("Redis put_vulnerability_assessment error: {}", e);
             }
         }
     }
@@ -561,7 +631,9 @@ impl CacheLayer {
         }
 
         let ns_key = format!("search:{}", fingerprint);
-        self.generic_cache.insert(ns_key.clone(), value.clone()).await;
+        self.generic_cache
+            .insert(ns_key.clone(), value.clone())
+            .await;
 
         if let Some(cm) = &self.redis_cm {
             let mut conn = cm.clone();
@@ -615,7 +687,9 @@ impl CacheLayer {
         }
 
         let ns_key = format!("stats:{}", key);
-        self.generic_cache.insert(ns_key.clone(), value.clone()).await;
+        self.generic_cache
+            .insert(ns_key.clone(), value.clone())
+            .await;
 
         if let Some(cm) = &self.redis_cm {
             let mut conn = cm.clone();
@@ -673,14 +747,16 @@ impl CacheLayer {
 
                 // Warm contract metadata cache (1h TTL)
                 if let Ok(Some(contract_json)) = sqlx::query_scalar::<_, serde_json::Value>(
-                    "SELECT row_to_json(c) FROM contracts c WHERE id = $1"
+                    "SELECT row_to_json(c) FROM contracts c WHERE id = $1",
                 )
                 .bind(id)
                 .fetch_optional(&pool)
                 .await
                 {
-                    self.put_contract_meta(&contract_id, contract_json.to_string()).await;
-                    self.put_contract_meta(&id.to_string(), contract_json.to_string()).await;
+                    self.put_contract_meta(&contract_id, contract_json.to_string())
+                        .await;
+                    self.put_contract_meta(&id.to_string(), contract_json.to_string())
+                        .await;
                 }
 
                 if let Some(w_hash) = wasm_hash {

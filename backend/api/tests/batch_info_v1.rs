@@ -18,10 +18,19 @@ async fn batch_info_v1_endpoint_success_and_fields_filtering() {
         .expect("failed to call list contracts endpoint");
 
     assert_eq!(list_res.status(), StatusCode::OK);
-    let list_body: Value = list_res.json().await.expect("failed to parse list response");
-    let items = list_body.get("items").and_then(Value::as_array).expect("missing items");
+    let list_body: Value = list_res
+        .json()
+        .await
+        .expect("failed to parse list response");
+    let items = list_body
+        .get("items")
+        .and_then(Value::as_array)
+        .expect("missing items");
 
-    assert!(!items.is_empty(), "expected at least one contract in database");
+    assert!(
+        !items.is_empty(),
+        "expected at least one contract in database"
+    );
 
     let mut requested_ids: Vec<String> = items
         .iter()
@@ -40,7 +49,10 @@ async fn batch_info_v1_endpoint_success_and_fields_filtering() {
     requested_ids.push(missing_address.clone());
 
     let batch_res = client
-        .post(format!("{}/api/v1/contracts/batch-info?fields=id,name,address", base))
+        .post(format!(
+            "{}/api/v1/contracts/batch-info?fields=id,name,address",
+            base
+        ))
         .json(&requested_ids)
         .send()
         .await
@@ -48,10 +60,19 @@ async fn batch_info_v1_endpoint_success_and_fields_filtering() {
 
     assert_eq!(batch_res.status(), StatusCode::OK);
 
-    let res_body: Value = batch_res.json().await.expect("failed to parse response body");
+    let res_body: Value = batch_res
+        .json()
+        .await
+        .expect("failed to parse response body");
 
-    let contracts = res_body.get("contracts").and_then(Value::as_array).expect("missing contracts array");
-    let missing = res_body.get("missing").and_then(Value::as_array).expect("missing missing array");
+    let contracts = res_body
+        .get("contracts")
+        .and_then(Value::as_array)
+        .expect("missing contracts array");
+    let missing = res_body
+        .get("missing")
+        .and_then(Value::as_array)
+        .expect("missing missing array");
 
     let missing_str_vec: Vec<String> = missing
         .iter()
@@ -64,8 +85,14 @@ async fn batch_info_v1_endpoint_success_and_fields_filtering() {
     assert!(!contracts.is_empty());
     for contract in contracts {
         assert!(contract.get("id").is_some(), "id field should be present");
-        assert!(contract.get("name").is_some(), "name field should be present");
-        assert!(contract.get("address").is_some(), "address field should be present");
+        assert!(
+            contract.get("name").is_some(),
+            "name field should be present"
+        );
+        assert!(
+            contract.get("address").is_some(),
+            "address field should be present"
+        );
         assert!(contract.get("status").is_none());
     }
 }

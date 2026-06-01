@@ -53,10 +53,16 @@ pub enum OnChainFailureReason {
 impl std::fmt::Display for OnChainFailureReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ContractNotOnChain { contract_id, network, .. } => {
+            Self::ContractNotOnChain {
+                contract_id,
+                network,
+                ..
+            } => {
                 write!(f, "contract {contract_id} not found on {network}")
             }
-            Self::WasmHashMismatch { stored, on_chain, .. } => {
+            Self::WasmHashMismatch {
+                stored, on_chain, ..
+            } => {
                 write!(f, "wasm hash mismatch: stored={stored} on_chain={on_chain}")
             }
             Self::AbiMismatch { detail } => write!(f, "abi mismatch: {detail}"),

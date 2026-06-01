@@ -307,8 +307,10 @@ async fn run_single_item(
         _ => true, // no source provided — skip source check
     };
 
-    let verified =
-        on_chain.contract_exists_on_chain && on_chain.wasm_hash_matches && on_chain.abi_valid && source_ok;
+    let verified = on_chain.contract_exists_on_chain
+        && on_chain.wasm_hash_matches
+        && on_chain.abi_valid
+        && source_ok;
 
     let failure_summary = if !verified {
         let reasons: Vec<String> = on_chain
