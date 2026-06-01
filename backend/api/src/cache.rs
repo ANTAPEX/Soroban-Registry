@@ -21,6 +21,12 @@ pub struct CacheConfig {
     pub search_ttl_secs: u64,
     /// TTL for stats/analytics in Redis (seconds). Default: 300 (5 minutes)
     pub stats_ttl_secs: u64,
+    /// Optional override for the verification cache max capacity (weighted bytes).
+    /// When unset, defaults to `max_capacity`, preserving prior behavior.
+    pub verification_max_capacity: Option<u64>,
+    /// Optional override for the verification cache time-to-live, in seconds.
+    /// When unset, defaults to 7 days (604800), preserving prior behavior.
+    pub verification_ttl_secs: Option<u64>,
 }
 
 impl Default for CacheConfig {
@@ -35,6 +41,8 @@ impl Default for CacheConfig {
             abi_ttl_secs: 86400,
             search_ttl_secs: 300,
             stats_ttl_secs: 300,
+            verification_max_capacity: None,
+            verification_ttl_secs: None,
         }
     }
 }
@@ -82,6 +90,18 @@ impl CacheConfig {
             }
         }
 
+        if let Ok(cap_str) = std::env::var("VERIFICATION_CACHE_MAX_CAPACITY") {
+            if let Ok(cap) = cap_str.parse::<u64>() {
+                config.verification_max_capacity = Some(cap);
+            }
+        }
+
+        if let Ok(ttl_str) = std::env::var("VERIFICATION_CACHE_TTL") {
+            if let Ok(ttl) = ttl_str.parse::<u64>() {
+                config.verification_ttl_secs = Some(ttl);
+            }
+        }
+
         config.redis_url = std::env::var("REDIS_URL").ok();
 
         tracing::info!(
@@ -114,11 +134,18 @@ impl CacheLayer {
             .time_to_live(Duration::from_secs(24 * 3600))
             .build();
 
-        // 7-day TTL for verification result cache, keyed by bytecode_hash
+        // Verification result cache, keyed by bytecode_hash.
+        // Capacity and TTL are operationally configurable (VERIFICATION_CACHE_MAX_CAPACITY,
+        // VERIFICATION_CACHE_TTL); the defaults preserve prior behavior — capacity follows
+        // `max_capacity` and the TTL stays at 7 days.
+        let verification_max_capacity = config
+            .verification_max_capacity
+            .unwrap_or(config.max_capacity);
+        let verification_ttl_secs = config.verification_ttl_secs.unwrap_or(7 * 24 * 3600);
         let verification_cache = MokaCache::builder()
-            .max_capacity(config.max_capacity)
+            .max_capacity(verification_max_capacity)
             .weigher(|_k, v: &String| -> u32 { v.len().try_into().unwrap_or(u32::MAX) })
-            .time_to_live(Duration::from_secs(7 * 24 * 3600))
+            .time_to_live(Duration::from_secs(verification_ttl_secs))
             .build();
 
         // Generic cache for namespace-keyed entries (e.g., contract graphs)
@@ -718,6 +745,75 @@ mod tests {
 
         let val2 = cache.get_verification("hash_1").await;
         assert!(val2.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_verification_cache_honors_configured_capacity_and_ttl() {
+        // Explicit overrides are reflected in the resolved config, and the
+        // cache serves hits within the configured TTL window.
+        let config = CacheConfig {
+            enabled: true,
+            max_capacity: 100,
+            verification_max_capacity: Some(42),
+            verification_ttl_secs: Some(3600),
+            ..Default::default()
+        };
+        assert_eq!(config.verification_max_capacity, Some(42));
+        assert_eq!(config.verification_ttl_secs, Some(3600));
+
+        let cache = CacheLayer::new(config).await;
+        cache
+            .put_verification("hash_hit", "result_hit".to_string())
+            .await;
+        assert_eq!(
+            cache.get_verification("hash_hit").await,
+            Some("result_hit".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verification_cache_defaults_preserve_previous_behavior() {
+        // With no overrides the verification cache keeps the historical
+        // defaults (capacity follows `max_capacity`, 7-day TTL).
+        let config = CacheConfig {
+            enabled: true,
+            max_capacity: 100,
+            ..Default::default()
+        };
+        assert_eq!(config.verification_max_capacity, None);
+        assert_eq!(config.verification_ttl_secs, None);
+
+        let cache = CacheLayer::new(config).await;
+        cache
+            .put_verification("hash_default", "result_default".to_string())
+            .await;
+        assert_eq!(
+            cache.get_verification("hash_default").await,
+            Some("result_default".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verification_cache_evicts_after_configured_ttl() {
+        // A short configured TTL causes entries to expire.
+        let config = CacheConfig {
+            enabled: true,
+            max_capacity: 100,
+            verification_ttl_secs: Some(1),
+            ..Default::default()
+        };
+        let cache = CacheLayer::new(config).await;
+        cache
+            .put_verification("hash_expire", "result_expire".to_string())
+            .await;
+        assert_eq!(
+            cache.get_verification("hash_expire").await,
+            Some("result_expire".to_string())
+        );
+
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        cache.verification_cache.run_pending_tasks().await;
+        assert!(cache.get_verification("hash_expire").await.is_none());
     }
 
     #[tokio::test]
