@@ -245,18 +245,26 @@ async fn compute_contract_checksums(
     // Core contract data. Only the fields that define the contract's identity and
     // metadata are included; volatile columns like `updated_at` are excluded so a
     // routine touch does not register as corruption.
-    let core: Option<(String, String, String, Option<String>, String, Option<String>, Vec<String>, Uuid)> =
-        sqlx::query_as(
-            r#"
+    let core: Option<(
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        Vec<String>,
+        Uuid,
+    )> = sqlx::query_as(
+        r#"
             SELECT contract_id, wasm_hash, name, description,
                    network::text, category, tags, publisher_id
             FROM contracts
             WHERE id = $1
             "#,
-        )
-        .bind(contract_id)
-        .fetch_optional(pool)
-        .await?;
+    )
+    .bind(contract_id)
+    .fetch_optional(pool)
+    .await?;
 
     let Some((on_chain_id, wasm_hash, name, description, network, category, tags, publisher_id)) =
         core
@@ -418,21 +426,20 @@ async fn verify_contract(
     run_id: Option<i64>,
 ) -> Result<VerifyCounts, sqlx::Error> {
     let computed = compute_contract_checksums(pool, contract_id).await?;
-    let baselines: Vec<DataChecksum> = sqlx::query_as::<_, DataChecksum>(
-        "SELECT * FROM data_checksums WHERE contract_id = $1",
-    )
-    .bind(contract_id)
-    .fetch_all(pool)
-    .await?;
+    let baselines: Vec<DataChecksum> =
+        sqlx::query_as::<_, DataChecksum>("SELECT * FROM data_checksums WHERE contract_id = $1")
+            .bind(contract_id)
+            .fetch_all(pool)
+            .await?;
 
     let mut counts = VerifyCounts::default();
 
     // Verify each baseline against freshly computed data.
     for baseline in &baselines {
         counts.total += 1;
-        let current = computed
-            .iter()
-            .find(|c| c.resource_type == baseline.resource_type && c.resource_id == baseline.resource_id);
+        let current = computed.iter().find(|c| {
+            c.resource_type == baseline.resource_type && c.resource_id == baseline.resource_id
+        });
 
         match current {
             None => {
@@ -616,7 +623,10 @@ pub async fn verify_contract_handler(
         .await
         .map_err(|e| ApiError::internal_error("CONTRACT_LOOKUP_ERROR", e.to_string()))?;
     if exists.is_none() {
-        return Err(ApiError::not_found("CONTRACT_NOT_FOUND", "Contract not found"));
+        return Err(ApiError::not_found(
+            "CONTRACT_NOT_FOUND",
+            "Contract not found",
+        ));
     }
 
     let counts = verify_contract(&state.db, contract_id, None)
@@ -649,7 +659,9 @@ pub async fn access_check_handler(
     Path(contract_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     guard_contract_access(&state.db, contract_id).await?;
-    Ok(Json(json!({ "contract_id": contract_id, "access": "allowed" })))
+    Ok(Json(
+        json!({ "contract_id": contract_id, "access": "allowed" }),
+    ))
 }
 
 /// POST /api/contracts/:id/integrity/repair
@@ -666,7 +678,10 @@ pub async fn repair_contract_handler(
         .await
         .map_err(|e| ApiError::internal_error("CHECKSUM_COMPUTE_ERROR", e.to_string()))?;
     if computed.is_empty() {
-        return Err(ApiError::not_found("CONTRACT_NOT_FOUND", "Contract not found"));
+        return Err(ApiError::not_found(
+            "CONTRACT_NOT_FOUND",
+            "Contract not found",
+        ));
     }
 
     let open_issues = sqlx::query_as::<_, IntegrityIssue>(
@@ -937,10 +952,11 @@ async fn full_verification_inner(
     }
 
     // Verify every contract that currently has at least one baseline.
-    let contract_ids: Vec<Uuid> =
-        sqlx::query_scalar("SELECT DISTINCT contract_id FROM data_checksums WHERE contract_id IS NOT NULL")
-            .fetch_all(pool)
-            .await?;
+    let contract_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT DISTINCT contract_id FROM data_checksums WHERE contract_id IS NOT NULL",
+    )
+    .fetch_all(pool)
+    .await?;
 
     let mut totals = VerifyCounts::default();
     for contract_id in contract_ids {

@@ -141,7 +141,10 @@ pub async fn run(args: UpdateArgs<'_>) -> Result<()> {
     if args.json {
         println!("{}", serde_json::to_string_pretty(&updated)?);
     } else {
-        println!("\n{} Contract metadata updated successfully.", "✔".green().bold());
+        println!(
+            "\n{} Contract metadata updated successfully.",
+            "✔".green().bold()
+        );
         println!("  Version history is preserved automatically by the registry.");
     }
 
@@ -178,7 +181,11 @@ fn current_tags(contract: &ContractRecord) -> Vec<String> {
     contract.tags.iter().map(|t| t.name.clone()).collect()
 }
 
-fn build_diffs(current: &ContractRecord, patch: &MetadataPatch, icon_update: bool) -> Vec<(String, String, String)> {
+fn build_diffs(
+    current: &ContractRecord,
+    patch: &MetadataPatch,
+    icon_update: bool,
+) -> Vec<(String, String, String)> {
     let mut diffs = Vec::new();
 
     if let Some(name) = &patch.name {
@@ -206,7 +213,11 @@ fn build_diffs(current: &ContractRecord, patch: &MetadataPatch, icon_update: boo
         }
     }
     if icon_update {
-        diffs.push(("icon".into(), "(unchanged in preview)".into(), "(new file)".into()));
+        diffs.push((
+            "icon".into(),
+            "(unchanged in preview)".into(),
+            "(new file)".into(),
+        ));
     }
 
     diffs
@@ -226,7 +237,12 @@ fn print_diff_table(contract_id: &str, diffs: &[(String, String, String)], icon_
     );
     println!("  {}", "-".repeat(58));
     for (field, before, after) in diffs {
-        println!("  {:<14} {:<22} {}", field, truncate(before, 22), truncate(after, 22));
+        println!(
+            "  {:<14} {:<22} {}",
+            field,
+            truncate(before, 22),
+            truncate(after, 22)
+        );
     }
     if icon_update && !diffs.iter().any(|(f, _, _)| f == "icon") {
         println!("  {:<14} {:<22} {}", "icon", "(existing)", "(new file)");
@@ -238,7 +254,13 @@ fn truncate(value: &str, max: usize) -> String {
     if value.chars().count() <= max {
         value.to_string()
     } else {
-        format!("{}…", value.chars().take(max.saturating_sub(1)).collect::<String>())
+        format!(
+            "{}…",
+            value
+                .chars()
+                .take(max.saturating_sub(1))
+                .collect::<String>()
+        )
     }
 }
 

@@ -1,10 +1,10 @@
+use crate::output_format::{self, OutputFormat};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
-use crate::output_format::{self, OutputFormat};
 
 #[derive(Debug, Clone, Copy)]
 pub enum AnalyticsQuery {
@@ -198,7 +198,10 @@ fn emit_report(report: &AnalyticsReport, format: &str, export: Option<&str>) -> 
             output_format::render_yaml(&json_val)?
         }
         "table" => to_table(report),
-        _ => anyhow::bail!("Invalid format '{}'. Allowed: table, json, csv, yaml", format),
+        _ => anyhow::bail!(
+            "Invalid format '{}'. Allowed: table, json, csv, yaml",
+            format
+        ),
     };
 
     println!("{}", rendered);

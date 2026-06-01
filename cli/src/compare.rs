@@ -296,7 +296,12 @@ fn build_summary(ids: &[String], contracts: &[Value], fields: &[CompareField]) -
     }
 }
 
-fn print_table(ids: &[String], contracts: &[Value], fields: &[CompareField], summary: &CompareSummary) {
+fn print_table(
+    ids: &[String],
+    contracts: &[Value],
+    fields: &[CompareField],
+    summary: &CompareSummary,
+) {
     println!("\n{}", "Contract Comparison".bold().cyan());
     println!("{}", "=".repeat(80).cyan());
 
@@ -370,12 +375,7 @@ fn print_diff(ids: &[String], summary: &CompareSummary, format: DiffFormat) {
                 println!("{}", diff.field.bold());
                 let mut columns: Vec<_> = ids
                     .iter()
-                    .map(|id| {
-                        (
-                            id.clone(),
-                            diff.values.get(id).cloned().unwrap_or_default(),
-                        )
-                    })
+                    .map(|id| (id.clone(), diff.values.get(id).cloned().unwrap_or_default()))
                     .collect();
                 columns.sort_by(|a, b| a.1.cmp(&b.1));
                 for (id, value) in columns {
@@ -411,7 +411,8 @@ fn export_csv(
     }
 
     if let Some(path) = export_path {
-        fs::write(path, csv_data).with_context(|| format!("Failed to write CSV export to {path}"))?;
+        fs::write(path, csv_data)
+            .with_context(|| format!("Failed to write CSV export to {path}"))?;
         println!("{} Comparison exported to {}", "✓".green(), path);
     } else {
         println!("{csv_data}");

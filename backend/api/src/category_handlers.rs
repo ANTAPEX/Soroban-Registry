@@ -263,9 +263,10 @@ pub async fn list_categories(
             .map_err(|err| db_err("list categories", err))?
     };
 
-    let mut categories: Vec<CategoryResponse> = rows.into_iter().map(CategoryResponse::from).collect();
+    let mut categories: Vec<CategoryResponse> =
+        rows.into_iter().map(CategoryResponse::from).collect();
 
-        // Return categories with recommendations
+    // Return categories with recommendations
     #[derive(Debug, Serialize, utoipa::ToSchema)]
     pub struct CategoriesResponse {
         pub categories: Vec<CategoryResponse>,
@@ -289,7 +290,15 @@ pub async fn list_categories(
 
     // Cache the result for 6 hours
     if let Ok(json) = serde_json::to_string(&categories) {
-        let _ = state.cache.put("category", &cache_key, json, Some(std::time::Duration::from_secs(21600))).await;
+        let _ = state
+            .cache
+            .put(
+                "category",
+                &cache_key,
+                json,
+                Some(std::time::Duration::from_secs(21600)),
+            )
+            .await;
     }
 
     // Compute recommendations (top 3 trending)
@@ -310,8 +319,7 @@ pub async fn list_categories(
     };
 
     Ok(Json(response))
-    }
-
+}
 
 #[utoipa::path(
     get,

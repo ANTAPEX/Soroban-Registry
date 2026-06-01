@@ -213,7 +213,11 @@ pub async fn send_batch_notifications(
     .bind(&req.message)
     .bind(&channels)
     .bind(scheduled_at)
-    .bind(if scheduled_at > Utc::now() { "scheduled" } else { "sent" })
+    .bind(if scheduled_at > Utc::now() {
+        "scheduled"
+    } else {
+        "sent"
+    })
     .bind(req.recipients.len() as i32)
     .execute(&mut *tx)
     .await
@@ -456,7 +460,12 @@ fn validate_batch_notification_request(req: &BatchNotificationRequest) -> ApiRes
 }
 
 fn map_batch_channel(channel: &str) -> ApiResult<String> {
-    match channel.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+    match channel
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-")
+        .as_str()
+    {
         "email" => Ok("email".to_string()),
         "webhook" => Ok("webhook".to_string()),
         "in-app" | "inapp" => Ok("in-app".to_string()),

@@ -7,10 +7,10 @@ use keyring::Entry;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use stellar_strkey::{ed25519::PublicKey, Strkey};
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
+use stellar_strkey::{ed25519::PublicKey, Strkey};
 use uuid::Uuid;
 
 const AUTH_SERVICE: &str = "soroban-registry";
@@ -113,21 +113,11 @@ pub async fn login(
                 expires_in_seconds,
             )
             .await?;
-            (
-                issued.token,
-                issued.expires_at,
-                Some(secret.clone()),
-                true,
-            )
+            (issued.token, issued.expires_at, Some(secret.clone()), true)
         }
         AuthMethod::Github | AuthMethod::ApiKey => {
             let expires_at = now + Duration::seconds(expires_in_seconds as i64);
-            (
-                secret.clone(),
-                Some(expires_at),
-                None,
-                false,
-            )
+            (secret.clone(), Some(expires_at), None, false)
         }
     };
 
@@ -199,11 +189,7 @@ pub async fn status(api_url: &str) -> Result<()> {
     }
 }
 
-pub async fn token(
-    api_url: &str,
-    scopes: Vec<String>,
-    expires: Option<&str>,
-) -> Result<()> {
+pub async fn token(api_url: &str, scopes: Vec<String>, expires: Option<&str>) -> Result<()> {
     let mut session = load_active_session().await?.ok_or_else(|| {
         anyhow::anyhow!("No active auth session. Run `soroban-registry auth login` first.")
     })?;
@@ -234,7 +220,11 @@ pub async fn token(
             session.record.preferred_expires_seconds = Some(expires_in_seconds);
             session.record.access_token_expires_at = issued.expires_at;
             session.record.updated_at = Utc::now();
-            store_secret(&session.record.session_id, SecretKind::Access, &session.access_token)?;
+            store_secret(
+                &session.record.session_id,
+                SecretKind::Access,
+                &session.access_token,
+            )?;
             save_session(&session.record)?;
             issued.token
         }
@@ -296,7 +286,11 @@ async fn refresh_stellar_session(api_url: &str, session: &mut LoadedSession) -> 
     session.access_token = issued.token.clone();
     session.record.access_token_expires_at = issued.expires_at;
     session.record.updated_at = Utc::now();
-    store_secret(&session.record.session_id, SecretKind::Access, &session.access_token)?;
+    store_secret(
+        &session.record.session_id,
+        SecretKind::Access,
+        &session.access_token,
+    )?;
     save_session(&session.record)?;
     Ok(())
 }
@@ -350,23 +344,20 @@ async fn print_status(api_url: &str, session: &LoadedSession) -> Result<()> {
         } else {
             "valid".green()
         };
-        println!("{} {} ({})", "Token".bold(), format_expiry(expires_at), state);
+        println!(
+            "{} {} ({})",
+            "Token".bold(),
+            format_expiry(expires_at),
+            state
+        );
     } else {
         println!("{} {}", "Token".bold(), "no expiry".bright_black());
     }
 
     if session.record.refreshable {
-        println!(
-            "{} {}",
-            "Auto-refresh".bold(),
-            "enabled".green()
-        );
+        println!("{} {}", "Auto-refresh".bold(), "enabled".green());
     } else {
-        println!(
-            "{} {}",
-            "Auto-refresh".bold(),
-            "disabled".bright_black()
-        );
+        println!("{} {}", "Auto-refresh".bold(), "disabled".bright_black());
     }
 
     println!(
@@ -513,12 +504,11 @@ fn parse_stellar_address(address: &str) -> Result<[u8; 32]> {
 }
 
 fn parse_signing_key(secret_seed: &str) -> Result<SigningKey> {
-    let private_key = match Strkey::from_string(secret_seed.trim())
-        .context("Invalid Stellar secret seed")?
-    {
-        Strkey::PrivateKeyEd25519(private_key) => private_key,
-        _ => anyhow::bail!("Expected a Stellar secret seed starting with S"),
-    };
+    let private_key =
+        match Strkey::from_string(secret_seed.trim()).context("Invalid Stellar secret seed")? {
+            Strkey::PrivateKeyEd25519(private_key) => private_key,
+            _ => anyhow::bail!("Expected a Stellar secret seed starting with S"),
+        };
     Ok(SigningKey::from_bytes(&private_key.0))
 }
 
@@ -598,7 +588,8 @@ fn format_expiry(expires_at: DateTime<Utc>) -> String {
 }
 
 fn session_file_path() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not resolve home directory"))?;
+    let home =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not resolve home directory"))?;
     Ok(home.join(AUTH_DIR_NAME).join(AUTH_FILE_NAME))
 }
 
@@ -731,6 +722,9 @@ mod tests {
     #[test]
     fn formats_scope_list() {
         assert_eq!(format_scope_list(&[]), "none");
-        assert_eq!(format_scope_list(&["read".into(), "write".into()]), "read, write");
+        assert_eq!(
+            format_scope_list(&["read".into(), "write".into()]),
+            "read, write"
+        );
     }
 }

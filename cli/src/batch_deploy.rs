@@ -53,7 +53,10 @@ pub fn run_batch_deploy(
 
     for network in &network_list {
         anyhow::ensure!(
-            matches!(network.to_lowercase().as_str(), "mainnet" | "testnet" | "futurenet"),
+            matches!(
+                network.to_lowercase().as_str(),
+                "mainnet" | "testnet" | "futurenet"
+            ),
             "Invalid network: {}. Must be mainnet, testnet, or futurenet",
             network
         );
@@ -153,7 +156,10 @@ fn emit_summary(summary: &BatchDeploySummary, json_out: bool) -> Result<()> {
         summary.succeeded, summary.total_networks, summary.failed
     );
     if summary.atomic_rollback {
-        println!("Status: {} (atomic rollback triggered)", "FAILED".red().bold());
+        println!(
+            "Status: {} (atomic rollback triggered)",
+            "FAILED".red().bold()
+        );
     } else if summary.failed == 0 {
         println!("Status: {}", "SUCCESS".green().bold());
     } else {

@@ -172,15 +172,7 @@ pub async fn advanced_search(
     );
 
     let pg_response = search_via_postgres(
-        &state,
-        &query_str,
-        &params,
-        networks,
-        categories,
-        limit,
-        offset,
-        &sort_by,
-        explain,
+        &state, &query_str, &params, networks, categories, limit, offset, &sort_by, explain,
     )
     .await?;
 
@@ -477,9 +469,7 @@ async fn build_pg_facets(
 
     let categories: Vec<FacetCount> = category_rows
         .into_iter()
-        .filter_map(|(val, count)| {
-            val.map(|v| FacetCount { value: v, count })
-        })
+        .filter_map(|(val, count)| val.map(|v| FacetCount { value: v, count }))
         .collect();
 
     // Network facets

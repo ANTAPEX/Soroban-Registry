@@ -449,9 +449,7 @@ where
     use tracing_subscriber::filter::{LevelFilter, Targets};
     // TRACE so the capture catches sqlx query events at whatever level sqlx emits
     // them (DEBUG for normal, WARN for slow), independent of RUST_LOG.
-    QueryCaptureLayer.with_filter(
-        Targets::new().with_target("sqlx::query", LevelFilter::TRACE),
-    )
+    QueryCaptureLayer.with_filter(Targets::new().with_target("sqlx::query", LevelFilter::TRACE))
 }
 
 // ── Request / response DTOs ───────────────────────────────────────────────────
@@ -565,8 +563,15 @@ pub async fn get_nplus1(
     State(_state): State<AppState>,
     Query(p): Query<NPlusOneParams>,
 ) -> Json<Vec<NPlusOneFinding>> {
-    let window = Duration::from_millis(p.window_ms.unwrap_or(DEFAULT_NPLUS1_WINDOW_MS).clamp(10, 60_000));
-    let threshold = p.threshold.unwrap_or(DEFAULT_NPLUS1_THRESHOLD).clamp(2, 10_000);
+    let window = Duration::from_millis(
+        p.window_ms
+            .unwrap_or(DEFAULT_NPLUS1_WINDOW_MS)
+            .clamp(10, 60_000),
+    );
+    let threshold = p
+        .threshold
+        .unwrap_or(DEFAULT_NPLUS1_THRESHOLD)
+        .clamp(2, 10_000);
     Json(ANALYZER.detect_nplus1(window, threshold))
 }
 
@@ -690,7 +695,16 @@ pub async fn explain_query(
         ));
     }
     // Defense-in-depth against data-modifying keywords slipping through a CTE.
-    for kw in ["insert ", "update ", "delete ", "drop ", "alter ", "truncate ", "create ", "grant "] {
+    for kw in [
+        "insert ",
+        "update ",
+        "delete ",
+        "drop ",
+        "alter ",
+        "truncate ",
+        "create ",
+        "grant ",
+    ] {
         if lowered.contains(kw) {
             return Err(ApiError::bad_request(
                 "WRITE_KEYWORD_REJECTED",

@@ -159,7 +159,9 @@ pub async fn export_registry_data(
             export_json_lines(&client, &options, &filters, output_path).await?
         }
         RegistryExportFormat::Csv => export_csv(&client, &options, &filters, output_path).await?,
-        RegistryExportFormat::Sqlite => export_sqlite(&client, &options, &filters, output_path).await?,
+        RegistryExportFormat::Sqlite => {
+            export_sqlite(&client, &options, &filters, output_path).await?
+        }
         RegistryExportFormat::Markdown => {
             export_markdown(&client, &options, &filters, output_path).await?
         }

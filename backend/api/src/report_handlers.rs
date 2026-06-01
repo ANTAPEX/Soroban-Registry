@@ -122,8 +122,13 @@ pub async fn report_contract(
 
     // IP-based rate limit: 10 per day
     let ip_str = addr.ip().to_string();
-    enforce_rate_limit(&state, &ip_str, REPORT_RATE_LIMIT_PER_DAY, REPORT_RATE_WINDOW_SECS)
-        .await?;
+    enforce_rate_limit(
+        &state,
+        &ip_str,
+        REPORT_RATE_LIMIT_PER_DAY,
+        REPORT_RATE_WINDOW_SECS,
+    )
+    .await?;
 
     // Persist the report
     let report_id = Uuid::new_v4();
@@ -186,7 +191,10 @@ pub async fn get_report_status(
         .unwrap_or(&report_id_param);
 
     let report_uuid = Uuid::parse_str(raw_id).map_err(|_| {
-        ApiError::bad_request("INVALID_REPORT_ID", "report_id must be a valid UUID (rep_...)")
+        ApiError::bad_request(
+            "INVALID_REPORT_ID",
+            "report_id must be a valid UUID (rep_...)",
+        )
     })?;
 
     let contract_uuid = resolve_contract_id(&state, &id).await?;
@@ -216,23 +224,21 @@ pub async fn get_report_status(
 /// Resolve a contract by UUID string or human-readable contract_id string.
 async fn resolve_contract_id(state: &AppState, id: &str) -> ApiResult<Uuid> {
     if let Ok(uuid) = Uuid::parse_str(id) {
-        let exists: Option<Uuid> =
-            sqlx::query_scalar("SELECT id FROM contracts WHERE id = $1")
-                .bind(uuid)
-                .fetch_optional(&state.db)
-                .await
-                .map_err(|e| ApiError::internal(format!("db error: {e}")))?;
+        let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM contracts WHERE id = $1")
+            .bind(uuid)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| ApiError::internal(format!("db error: {e}")))?;
         return exists.ok_or_else(|| {
             ApiError::not_found("CONTRACT_NOT_FOUND", format!("contract {} not found", id))
         });
     }
 
-    let uuid: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM contracts WHERE contract_id = $1")
-            .bind(id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| ApiError::internal(format!("db error: {e}")))?;
+    let uuid: Option<Uuid> = sqlx::query_scalar("SELECT id FROM contracts WHERE contract_id = $1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(format!("db error: {e}")))?;
 
     uuid.ok_or_else(|| {
         ApiError::not_found("CONTRACT_NOT_FOUND", format!("contract {} not found", id))
@@ -253,10 +259,7 @@ async fn enforce_rate_limit(
     let cache_key = format!("{}:{}", ip, day_bucket);
 
     let (cached, _hit) = state.cache.get("report_rl", &cache_key).await;
-    let count: u32 = cached
-        .as_deref()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let count: u32 = cached.as_deref().and_then(|s| s.parse().ok()).unwrap_or(0);
 
     if count >= limit {
         return Err(ApiError::new(

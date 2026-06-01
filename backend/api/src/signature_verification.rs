@@ -154,8 +154,11 @@ fn decode_message(message: &str, encoding: Option<&str>) -> Result<Vec<u8>, ApiE
 
 // ── Verification result cache ─────────────────────────────────────────────────
 
-static VERIFY_CACHE: Lazy<Mutex<lru::LruCache<String, (bool, Instant)>>> =
-    Lazy::new(|| Mutex::new(lru::LruCache::new(NonZeroUsize::new(CACHE_CAPACITY).unwrap())));
+static VERIFY_CACHE: Lazy<Mutex<lru::LruCache<String, (bool, Instant)>>> = Lazy::new(|| {
+    Mutex::new(lru::LruCache::new(
+        NonZeroUsize::new(CACHE_CAPACITY).unwrap(),
+    ))
+});
 
 fn cache_key(alg: SignatureAlgorithm, pk: &[u8], msg: &[u8], sig: &[u8]) -> String {
     let mut h = Sha256::new();
@@ -168,12 +171,7 @@ fn cache_key(alg: SignatureAlgorithm, pk: &[u8], msg: &[u8], sig: &[u8]) -> Stri
 
 /// Verify with an in-memory cache keyed by the content of all inputs. Returns
 /// `(valid, cache_hit)`.
-fn verify_cached(
-    alg: SignatureAlgorithm,
-    pk: &[u8],
-    msg: &[u8],
-    sig: &[u8],
-) -> (bool, bool) {
+fn verify_cached(alg: SignatureAlgorithm, pk: &[u8], msg: &[u8], sig: &[u8]) -> (bool, bool) {
     let key = cache_key(alg, pk, msg, sig);
     let ttl = cache_ttl_secs();
 
@@ -357,11 +355,15 @@ pub async fn register_key(
     State(state): State<AppState>,
     Json(req): Json<RegisterKeyRequest>,
 ) -> Result<Json<SigningKey>, ApiError> {
-    let alg = SignatureAlgorithm::parse(&req.algorithm)
-        .ok_or_else(|| ApiError::bad_request("UNSUPPORTED_ALGORITHM", "algorithm must be ed25519 or secp256k1"))?;
-    let pk_bytes = BASE64
-        .decode(req.public_key.trim())
-        .map_err(|_| ApiError::bad_request("INVALID_PUBLIC_KEY", "public_key is not valid base64"))?;
+    let alg = SignatureAlgorithm::parse(&req.algorithm).ok_or_else(|| {
+        ApiError::bad_request(
+            "UNSUPPORTED_ALGORITHM",
+            "algorithm must be ed25519 or secp256k1",
+        )
+    })?;
+    let pk_bytes = BASE64.decode(req.public_key.trim()).map_err(|_| {
+        ApiError::bad_request("INVALID_PUBLIC_KEY", "public_key is not valid base64")
+    })?;
     // Reject structurally invalid keys up front.
     validate_public_key(alg, &pk_bytes)?;
 
@@ -425,11 +427,15 @@ pub async fn rotate_key(
         .await?
         .ok_or_else(|| ApiError::not_found("KEY_NOT_FOUND", "signing key not found"))?;
 
-    let alg = SignatureAlgorithm::parse(&req.algorithm)
-        .ok_or_else(|| ApiError::bad_request("UNSUPPORTED_ALGORITHM", "algorithm must be ed25519 or secp256k1"))?;
-    let pk_bytes = BASE64
-        .decode(req.public_key.trim())
-        .map_err(|_| ApiError::bad_request("INVALID_PUBLIC_KEY", "public_key is not valid base64"))?;
+    let alg = SignatureAlgorithm::parse(&req.algorithm).ok_or_else(|| {
+        ApiError::bad_request(
+            "UNSUPPORTED_ALGORITHM",
+            "algorithm must be ed25519 or secp256k1",
+        )
+    })?;
+    let pk_bytes = BASE64.decode(req.public_key.trim()).map_err(|_| {
+        ApiError::bad_request("INVALID_PUBLIC_KEY", "public_key is not valid base64")
+    })?;
     validate_public_key(alg, &pk_bytes)?;
 
     let new_key_id = fingerprint(alg, &pk_bytes);
@@ -491,7 +497,10 @@ pub async fn revoke_key(
 
     let exists = load_key(&state, &key_id).await?.is_some();
     if !exists {
-        return Err(ApiError::not_found("KEY_NOT_FOUND", "signing key not found"));
+        return Err(ApiError::not_found(
+            "KEY_NOT_FOUND",
+            "signing key not found",
+        ));
     }
 
     let revocation = sqlx::query_as::<_, Revocation>(
@@ -542,8 +551,12 @@ pub async fn store_signature(
     State(state): State<AppState>,
     Json(req): Json<StoreSignatureRequest>,
 ) -> Result<Json<ContractSignature>, ApiError> {
-    SignatureAlgorithm::parse(&req.algorithm)
-        .ok_or_else(|| ApiError::bad_request("UNSUPPORTED_ALGORITHM", "algorithm must be ed25519 or secp256k1"))?;
+    SignatureAlgorithm::parse(&req.algorithm).ok_or_else(|| {
+        ApiError::bad_request(
+            "UNSUPPORTED_ALGORITHM",
+            "algorithm must be ed25519 or secp256k1",
+        )
+    })?;
 
     let signed_at = req.signed_at.unwrap_or_else(Utc::now);
     let metadata = req.metadata.unwrap_or_else(|| serde_json::json!({}));
@@ -605,25 +618,33 @@ pub async fn verify(
         let key = load_key(&state, kid)
             .await?
             .ok_or_else(|| ApiError::not_found("KEY_NOT_FOUND", "signing key not found"))?;
-        let alg = SignatureAlgorithm::parse(&key.algorithm)
-            .ok_or_else(|| ApiError::internal_error("BAD_STORED_ALGORITHM", "stored key has invalid algorithm"))?;
-        let pk = BASE64
-            .decode(key.public_key.trim())
-            .map_err(|_| ApiError::internal_error("BAD_STORED_KEY", "stored public key is not base64"))?;
+        let alg = SignatureAlgorithm::parse(&key.algorithm).ok_or_else(|| {
+            ApiError::internal_error("BAD_STORED_ALGORITHM", "stored key has invalid algorithm")
+        })?;
+        let pk = BASE64.decode(key.public_key.trim()).map_err(|_| {
+            ApiError::internal_error("BAD_STORED_KEY", "stored public key is not base64")
+        })?;
         (alg, pk, Some(key), Some(kid.clone()))
     } else {
         let alg = req
             .algorithm
             .as_deref()
             .and_then(SignatureAlgorithm::parse)
-            .ok_or_else(|| ApiError::bad_request("MISSING_ALGORITHM", "provide key_id, or algorithm + public_key"))?;
-        let pk_b64 = req
-            .public_key
-            .as_deref()
-            .ok_or_else(|| ApiError::bad_request("MISSING_PUBLIC_KEY", "provide key_id, or algorithm + public_key"))?;
-        let pk = BASE64
-            .decode(pk_b64.trim())
-            .map_err(|_| ApiError::bad_request("INVALID_PUBLIC_KEY", "public_key is not valid base64"))?;
+            .ok_or_else(|| {
+                ApiError::bad_request(
+                    "MISSING_ALGORITHM",
+                    "provide key_id, or algorithm + public_key",
+                )
+            })?;
+        let pk_b64 = req.public_key.as_deref().ok_or_else(|| {
+            ApiError::bad_request(
+                "MISSING_PUBLIC_KEY",
+                "provide key_id, or algorithm + public_key",
+            )
+        })?;
+        let pk = BASE64.decode(pk_b64.trim()).map_err(|_| {
+            ApiError::bad_request("INVALID_PUBLIC_KEY", "public_key is not valid base64")
+        })?;
         let derived = fingerprint(alg, &pk);
         (alg, pk, None, Some(derived))
     };
@@ -638,7 +659,9 @@ pub async fn verify(
     let now = Utc::now();
     let check_time = req.signed_at.unwrap_or(now);
     let timestamp_valid = match &resolved_key {
-        Some(key) => check_time >= key.not_before && key.not_after.map(|na| check_time <= na).unwrap_or(true),
+        Some(key) => {
+            check_time >= key.not_before && key.not_after.map(|na| check_time <= na).unwrap_or(true)
+        }
         None => true,
     };
 
@@ -655,10 +678,7 @@ pub async fn verify(
         None
     };
 
-    let valid = crypto_valid
-        && !revoked
-        && timestamp_valid
-        && chain_validated.unwrap_or(true);
+    let valid = crypto_valid && !revoked && timestamp_valid && chain_validated.unwrap_or(true);
 
     let reason = if !crypto_valid {
         "cryptographic verification failed".to_string()
@@ -690,7 +710,11 @@ pub async fn verify_chain(
     Path(key_id): Path<String>,
 ) -> Result<Json<ChainResponse>, ApiError> {
     let (valid, path, reason) = validate_chain_inner(&state, &key_id).await?;
-    Ok(Json(ChainResponse { valid, path, reason }))
+    Ok(Json(ChainResponse {
+        valid,
+        path,
+        reason,
+    }))
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -720,13 +744,12 @@ async fn load_key(state: &AppState, key_id: &str) -> Result<Option<SigningKey>, 
 }
 
 async fn is_revoked(state: &AppState, key_id: &str) -> Result<bool, ApiError> {
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM signature_revocations WHERE key_id = $1",
-    )
-    .bind(key_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| ApiError::internal_error("REVOCATION_CHECK_ERROR", e.to_string()))?;
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM signature_revocations WHERE key_id = $1")
+            .bind(key_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|e| ApiError::internal_error("REVOCATION_CHECK_ERROR", e.to_string()))?;
     Ok(count > 0)
 }
 
@@ -752,17 +775,29 @@ async fn validate_chain_inner(
             return Ok((false, path, format!("key {} is revoked", current.key_id)));
         }
         if now < current.not_before || current.not_after.map(|na| now > na).unwrap_or(false) {
-            return Ok((false, path, format!("key {} is outside its validity window", current.key_id)));
+            return Ok((
+                false,
+                path,
+                format!("key {} is outside its validity window", current.key_id),
+            ));
         }
         if current.is_root {
             return Ok((true, path, "chain anchored to a trusted root".to_string()));
         }
 
         let Some(parent_id) = current.parent_key_id.clone() else {
-            return Ok((false, path, "chain ends without reaching a trusted root".to_string()));
+            return Ok((
+                false,
+                path,
+                "chain ends without reaching a trusted root".to_string(),
+            ));
         };
         let Some(cert_sig_b64) = current.cert_signature.clone() else {
-            return Ok((false, path, format!("key {} has no certificate signature", current.key_id)));
+            return Ok((
+                false,
+                path,
+                format!("key {} has no certificate signature", current.key_id),
+            ));
         };
         let parent = match load_key(state, &parent_id).await? {
             Some(p) => p,
@@ -770,23 +805,35 @@ async fn validate_chain_inner(
         };
 
         // Verify the parent signed this key's raw public-key bytes.
-        let parent_alg = SignatureAlgorithm::parse(&parent.algorithm)
-            .ok_or_else(|| ApiError::internal_error("BAD_STORED_ALGORITHM", "parent key has invalid algorithm"))?;
-        let parent_pk = BASE64.decode(parent.public_key.trim())
-            .map_err(|_| ApiError::internal_error("BAD_STORED_KEY", "parent public key not base64"))?;
-        let child_pk = BASE64.decode(current.public_key.trim())
-            .map_err(|_| ApiError::internal_error("BAD_STORED_KEY", "child public key not base64"))?;
-        let cert_sig = BASE64.decode(cert_sig_b64.trim())
+        let parent_alg = SignatureAlgorithm::parse(&parent.algorithm).ok_or_else(|| {
+            ApiError::internal_error("BAD_STORED_ALGORITHM", "parent key has invalid algorithm")
+        })?;
+        let parent_pk = BASE64.decode(parent.public_key.trim()).map_err(|_| {
+            ApiError::internal_error("BAD_STORED_KEY", "parent public key not base64")
+        })?;
+        let child_pk = BASE64.decode(current.public_key.trim()).map_err(|_| {
+            ApiError::internal_error("BAD_STORED_KEY", "child public key not base64")
+        })?;
+        let cert_sig = BASE64
+            .decode(cert_sig_b64.trim())
             .map_err(|_| ApiError::internal_error("BAD_CERT_SIG", "cert signature not base64"))?;
 
         if verify_signature(parent_alg, &parent_pk, &child_pk, &cert_sig).is_err() {
-            return Ok((false, path, format!("invalid certificate signature for key {}", current.key_id)));
+            return Ok((
+                false,
+                path,
+                format!("invalid certificate signature for key {}", current.key_id),
+            ));
         }
 
         current = parent;
     }
 
-    Ok((false, path, "certificate chain exceeds maximum depth".to_string()))
+    Ok((
+        false,
+        path,
+        "certificate chain exceeds maximum depth".to_string(),
+    ))
 }
 
 #[cfg(test)]
@@ -795,9 +842,18 @@ mod tests {
 
     #[test]
     fn algorithm_parsing() {
-        assert_eq!(SignatureAlgorithm::parse("Ed25519"), Some(SignatureAlgorithm::Ed25519));
-        assert_eq!(SignatureAlgorithm::parse("secp256k1"), Some(SignatureAlgorithm::Secp256k1));
-        assert_eq!(SignatureAlgorithm::parse("ecdsa"), Some(SignatureAlgorithm::Secp256k1));
+        assert_eq!(
+            SignatureAlgorithm::parse("Ed25519"),
+            Some(SignatureAlgorithm::Ed25519)
+        );
+        assert_eq!(
+            SignatureAlgorithm::parse("secp256k1"),
+            Some(SignatureAlgorithm::Secp256k1)
+        );
+        assert_eq!(
+            SignatureAlgorithm::parse("ecdsa"),
+            Some(SignatureAlgorithm::Secp256k1)
+        );
         assert_eq!(SignatureAlgorithm::parse("rsa"), None);
     }
 
@@ -820,10 +876,21 @@ mod tests {
         let msg = b"deploy:contract-abc:wasm-hash";
         let sig = sk.sign(msg);
 
-        assert!(verify_signature(SignatureAlgorithm::Ed25519, vk.as_bytes(), msg, &sig.to_bytes()).is_ok());
+        assert!(verify_signature(
+            SignatureAlgorithm::Ed25519,
+            vk.as_bytes(),
+            msg,
+            &sig.to_bytes()
+        )
+        .is_ok());
         // Tampered message fails.
         assert_eq!(
-            verify_signature(SignatureAlgorithm::Ed25519, vk.as_bytes(), b"other", &sig.to_bytes()),
+            verify_signature(
+                SignatureAlgorithm::Ed25519,
+                vk.as_bytes(),
+                b"other",
+                &sig.to_bytes()
+            ),
             Err(SigError::VerificationFailed)
         );
     }
@@ -840,7 +907,13 @@ mod tests {
         let sig: Signature = sk.sign(msg);
 
         assert!(verify_signature(SignatureAlgorithm::Secp256k1, &pk, msg, &sig.to_bytes()).is_ok());
-        assert!(verify_signature(SignatureAlgorithm::Secp256k1, &pk, b"tampered", &sig.to_bytes()).is_err());
+        assert!(verify_signature(
+            SignatureAlgorithm::Secp256k1,
+            &pk,
+            b"tampered",
+            &sig.to_bytes()
+        )
+        .is_err());
     }
 
     #[test]

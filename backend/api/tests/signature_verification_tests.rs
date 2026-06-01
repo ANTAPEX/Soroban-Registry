@@ -17,11 +17,22 @@ fn ed25519_real_signature_roundtrip() {
     let sig = sk.sign(msg);
 
     assert!(
-        verify_signature(SignatureAlgorithm::Ed25519, vk.as_bytes(), msg, &sig.to_bytes()).is_ok(),
+        verify_signature(
+            SignatureAlgorithm::Ed25519,
+            vk.as_bytes(),
+            msg,
+            &sig.to_bytes()
+        )
+        .is_ok(),
         "valid ed25519 signature must verify"
     );
     assert_eq!(
-        verify_signature(SignatureAlgorithm::Ed25519, vk.as_bytes(), b"tampered", &sig.to_bytes()),
+        verify_signature(
+            SignatureAlgorithm::Ed25519,
+            vk.as_bytes(),
+            b"tampered",
+            &sig.to_bytes()
+        ),
         Err(SigError::VerificationFailed),
         "tampered message must fail"
     );
@@ -62,7 +73,13 @@ fn secp256k1_real_signature_roundtrip_compressed_and_uncompressed() {
     // Compressed SEC1 public key (33 bytes).
     let pk_compressed = vk.to_sec1_bytes();
     assert!(
-        verify_signature(SignatureAlgorithm::Secp256k1, &pk_compressed, msg, &sig.to_bytes()).is_ok(),
+        verify_signature(
+            SignatureAlgorithm::Secp256k1,
+            &pk_compressed,
+            msg,
+            &sig.to_bytes()
+        )
+        .is_ok(),
         "valid secp256k1 signature must verify with a compressed key"
     );
 
@@ -80,8 +97,13 @@ fn secp256k1_real_signature_roundtrip_compressed_and_uncompressed() {
     );
 
     assert!(
-        verify_signature(SignatureAlgorithm::Secp256k1, &pk_compressed, b"tampered", &sig.to_bytes())
-            .is_err(),
+        verify_signature(
+            SignatureAlgorithm::Secp256k1,
+            &pk_compressed,
+            b"tampered",
+            &sig.to_bytes()
+        )
+        .is_err(),
         "tampered message must fail under secp256k1"
     );
 }
@@ -98,7 +120,13 @@ fn secp256k1_der_signature_is_accepted() {
     let der = sig.to_der();
 
     assert!(
-        verify_signature(SignatureAlgorithm::Secp256k1, &vk.to_sec1_bytes(), msg, der.as_bytes()).is_ok(),
+        verify_signature(
+            SignatureAlgorithm::Secp256k1,
+            &vk.to_sec1_bytes(),
+            msg,
+            der.as_bytes()
+        )
+        .is_ok(),
         "DER-encoded secp256k1 signature must verify"
     );
 }
@@ -113,9 +141,13 @@ fn cross_algorithm_inputs_are_rejected() {
     let vk = sk.verifying_key();
     let msg = b"m";
     let sig = sk.sign(msg);
-    assert!(
-        verify_signature(SignatureAlgorithm::Secp256k1, vk.as_bytes(), msg, &sig.to_bytes()).is_err()
-    );
+    assert!(verify_signature(
+        SignatureAlgorithm::Secp256k1,
+        vk.as_bytes(),
+        msg,
+        &sig.to_bytes()
+    )
+    .is_err());
 }
 
 #[test]

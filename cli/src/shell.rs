@@ -191,7 +191,8 @@ async fn execute_command(args: Vec<String>, _context: &ShellContext) -> Result<(
         Ok(cli) => {
             // We call dispatch_command directly to avoid recursion
             // but we need to resolve the network first.
-            let cfg_network = crate::config::resolve_network(cli.network.clone(), cli.profile.clone())?;
+            let cfg_network =
+                crate::config::resolve_network(cli.network.clone(), cli.profile.clone())?;
             let mut net_str = cfg_network.to_string();
             if net_str == "auto" {
                 net_str = "mainnet".to_string();

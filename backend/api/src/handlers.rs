@@ -723,14 +723,13 @@ async fn fetch_network_catalog_v1(
             let definition = definitions
                 .get(network.id.as_str())
                 .expect("configured network definition exists");
-            let network_stats =
-                stats
-                    .get(&network.network_type.to_string())
-                    .cloned()
-                    .unwrap_or(NetworkStatsV1 {
-                        contract_count: 0,
-                        transaction_volume_24h: 0,
-                    });
+            let network_stats = stats
+                .get(&network.network_type.to_string())
+                .cloned()
+                .unwrap_or(NetworkStatsV1 {
+                    contract_count: 0,
+                    transaction_volume_24h: 0,
+                });
 
             NetworkInfoV1 {
                 name: network.name,
@@ -838,6 +837,10 @@ pub struct PublisherContractsQuery {
     pub limit: i64,
     #[serde(default)]
     pub offset: i64,
+    /// Filter by network (mainnet, testnet, futurenet)
+    pub network: Option<Network>,
+    /// Filter by category (e.g., DeFi, NFT)
+    pub category: Option<String>,
 }
 
 fn default_contracts_limit() -> i64 {
@@ -2026,6 +2029,33 @@ pub async fn list_contracts(
 
     let mut response = PaginatedResponse::new(contracts, total, page, limit);
 
+    // Populate active filter metadata
+    {
+        let mut networks: Option<Vec<String>> = None;
+        if let Some(n) = &params.networks {
+            if !n.is_empty() {
+                networks = Some(n.iter().map(|net| net.to_string()).collect());
+            }
+        } else if let Some(n) = &params.network {
+            networks = Some(vec![n.to_string()]);
+        }
+        let categories = params.categories.clone().filter(|c| !c.is_empty());
+        let tags = params.tags.clone().filter(|t| !t.is_empty());
+        let verified_only = params.verified_only;
+        let verification_status = params.verification_status.as_ref().map(|s| s.to_string());
+
+        let filters = shared::SearchFilterMetadata {
+            networks,
+            categories,
+            verified_only,
+            verification_status,
+            tags,
+            maturity: params.maturity.as_ref().map(|m| format!("{:?}", m)),
+            query: params.query.clone(),
+        };
+        response = response.with_filters(filters);
+    }
+
     if has_more {
         if let Some(last_item) = response.items.last() {
             let next_cursor = shared::pagination::Cursor::new(last_item.created_at, last_item.id);
@@ -2103,6 +2133,28 @@ fn render_contract_export(
                 contracts: contracts.to_vec(),
             })
             .map_err(|err| ApiError::internal(format!("Failed to render JSON export: {err}")))
+        }
+        ContractExportFormat::Jsonl => {
+            // Header line: one JSON object carrying the export metadata.
+            let mut out = serde_json::to_string(&serde_json::json!({
+                "_type": "export_metadata",
+                "exported_at": metadata.exported_at,
+                "format": "jsonl",
+                "total_count": metadata.total_count,
+                "async_export": metadata.async_export,
+                "filters": metadata.filters,
+            }))
+            .map_err(|err| ApiError::internal(format!("Failed to render JSONL header: {err}")))?;
+            out.push('\n');
+
+            for contract in contracts {
+                let line = serde_json::to_string(contract).map_err(|err| {
+                    ApiError::internal(format!("Failed to render JSONL record: {err}"))
+                })?;
+                out.push_str(&line);
+                out.push('\n');
+            }
+            Ok(out)
         }
         ContractExportFormat::Yaml => serde_yaml::to_string(&ContractMetadataExportEnvelope {
             metadata: metadata.clone(),
@@ -4514,21 +4566,54 @@ pub async fn get_publisher_contracts(
     let limit = query.limit.clamp(1, 100);
     let offset = query.offset.max(0);
 
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contracts WHERE publisher_id = $1")
-        .bind(publisher_uuid)
+    let mut count_qb: QueryBuilder<'_, sqlx::Postgres> =
+        QueryBuilder::new("SELECT COUNT(*) FROM contracts WHERE publisher_id = ");
+    count_qb.push_bind(publisher_uuid);
+
+    if let Some(network) = &query.network {
+        count_qb.push(" AND network = ");
+        count_qb.push_bind(network);
+    }
+    if let Some(category) = &query.category {
+        let cat = category.trim();
+        if !cat.is_empty() {
+            count_qb.push(" AND category = ");
+            count_qb.push_bind(cat);
+        }
+    }
+
+    let total: i64 = count_qb
+        .build_query_scalar()
         .fetch_one(&state.db)
         .await
         .map_err(|err| db_internal_error("get publisher contracts count", err))?;
 
-    let contracts: Vec<Contract> = sqlx::query_as(
-        "SELECT * FROM contracts WHERE publisher_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
-    )
-    .bind(publisher_uuid)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|err| db_internal_error("get publisher contracts", err))?;
+    let mut qb: QueryBuilder<'_, sqlx::Postgres> =
+        QueryBuilder::new("SELECT * FROM contracts WHERE publisher_id = ");
+    qb.push_bind(publisher_uuid);
+
+    if let Some(network) = &query.network {
+        qb.push(" AND network = ");
+        qb.push_bind(network);
+    }
+    if let Some(category) = &query.category {
+        let cat = category.trim();
+        if !cat.is_empty() {
+            qb.push(" AND category = ");
+            qb.push_bind(cat);
+        }
+    }
+
+    qb.push(" ORDER BY created_at DESC LIMIT ");
+    qb.push_bind(limit);
+    qb.push(" OFFSET ");
+    qb.push_bind(offset);
+
+    let contracts: Vec<Contract> = qb
+        .build_query_as()
+        .fetch_all(&state.db)
+        .await
+        .map_err(|err| db_internal_error("get publisher contracts", err))?;
 
     let page = (offset / limit) + 1;
     let body = PaginatedResponse::new(contracts, total, page, limit);
@@ -6134,9 +6219,7 @@ pub async fn batch_update_contract_metadata(
     State(state): State<AppState>,
     ValidatedJson(req): ValidatedJson<shared::BatchMetadataUpdateRequest>,
 ) -> ApiResult<Json<shared::BatchMetadataUpdateResponse>> {
-    let batch_id = req
-        .batch_id
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let batch_id = req.batch_id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let user_id = req.user_id;
 
     let mut results: Vec<shared::BatchMetadataUpdateItemResult> = Vec::new();
@@ -7445,6 +7528,126 @@ mod tests {
         assert_eq!(sanitized.cursor, None);
         assert_eq!(sanitized.category.as_deref(), Some("DeFi"));
     }
+
+    fn minimal_export_metadata(format: ContractExportFormat) -> ContractExportMetadata {
+        ContractExportMetadata {
+            exported_at: Utc::now(),
+            format,
+            total_count: 0,
+            async_export: false,
+            filters: ContractSearchParams::default(),
+        }
+    }
+
+    #[test]
+    fn jsonl_export_empty_produces_only_header_line() {
+        let metadata = minimal_export_metadata(ContractExportFormat::Jsonl);
+        let output = render_contract_export(&ContractExportFormat::Jsonl, &metadata, &[])
+            .expect("jsonl export should render with no records");
+
+        let lines: Vec<&str> = output.lines().collect();
+        // Only the metadata header line should be present.
+        assert_eq!(lines.len(), 1, "empty export should have exactly one line");
+        let header: serde_json::Value =
+            serde_json::from_str(lines[0]).expect("header should be valid JSON");
+        assert_eq!(header["_type"], "export_metadata");
+        assert_eq!(header["format"], "jsonl");
+        assert_eq!(header["total_count"], 0);
+    }
+
+    #[test]
+    fn jsonl_export_with_records_produces_one_line_per_record_plus_header() {
+        let metadata = ContractExportMetadata {
+            exported_at: Utc::now(),
+            format: ContractExportFormat::Jsonl,
+            total_count: 2,
+            async_export: false,
+            filters: ContractSearchParams::default(),
+        };
+        let record = ContractMetadataExportRecord {
+            id: Uuid::nil(),
+            logical_id: None,
+            contract_id: "CJSONLTEST".to_string(),
+            wasm_hash: "aabbccdd".to_string(),
+            name: "JSONL Contract".to_string(),
+            description: None,
+            publisher_id: Uuid::nil(),
+            publisher_stellar_address: "GJSONLADDR".to_string(),
+            publisher_username: None,
+            network: "testnet".to_string(),
+            is_verified: false,
+            category: None,
+            tags: vec![],
+            maturity: None,
+            health_score: 0,
+            is_maintenance: false,
+            deployment_count: 0,
+            audit_status: None,
+            visibility: "public".to_string(),
+            organization_id: None,
+            network_configs: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            verified_at: None,
+            last_verified_at: None,
+            last_accessed_at: None,
+        };
+        let records = vec![record.clone(), record];
+        let output = render_contract_export(&ContractExportFormat::Jsonl, &metadata, &records)
+            .expect("jsonl export should render");
+
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(
+            lines.len(),
+            3,
+            "should have 1 header + 2 record lines, got {}: {:?}",
+            lines.len(),
+            lines
+        );
+        // Every line is valid JSON.
+        for line in &lines {
+            serde_json::from_str::<serde_json::Value>(line)
+                .expect("each line should be valid JSON");
+        }
+        // First line is the metadata header.
+        let header: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(header["_type"], "export_metadata");
+        // Record lines contain the contract_id.
+        assert!(lines[1].contains("CJSONLTEST"));
+    }
+
+    #[test]
+    fn jsonl_format_display_is_jsonl() {
+        assert_eq!(ContractExportFormat::Jsonl.to_string(), "jsonl");
+    }
+
+    #[test]
+    fn jsonl_format_content_type_is_json() {
+        assert_eq!(
+            ContractExportFormat::Jsonl.content_type(),
+            "application/json"
+        );
+    }
+
+    #[test]
+    fn csv_export_empty_has_header_row_only() {
+        let metadata = minimal_export_metadata(ContractExportFormat::Csv);
+        let output = render_contract_export(&ContractExportFormat::Csv, &metadata, &[])
+            .expect("csv export should render with no records");
+
+        // Must have metadata comments and the column header row; no data rows.
+        assert!(output.contains("# exported_at="));
+        assert!(output.contains("id,logical_id,contract_id"));
+        let data_lines: Vec<&str> = output
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .skip(1) // skip the column header
+            .collect();
+        assert!(
+            data_lines.is_empty(),
+            "empty csv export should have no data rows, found: {data_lines:?}"
+        );
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -7830,7 +8033,8 @@ pub async fn delete_favorite_search(
         .map_err(|err| db_internal_error("delete favorite search", err))?;
 
     if result.rows_affected() == 0 {
-        return Err(ApiError::not_found(            "FavoriteNotFound",
+        return Err(ApiError::not_found(
+            "FavoriteNotFound",
             "Favorite search not found",
         ));
     }
@@ -7849,33 +8053,33 @@ pub async fn handle_export_audit(
                created_at
         FROM audit_logs
         ORDER BY created_at DESC
-        "#
+        "#,
     )
     .fetch_all(&state.db)
     .await
-    .map_err(|e| ApiError::new(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "DatabaseError",
-        format!("Failed to export audit logs: {e}")
-    ))?;
+    .map_err(|e| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DatabaseError",
+            format!("Failed to export audit logs: {e}"),
+        )
+    })?;
 
     Ok(Json(logs))
 }
 
 // Axum Handler to enforce retention criteria
-pub async fn handle_retention_cleanup(
-    State(state): State<AppState>,
-) -> ApiResult<String> {
-    let result = sqlx::query(
-        "DELETE FROM audit_logs WHERE created_at < NOW() - INTERVAL '1 year'"
-    )
-    .execute(&state.db)
-    .await
-    .map_err(|e| ApiError::new(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "DatabaseError",
-        format!("Failed to prune logs: {e}")
-    ))?;
-    
+pub async fn handle_retention_cleanup(State(state): State<AppState>) -> ApiResult<String> {
+    let result = sqlx::query("DELETE FROM audit_logs WHERE created_at < NOW() - INTERVAL '1 year'")
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DatabaseError",
+                format!("Failed to prune logs: {e}"),
+            )
+        })?;
+
     Ok(format!("Pruned rows: {}", result.rows_affected()))
 }

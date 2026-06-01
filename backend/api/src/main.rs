@@ -246,8 +246,12 @@ async fn main() -> Result<()> {
         Duration::from_secs(2), // Ping every 2 seconds
         Duration::from_secs(1), // Timeout after 1 second
     );
-    // Initialize feature flags manager
-    let feature_flags = Arc::new(api::feature_flags::FeatureFlagManager::new());
+    // Initialize feature flags manager from configuration (#1007)
+    let flag_entries = api::config::parse_feature_flags(&config.feature_flags_json);
+    let feature_flags = Arc::new(api::feature_flags::FeatureFlagManager::from_config(&flag_entries));
+    if !flag_entries.is_empty() {
+        tracing::info!(count = flag_entries.len(), "Feature flags loaded from configuration");
+    }
 
     // Create app state
     let is_shutting_down = Arc::new(AtomicBool::new(false));

@@ -34,7 +34,12 @@ impl From<CompletionShell> for Shell {
 /// Generate a completion script for the given shell.
 pub fn generate_script(shell: CompletionShell) {
     let mut cmd = crate::Cli::command();
-    generate(Shell::from(shell), &mut cmd, "soroban-registry", &mut io::stdout());
+    generate(
+        Shell::from(shell),
+        &mut cmd,
+        "soroban-registry",
+        &mut io::stdout(),
+    );
 }
 
 pub fn install_hint(shell: CompletionShell) -> &'static str {

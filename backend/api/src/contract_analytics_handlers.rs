@@ -1,4 +1,7 @@
-use axum::{extract::{Query, State}, Json};
+use axum::{
+    extract::{Query, State},
+    Json,
+};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -147,9 +150,7 @@ fn resolve_ranges(
     query: &ContractAnalyticsQuery,
 ) -> ApiResult<(NaiveDate, NaiveDate, NaiveDate, NaiveDate, NaiveDate)> {
     let until = query.until.unwrap_or_else(|| Utc::now().date_naive());
-    let since = query
-        .since
-        .unwrap_or_else(|| until - Duration::days(29));
+    let since = query.since.unwrap_or_else(|| until - Duration::days(29));
 
     if since > until {
         return Err(ApiError::bad_request(
@@ -163,7 +164,13 @@ fn resolve_ranges(
     let previous_since = previous_until - Duration::days(period_days - 1);
     let time_series_since = std::cmp::max(since, until - Duration::days(29));
 
-    Ok((since, until, previous_since, previous_until, time_series_since))
+    Ok((
+        since,
+        until,
+        previous_since,
+        previous_until,
+        time_series_since,
+    ))
 }
 
 /// GET /api/v1/analytics/contracts

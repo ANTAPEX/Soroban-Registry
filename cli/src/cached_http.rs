@@ -33,10 +33,7 @@ fn options() -> HttpCacheOptions {
 }
 
 /// Perform a GET request, returning cached body when available.
-pub async fn cached_get(
-    url: &str,
-    query: &[(&str, String)],
-) -> Result<(StatusCode, String)> {
+pub async fn cached_get(url: &str, query: &[(&str, String)]) -> Result<(StatusCode, String)> {
     let opts = options();
     let cache_key = cache::http_cache_key(url, query);
 
@@ -56,7 +53,11 @@ pub async fn cached_get(
             log::debug!("Cache miss: {}", cache_key);
         }
     } else if opts.verbose >= 1 {
-        eprintln!("{} cache bypassed: {}", "↷".yellow(), truncate_key(&cache_key));
+        eprintln!(
+            "{} cache bypassed: {}",
+            "↷".yellow(),
+            truncate_key(&cache_key)
+        );
     }
 
     let client = crate::net::client();
@@ -73,7 +74,11 @@ pub async fn cached_get(
     if !opts.no_cache && status.is_success() {
         cache::set_http_entry(&cache_key, &body)?;
         if opts.verbose >= 1 {
-            eprintln!("{} cached response: {}", "▶".cyan(), truncate_key(&cache_key));
+            eprintln!(
+                "{} cached response: {}",
+                "▶".cyan(),
+                truncate_key(&cache_key)
+            );
         }
     }
 

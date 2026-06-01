@@ -218,7 +218,11 @@ async fn run_batch(
         println!("{}", "═".repeat(60).cyan());
         println!("  {}: {}", "Contracts".bold(), addresses.len());
         println!("  {}: {}", "Network".bold(), network.bright_blue());
-        println!("  {}: {}", "Strict Mode".bold(), if strict { "enabled" } else { "disabled" });
+        println!(
+            "  {}: {}",
+            "Strict Mode".bold(),
+            if strict { "enabled" } else { "disabled" }
+        );
         println!();
     }
 
@@ -237,12 +241,16 @@ async fn run_batch(
                 if let Ok(Some(cached)) = cache::get(address, network) {
                     let result = serde_json::from_value::<VerificationResult>(cached.result)
                         .unwrap_or_else(|_| VerificationResult::default());
-                    
+
                     batch_errors.extend(result.errors.clone());
                     batch_warnings.extend(result.warnings.clone());
-                    
+
                     if !json {
-                        let status = if result.is_verified { "✓".green() } else { "✗".red() };
+                        let status = if result.is_verified {
+                            "✓".green()
+                        } else {
+                            "✗".red()
+                        };
                         println!("{}", status);
                     }
                     results.push((address.to_string(), result));
@@ -277,8 +285,24 @@ async fn run_batch(
     } else {
         println!();
         println!("{} Batch Results Summary", "═".repeat(60).cyan());
-        println!("  Verified: {}", results.iter().filter(|(_, r)| r.is_verified).count().to_string().green());
-        println!("  Unverified: {}", results.iter().filter(|(_, r)| !r.is_verified).count().to_string().red());
+        println!(
+            "  Verified: {}",
+            results
+                .iter()
+                .filter(|(_, r)| r.is_verified)
+                .count()
+                .to_string()
+                .green()
+        );
+        println!(
+            "  Unverified: {}",
+            results
+                .iter()
+                .filter(|(_, r)| !r.is_verified)
+                .count()
+                .to_string()
+                .red()
+        );
         if !batch_errors.is_empty() {
             println!("  Errors: {}", batch_errors.len().to_string().red());
         }
