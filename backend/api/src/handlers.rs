@@ -43,7 +43,7 @@ use shared::{
 // NOTE: All types are now imported from the shared crate.
 // Duplicate definitions have been removed to maintain a single source of truth.
 // ────────────────────────────────────────────────────────────────────────────
-use sqlx::{Postgres, QueryBuilder};
+use sqlx::{error::DatabaseError, Postgres, QueryBuilder};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path as StdPath, PathBuf};
@@ -87,7 +87,169 @@ use contract_abi::{generate_openapi, parse_json_spec, to_json, to_yaml};
 
 pub(crate) fn db_internal_error(operation: &str, err: sqlx::Error) -> ApiError {
     tracing::error!(operation = operation, error = ?err, "database operation failed");
+    if let sqlx::Error::Database(db_err) = &err {
+        let code = db_err.code().as_deref();
+        let constraint = db_err.constraint();
+        let message = database_constraint_message(operation, constraint, db_err.message());
+
+        return match code {
+            Some("23505") => ApiError::conflict("DatabaseConstraintViolation", message),
+            Some("23502") | Some("23503") | Some("23514") | Some("22001") | Some("P0001") => {
+                ApiError::bad_request("DatabaseConstraintViolation", message)
+            }
+            _ => ApiError::internal(message),
+        };
+    }
+
     ApiError::internal("An unexpected database error occurred")
+}
+
+fn database_constraint_message(
+    operation: &str,
+    constraint: Option<&str>,
+    db_message: &str,
+) -> String {
+    match constraint.unwrap_or("") {
+        "chk_publishers_stellar_address_format" => {
+            "stellar_address must be a valid Stellar address".to_string()
+        }
+        "chk_publishers_email_format" => {
+            "email must be a valid email address".to_string()
+        }
+        "chk_publishers_github_url_format" => {
+            "github_url must be a valid http:// or https:// URL".to_string()
+        }
+        "chk_publishers_website_url_format" => {
+            "website must be a valid http:// or https:// URL".to_string()
+        }
+        "chk_contracts_contract_id_format" => {
+            "contract_id must be a valid Stellar contract ID".to_string()
+        }
+        "chk_contracts_wasm_hash_format" => {
+            "wasm_hash must be a 64-character hexadecimal hash".to_string()
+        }
+        "chk_contracts_slug_format" => {
+            "slug must use lowercase letters, numbers, and hyphens".to_string()
+        }
+        "chk_contracts_health_score_range" => {
+            "health_score must be between 0 and 100".to_string()
+        }
+        "chk_contracts_deployment_count_non_negative" => {
+            "deployment_count must be zero or greater".to_string()
+        }
+        "chk_contracts_network_configs_object" => {
+            "network_configs must be a JSON object".to_string()
+        }
+        "chk_contracts_current_version_length" => {
+            "current_version is too long".to_string()
+        }
+        "chk_contributors_stellar_address_format" => {
+            "contributor stellar_address must be a valid Stellar address".to_string()
+        }
+        "chk_contributors_name_length" => {
+            "contributor name is too long".to_string()
+        }
+        "chk_tags_prefix_not_blank" => {
+            "tag prefix cannot be blank".to_string()
+        }
+        "chk_tags_name_not_blank" => {
+            "tag name cannot be blank".to_string()
+        }
+        "chk_tags_usage_count_non_negative" => {
+            "tag usage_count must be zero or greater".to_string()
+        }
+        "chk_tag_aliases_alias_not_blank" => {
+            "tag alias cannot be blank".to_string()
+        }
+        "chk_tag_usage_log_usage_count_non_negative" => {
+            "tag usage log count must be zero or greater".to_string()
+        }
+        "chk_organizations_name_not_blank" => {
+            "organization name cannot be blank".to_string()
+        }
+        "chk_organizations_slug_format" => {
+            "organization slug must use lowercase letters, numbers, and hyphens".to_string()
+        }
+        "chk_organizations_quota_contracts_positive" => {
+            "quota_contracts must be greater than zero".to_string()
+        }
+        "chk_organizations_rate_limit_requests_positive" => {
+            "rate_limit_requests must be greater than zero".to_string()
+        }
+        "chk_contract_versions_signature_algorithm" => {
+            "signature_algorithm must be ed25519 when provided".to_string()
+        }
+        "chk_contract_versions_commit_hash_format" => {
+            "commit_hash must be a 40-character hexadecimal hash".to_string()
+        }
+        "chk_contract_versions_source_url_format" => {
+            "source_url must be a valid http:// or https:// URL".to_string()
+        }
+        "chk_reviews_review_text_length" => {
+            "review_text is too long".to_string()
+        }
+        "chk_reviews_version_length" => {
+            "review version is too long".to_string()
+        }
+        "chk_verifications_error_message_length" => {
+            "error_message is too long".to_string()
+        }
+        "chk_verifications_compiler_version_length" => {
+            "compiler_version is too long".to_string()
+        }
+        "chk_organization_invitations_email_format" => {
+            "organization invitation email must be valid".to_string()
+        }
+        "chk_organization_invitations_time_order" => {
+            "expires_at must be later than created_at".to_string()
+        }
+        "chk_organization_invitations_accepted_at_order" => {
+            "accepted_at must be null or later than created_at".to_string()
+        }
+        "chk_user_preferences_theme" => {
+            "theme must be one of: dark, light, system".to_string()
+        }
+        "chk_user_preferences_language_not_blank" => {
+            "language must be between 2 and 10 characters".to_string()
+        }
+        "chk_user_preferences_favorites_json_array" => {
+            "favorites must be stored as a JSON array".to_string()
+        }
+        "chk_user_preferences_extensible_settings_json_object" => {
+            "extensible_settings must be stored as a JSON object".to_string()
+        }
+        "chk_user_preferences_webhook_url_format" => {
+            "webhook_url must be a valid http:// or https:// URL".to_string()
+        }
+        "chk_notification_queue_status" => {
+            "notification queue status is invalid".to_string()
+        }
+        "chk_notification_queue_priority_range" => {
+            "notification queue priority must be between 1 and 10".to_string()
+        }
+        "chk_notification_queue_retry_count_non_negative" => {
+            "retry_count must be zero or greater".to_string()
+        }
+        "chk_notification_queue_max_retries_non_negative" => {
+            "max_retries must be zero or greater".to_string()
+        }
+        "chk_notification_delivery_logs_status" => {
+            "notification delivery status is invalid".to_string()
+        }
+        "chk_contract_version_integrity" => {
+            "contract version data is inconsistent".to_string()
+        }
+        "chk_verification_integrity" => {
+            "verification data is inconsistent".to_string()
+        }
+        _ => {
+            if db_message.trim().is_empty() {
+                format!("{} failed due to a database constraint", operation)
+            } else {
+                db_message.to_string()
+            }
+        }
+    }
 }
 
 fn maturity_filter_value(maturity: &shared::MaturityLevel) -> &'static str {
