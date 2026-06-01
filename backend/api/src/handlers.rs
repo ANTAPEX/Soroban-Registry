@@ -7315,6 +7315,61 @@ mod tests {
     }
 
     #[test]
+    fn parse_batch_fields_returns_unique_lowercase_fields() {
+        let fields = parse_batch_fields(Some("Name, NETWORK, category, name, address"));
+        let expected: HashSet<String> = ["name", "network", "category", "address"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        assert_eq!(fields, Some(expected));
+    }
+
+    #[test]
+    fn contract_to_filtered_value_includes_only_requested_fields() {
+        let contract = Contract {
+            id: Uuid::nil(),
+            contract_id: "GABC123".to_string(),
+            wasm_hash: "hash".to_string(),
+            name: "Test Contract".to_string(),
+            slug: "test-contract".to_string(),
+            description: Some("A contract".to_string()),
+            publisher_id: Uuid::nil(),
+            network: Network::Testnet,
+            is_verified: true,
+            verification_status: shared::VerificationStatus::Verified,
+            category: Some("DeFi".to_string()),
+            tags: vec![],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            verified_at: None,
+            deployed_at: None,
+            verified_by: None,
+            verification_notes: None,
+            last_accessed_at: None,
+            health_score: 0,
+            is_maintenance: false,
+            logical_id: None,
+            network_configs: None,
+            organization_id: None,
+            relevance_score: None,
+            visibility: shared::VisibilityType::Public,
+            current_version: None,
+            usage_count: 0,
+        };
+
+        let fields: HashSet<String> = ["name".to_string(), "category".to_string(), "address".to_string()]
+            .into_iter()
+            .collect();
+        let value = contract_to_filtered_value(&contract, Some(&fields));
+
+        assert_eq!(value["name"], "Test Contract");
+        assert_eq!(value["category"], "DeFi");
+        assert_eq!(value["address"], "GABC123");
+        assert!(value.get("slug").is_none());
+    }
+
+    #[test]
     fn timestamp_sort_helpers_cover_all_timestamp_fields() {
         let now = chrono::Utc::now();
         let contract = Contract {
@@ -8151,12 +8206,10 @@ pub async fn get_contracts_batch_info_v1(
     let hash_result = sha2::Digest::finalize(hasher);
     let cache_key = format!("v1_batch_info:{}:{:?}", hex::encode(hash_result), query.fields);
 
-    if let Some(cached) = state
-        .cache
-        .get::<shared::V1BatchInfoResponse>("contract", &cache_key)
-        .await
-    {
-        return Ok(Json(cached));
+    if let (Some(cached), _) = state.cache.get("contract", &cache_key).await {
+        let cached_response: shared::V1BatchInfoResponse = serde_json::from_str(&cached)
+            .map_err(|err| ApiError::internal("parse cached batch info", err.to_string()))?;
+        return Ok(Json(cached_response));
     }
 
     let mut parsed_uuids: Vec<Uuid> = Vec::new();
@@ -8216,10 +8269,12 @@ pub async fn get_contracts_batch_info_v1(
     };
 
     let cache_ttl = std::time::Duration::from_secs(3600);
-    state
-        .cache
-        .set("contract", &cache_key, &response, Some(cache_ttl))
-        .await;
+    if let Ok(value) = serde_json::to_string(&response) {
+        state
+            .cache
+            .put("contract", &cache_key, value, Some(cache_ttl))
+            .await;
+    }
 
     Ok(Json(response))
 }
