@@ -1820,6 +1820,32 @@ pub struct DeploymentHistoryQueryParams {
     pub to_date: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
+pub struct V1DeploymentHistoryQueryParams {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub network: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct V1ContractDeploymentHistory {
+    pub address: String,
+    pub network: String,
+    pub timestamp: DateTime<Utc>,
+    pub status: String,
+    pub deployer: Option<String>,
+    pub transaction_hash: Option<String>,
+    pub transaction_link: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct V1PaginatedDeploymentsResponse {
+    pub items: Vec<V1ContractDeploymentHistory>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct ContractDeployment {
     pub id: Uuid,
