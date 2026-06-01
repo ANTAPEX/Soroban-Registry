@@ -52,6 +52,7 @@ use utoipa::OpenApi;
         handlers::change_contract_publisher,
         handlers::update_contract_status,
         handlers::get_contract_audit_log,
+        handlers::get_contract_audits,
         handlers::get_all_audit_logs,
         handlers::get_deployment_status,
         handlers::deploy_green,
@@ -177,6 +178,11 @@ use utoipa::OpenApi;
             UpdateReviewerStatusRequest,
             CollaborativeReviewDetails,
             CollaborativeReviewStatus,
+            AuditStatus,
+            AuditType,
+            ContractAuditFinding,
+            ContractAuditResponse,
+            PaginatedAuditsResponse,
         )
     ),
     tags(

@@ -1041,6 +1041,51 @@ pub struct BatchVerifyRequest {
     pub contracts: Vec<BatchVerifyItem>,
 }
 
+/// Lifecycle state of an asynchronous batch verification job.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BatchVerifyJobStatus {
+    Pending,
+    Processing,
+    Completed,
+    /// Job finished but at least one contract could not be verified.
+    PartialFailure,
+    Failed,
+}
+
+/// Per-contract result inside a batch job.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BatchVerifyJobResult {
+    pub contract_id: String,
+    pub verified: bool,
+    /// Human-readable failure reason; absent on success.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wasm_hash_matches: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abi_valid: Option<bool>,
+}
+
+/// Response returned when a batch job is submitted or polled.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BatchVerifyJobResponse {
+    pub job_id: Uuid,
+    pub status: BatchVerifyJobStatus,
+    pub total: usize,
+    pub verified: usize,
+    pub failed: usize,
+    pub submitted_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<DateTime<Utc>>,
+    /// Per-contract results; populated once the job reaches Completed or PartialFailure.
+    #[serde(default)]
+    pub results: Vec<BatchVerifyJobResult>,
+    pub status_url: String,
+}
+
 /// Sorting options for contracts
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 pub enum SortBy {
@@ -1111,6 +1156,9 @@ pub struct ContractSearchParams {
 #[serde(rename_all = "lowercase")]
 pub enum ContractExportFormat {
     Json,
+    /// Newline-delimited JSON (one object per line). Suitable for streaming
+    /// and processing with tools such as `jq` and `dbt`.
+    Jsonl,
     Csv,
     Yaml,
 }
@@ -1119,8 +1167,28 @@ impl std::fmt::Display for ContractExportFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Json => write!(f, "json"),
+            Self::Jsonl => write!(f, "jsonl"),
             Self::Csv => write!(f, "csv"),
             Self::Yaml => write!(f, "yaml"),
+        }
+    }
+}
+
+impl ContractExportFormat {
+    pub fn content_type(&self) -> &'static str {
+        match self {
+            Self::Json | Self::Jsonl => "application/json",
+            Self::Csv => "text/csv; charset=utf-8",
+            Self::Yaml => "application/yaml",
+        }
+    }
+
+    pub fn file_extension(&self) -> &'static str {
+        match self {
+            Self::Json => "json",
+            Self::Jsonl => "jsonl",
+            Self::Csv => "csv",
+            Self::Yaml => "yaml",
         }
     }
 }
@@ -1429,7 +1497,32 @@ pub struct PaginatedVersionResponse {
     pub prev_cursor: Option<String>,
 }
 
-/// Paginated response
+/// Active search/list filter metadata included in paginated responses
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SearchFilterMetadata {
+    /// Applied network filters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub networks: Option<Vec<String>>,
+    /// Applied category filters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub categories: Option<Vec<String>>,
+    /// Whether only verified contracts are shown
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified_only: Option<bool>,
+    /// Verification status filter
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification_status: Option<String>,
+    /// Applied tag filters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    /// Maturity level filter
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maturity: Option<String>,
+    /// Text query
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct PaginatedResponse<T> {
     pub items: Vec<T>,
@@ -1445,6 +1538,9 @@ pub struct PaginatedResponse<T> {
     pub next_cursor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prev_cursor: Option<String>,
+    /// Active filters applied to this result set (only present for search/list endpoints)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filters: Option<SearchFilterMetadata>,
 }
 
 impl<T> PaginatedResponse<T> {
@@ -1462,7 +1558,13 @@ impl<T> PaginatedResponse<T> {
             total_pages,
             next_cursor: None,
             prev_cursor: None,
+            filters: None,
         }
+    }
+
+    pub fn with_filters(mut self, filters: SearchFilterMetadata) -> Self {
+        self.filters = Some(filters);
+        self
     }
 
     pub fn with_cursors(mut self, next: Option<String>, prev: Option<String>) -> Self {
@@ -4127,6 +4229,48 @@ pub struct SecurityScanSummary {
 pub struct SecurityScanHistoryResponse {
     pub scans: Vec<SecurityScanSummary>,
     pub total_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
+#[sqlx(type_name = "audit_status", rename_all = "snake_case")]
+pub enum AuditStatus {
+    Passed,
+    Issues,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
+#[sqlx(type_name = "audit_type", rename_all = "snake_case")]
+pub enum AuditType {
+    Formal,
+    Informal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ContractAuditFinding {
+    pub severity: String,
+    pub count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ContractAuditResponse {
+    pub id: Uuid,
+    pub contract_id: Uuid,
+    pub audit_type: AuditType,
+    pub status: AuditStatus,
+    pub auditor: Option<String>,
+    pub audit_date: DateTime<Utc>,
+    pub findings_summary: Vec<ContractAuditFinding>,
+    pub total_issues: i32,
+    pub report_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PaginatedAuditsResponse {
+    pub audits: Vec<ContractAuditResponse>,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

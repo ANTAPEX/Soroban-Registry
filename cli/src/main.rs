@@ -2,7 +2,9 @@
 
 mod analytics;
 mod analyze;
+mod api_key;
 mod audit_command;
+mod auth;
 mod backup;
 mod batch_ops;
 mod batch_register;
@@ -31,6 +33,7 @@ mod migration;
 mod multisig;
 mod net;
 mod network;
+mod output_format;
 mod package_signing;
 mod patch;
 mod plugins;
@@ -50,6 +53,7 @@ mod wizard;
 
 // Added the search module
 mod search;
+mod diagnostic;
 
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};
@@ -90,6 +94,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub check_updates: bool,
 
+    /// Automatically run diagnostics when a command fails
+    #[arg(long, global = true)]
+    pub auto_diag: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -103,7 +111,7 @@ pub enum Commands {
         /// Time period: 7d, 30d, 90d, or RFC3339 range start..end
         #[arg(long, default_value = "30d")]
         period: String,
-        /// Output format: table, json, csv
+        /// Output format: table, json, csv, yaml
         #[arg(long, default_value = "table")]
         format: String,
         /// Sort mode: value_desc, value_asc, key_asc, key_desc
@@ -196,7 +204,7 @@ pub enum Commands {
         #[arg(long, short)]
         category: Option<String>,
 
-        /// Output format (table, json, csv)
+        /// Output format (table, json, csv, yaml)
         #[arg(long, short, default_value = "table")]
         format: String,
     },
@@ -828,9 +836,9 @@ pub enum Commands {
         action: NetworkCommands,
     },
 
-    /// Register multiple contracts from a YAML or JSON manifest file
+    /// Register multiple contracts from a YAML, JSON, CSV, or JSONL manifest file
     BatchRegister {
-        /// Path to the manifest file (.yaml, .yml, or .json)
+        /// Path to the manifest file (.yaml, .yml, .json, .csv, or .jsonl)
         #[arg(long)]
         manifest: String,
 
@@ -845,6 +853,14 @@ pub enum Commands {
         /// Output results as machine-readable JSON
         #[arg(long)]
         json: bool,
+
+        /// Number of contracts to register concurrently (default: 1 = sequential)
+        #[arg(long, value_name = "N")]
+        concurrent: Option<usize>,
+
+        /// Retry each failed contract once after the initial pass
+        #[arg(long)]
+        retry: bool,
     },
 
     /// Update metadata for multiple contracts in bulk (#849)
@@ -925,23 +941,45 @@ pub enum Commands {
         action: PluginCommands,
     },
 
-    /// Inspect contract event statistics
-    EventStats {
-        /// On-chain contract ID or registry UUID
-        contract_id: String,
-
-        /// Output format: table or json
-        #[arg(long, default_value = "table")]
-        format: String,
-
-        /// Export results to a file
-        #[arg(long, short = 'o')]
-        output: Option<String>,
+    /// Run diagnostics and health checks on the CLI environment
+    Diagnostic {
+        #[command(subcommand)]
+        action: DiagnosticCommands,
     },
 
     /// External command (may be provided by an installed plugin)
     #[command(external_subcommand)]
     External(Vec<String>),
+}
+
+/// Sub-commands for the `diagnostic` group
+#[derive(Debug, Subcommand)]
+pub enum DiagnosticCommands {
+    /// Execute all diagnostic checks and print results
+    Run {
+        #[arg(long)]
+        detailed: bool,
+        #[arg(long)]
+        export: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Generate a comprehensive diagnostic report
+    Report {
+        #[arg(long)]
+        detailed: bool,
+        #[arg(long)]
+        export: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export raw diagnostic data to a JSON file
+    Export {
+        /// Output file path
+        output: String,
+        #[arg(long)]
+        detailed: bool,
+    },
 }
 
 /// Sub-commands for the `network` group
@@ -1748,7 +1786,23 @@ async fn main() -> Result<()> {
     log::debug!("Verbose mode enabled");
     log::debug!("API URL: {}", cli.api_url);
 
-    handle_command(cli).await
+    let auto_diag = cli.auto_diag;
+    let api_url_clone = cli.api_url.clone();
+    let result = handle_command(cli).await;
+    if result.is_err() && auto_diag {
+        eprintln!(
+            "\n{}",
+            "Auto-diagnostics triggered by command failure:".yellow().bold()
+        );
+        let _ = diagnostic::run_diagnostic(diagnostic::DiagnosticArgs {
+            api_url: &api_url_clone,
+            detailed: false,
+            export: None,
+            json: false,
+        })
+        .await;
+    }
+    result
 }
 
 pub async fn handle_command(cli: Cli) -> Result<()> {
@@ -1910,10 +1964,6 @@ pub async fn dispatch_command(
                 }
             },
         },
-        Commands::EventStats { contract_id, format, output } => {
-            events::inspect_event_stats(&cli.api_url, &contract_id, &format, output.as_deref())
-                .await?;
-        }
         Commands::External(args) => {
             if args.is_empty() {
                 anyhow::bail!("No external command provided");
@@ -1925,7 +1975,32 @@ pub async fn dispatch_command(
                     .await?;
             print!("{}", result.stdout);
         }
-        
+        Commands::Diagnostic { action } => match action {
+            DiagnosticCommands::Run { detailed, export, json } => {
+                log::debug!("Command: diagnostic run");
+                diagnostic::run_diagnostic(diagnostic::DiagnosticArgs {
+                    api_url: &cli.api_url,
+                    detailed,
+                    export: export.as_deref(),
+                    json,
+                })
+                .await?;
+            }
+            DiagnosticCommands::Report { detailed, export, json } => {
+                log::debug!("Command: diagnostic report");
+                diagnostic::generate_report(diagnostic::DiagnosticArgs {
+                    api_url: &cli.api_url,
+                    detailed,
+                    export: export.as_deref(),
+                    json,
+                })
+                .await?;
+            }
+            DiagnosticCommands::Export { output, detailed } => {
+                log::debug!("Command: diagnostic export | output={}", output);
+                diagnostic::export_diagnostic(&output, detailed, &cli.api_url).await?;
+            }
+        },
         Commands::Info { id } => {
             commands::contract_info(&cli.api_url, &id).await?;
         }
@@ -1962,7 +2037,7 @@ pub async fn dispatch_command(
             )
             .await?;
         }
-       Commands::Search {
+        Commands::Search {
     query,
     verified_only,
     network,
@@ -3085,12 +3160,16 @@ pub async fn dispatch_command(
             publisher,
             dry_run,
             json,
+            concurrent,
+            retry,
         } => {
             log::debug!(
-                "Command: batch-register | manifest={} dry_run={} publisher={:?}",
+                "Command: batch-register | manifest={} dry_run={} publisher={:?} concurrent={:?} retry={}",
                 manifest,
                 dry_run,
-                publisher
+                publisher,
+                concurrent,
+                retry
             );
             batch_register::run_batch_register(
                 &cli.api_url,
@@ -3098,6 +3177,8 @@ pub async fn dispatch_command(
                 publisher.as_deref(),
                 dry_run,
                 json,
+                concurrent,
+                retry,
             )
             .await?;
         }
@@ -3192,6 +3273,7 @@ mod verbose_flag_tests {
         assert_eq!(cli.verbose, 2);
     }
 }
+
 #![allow(unused_variables)]
 
 mod analytics;
@@ -3308,7 +3390,7 @@ pub enum Commands {
         /// Time period: 7d, 30d, 90d, or RFC3339 range start..end
         #[arg(long, default_value = "30d")]
         period: String,
-        /// Output format: table, json, csv
+        /// Output format: table, json, csv, yaml
         #[arg(long, default_value = "table")]
         format: String,
         /// Sort mode: value_desc, value_asc, key_asc, key_desc
@@ -3401,7 +3483,7 @@ pub enum Commands {
         #[arg(long, short)]
         category: Option<String>,
 
-        /// Output format (table, json, csv)
+        /// Output format (table, json, csv, yaml)
         #[arg(long, short, default_value = "table")]
         format: String,
     },
@@ -4219,6 +4301,8 @@ pub enum Commands {
     Cache {
         #[command(subcommand)]
         action: CacheCommands,
+    },
+
     /// Manage environment variable sets for different deployments (#843)
     Env {
         #[command(subcommand)]
@@ -4928,7 +5012,7 @@ pub enum ContractCommands {
         #[arg(long, default_value_t = 10)]
         top_n: usize,
 
-        /// Output format: table, json, csv
+        /// Output format: table, json, csv, yaml
         #[arg(long, default_value = "table")]
         format: String,
 
@@ -5007,15 +5091,25 @@ pub enum ContractCommands {
         json: bool,
     },
 
-    /// Analyze a contract's dependencies and relationships (#836)
+    /// Analyze a contract's dependencies and relationships (#836, #1008)
+    ///
+    /// Retrieves the full dependency graph: contracts this address depends on,
+    /// contracts that depend on it, and a recursive dependency tree.
+    ///
+    /// Use `--summary` for a compact view when dealing with large graphs.
+    /// Use `--format json` to get the raw API response for scripting.
     Dependency {
         /// On-chain contract address
         address: String,
-        /// Dependency tree depth
+        /// Dependency tree depth (0 = direct dependencies only)
         #[arg(long, default_value_t = 1)]
         depth: u32,
+        /// Output format: table, json, csv, yaml
+        #[arg(long, default_value = "table")]
+        format: String,
+        /// Compact summary mode: show aggregate counts without the full tree
         #[arg(long)]
-        json: bool,
+        summary: bool,
     },
 
     /// Import contracts into the registry from an external file (#831)
@@ -6939,6 +7033,10 @@ pub async fn dispatch_command(
                     &address,
                     &network,
                     threshold.as_deref(),
+                    json,
+                )
+                .await?;
+            }
             ContractCommands::Stats {
                 network,
                 category,
@@ -6995,6 +7093,7 @@ pub async fn dispatch_command(
                     page_size,
                 )
                 .await?;
+            }
             ContractCommands::Highlight {
                 address,
                 action,
@@ -7022,10 +7121,13 @@ pub async fn dispatch_command(
             ContractCommands::Dependency {
                 address,
                 depth,
-                json,
+                format,
+                summary,
             } => {
                 log::debug!("Command: contract dependency | address={} depth={}", address, depth);
-                contract_dependency::run(&cli.api_url, &address, depth, json).await?;
+                let fmt = crate::output_format::validate_format(&format)
+                    .unwrap_or(crate::output_format::OutputFormat::Table);
+                contract_dependency::run(&cli.api_url, &address, depth, fmt, summary).await?;
             }
             ContractCommands::Import {
                 input_file,
@@ -7555,24 +7657,30 @@ mod batch_audit;
 mod batch_deploy;
 mod batch_export;
 mod batch_import;
+mod batch_migrate;
+mod batch_notify;
+mod batch_ops;
 mod batch_register;
+mod batch_update;
 mod batch_verify;
+mod cache;
+mod cached_http;
 mod cicd;
 mod codegen;
 mod commands;
 mod compare;
+mod completion;
 mod config;
-mod contract_deploy;
-mod contract_risk;
-mod contract_register;
-mod api_key;
 mod contract_dependency;
+mod contract_deploy;
 mod contract_highlight;
 mod contract_interaction;
+mod contract_register;
+mod contract_risk;
+mod contract_update;
 mod contract_verify;
 mod contracts;
 mod conversions;
-mod cache;
 mod coverage;
 mod dashboard;
 mod deploy;
@@ -7608,6 +7716,10 @@ mod version;
 mod webhook;
 mod wizard;
 
+mod diagnostic;
+mod output_format;
+mod search;
+
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use colored::Colorize;
@@ -7628,6 +7740,14 @@ pub struct Cli {
     /// Global timeout for network/API operations (seconds)
     #[arg(long, global = true)]
     pub timeout: Option<u64>,
+
+    /// Registry configuration profile to use
+    #[arg(long, global = true)]
+    pub profile: Option<String>,
+
+    /// Skip local response cache and always fetch fresh data
+    #[arg(long, global = true)]
+    pub no_cache: bool,
 
     /// Enable verbose output. Repeat to increase verbosity (-v, -vv, -vvv).
     #[arg(
@@ -7660,7 +7780,7 @@ pub enum Commands {
         /// Time period: 7d, 30d, 90d, or RFC3339 range start..end
         #[arg(long, default_value = "30d")]
         period: String,
-        /// Output format: table, json, csv
+        /// Output format: table, json, csv, yaml
         #[arg(long, default_value = "table")]
         format: String,
         /// Sort mode: value_desc, value_asc, key_asc, key_desc
@@ -7753,7 +7873,7 @@ pub enum Commands {
         #[arg(long, short)]
         category: Option<String>,
 
-        /// Output format (table, json, csv)
+        /// Output format (table, json, csv, yaml)
         #[arg(long, short, default_value = "table")]
         format: String,
     },
@@ -7821,6 +7941,25 @@ pub enum Commands {
         /// Export format (csv or json). Derived from file extension if not provided.
         #[arg(long)]
         format: Option<String>,
+
+        /// Exit with code 1 when differences are found (0 = identical, 2 = error)
+        #[arg(long)]
+        exit_code: bool,
+
+        /// Diff output format: none, unified, side-by-side
+        #[arg(long, default_value = "none")]
+        diff: String,
+
+        /// Limit compared field groups (metadata,verification,deployment,abi,all)
+        #[arg(long, value_delimiter = ',')]
+        fields: Option<Vec<String>>,
+    },
+
+    /// Generate shell completion scripts (#971)
+    Completion {
+        /// Target shell
+        #[arg(value_enum)]
+        shell: completion::CompletionShell,
     },
 
     /// Check CLI version and update availability
@@ -7976,6 +8115,34 @@ pub enum Commands {
         /// Roll back already-applied operations when any item fails
         #[arg(long)]
         rollback_on_error: bool,
+        /// Recipients file/filter for `batch notify`
+        #[arg(long)]
+        recipients: Option<String>,
+        /// Message type for `batch notify`
+        #[arg(long, default_value = "info")]
+        message_type: String,
+        /// Template file or inline template for `batch notify`
+        #[arg(long)]
+        template: Option<String>,
+        /// Preview notification/migration without sending/writing
+        #[arg(long)]
+        preview: bool,
+        /// RFC3339 schedule for `batch notify`
+        #[arg(long)]
+        schedule: Option<String>,
+        /// Channels for `batch notify`: email,in-app,webhook
+        #[arg(long, value_delimiter = ',')]
+        channels: Vec<String>,
+        /// Filter expression for `batch migrate`
+        #[arg(long)]
+        filter: Option<String>,
+        /// Use atomic/fail-safe migration semantics
+        #[arg(long)]
+        atomic: bool,
+        /// Migration report output path
+        #[arg(long)]
+        report: Option<String>,
+
         /// Output JSON summary
         #[arg(long)]
         json: bool,
@@ -8171,6 +8338,12 @@ pub enum Commands {
     Auth {
         #[command(subcommand)]
         action: AuthCommands,
+    },
+
+    /// Manage contract backups and disaster recovery
+    Backup {
+        #[command(subcommand)]
+        action: BackupCommands,
     },
 
     /// Inspect and modify contract state (dev/test mutation only)
@@ -8520,6 +8693,37 @@ pub enum Commands {
         json: bool,
     },
 
+    /// Update metadata for multiple contracts in bulk (#849)
+    BatchUpdate {
+        /// Path to a YAML or JSON manifest file describing the updates
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Filter contracts from the API (e.g. "category=defi" or "network=mainnet")
+        #[arg(long)]
+        filter: Option<String>,
+
+        /// Show what would change without making any writes
+        #[arg(long)]
+        preview: bool,
+
+        /// Only update contracts where this field=value condition is true
+        #[arg(long, value_name = "CONDITION")]
+        r#if: Option<String>,
+
+        /// User ID to attribute the update to
+        #[arg(long)]
+        user_id: Option<String>,
+
+        /// On partial failure, rollback all successfully applied contracts
+        #[arg(long)]
+        rollback_on_error: bool,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Run advanced analysis on a deployed contract (#530)
     Analyze {
         /// On-chain contract ID to analyse
@@ -8571,6 +8775,7 @@ pub enum Commands {
     Cache {
         #[command(subcommand)]
         action: CacheCommands,
+    },
     /// Manage environment variable sets for different deployments (#843)
     Env {
         #[command(subcommand)]
@@ -8825,6 +9030,43 @@ pub enum AuthCommands {
         /// Token lifetime, e.g. 1h, 30m, 7d, or seconds
         #[arg(long)]
         expires: Option<String>,
+    },
+}
+
+/// Sub-commands for the `backup` group
+#[derive(Debug, Subcommand)]
+pub enum BackupCommands {
+    /// Create a new contract backup
+    Create {
+        /// Contract ID to back up
+        contract_id: String,
+        /// Include full contract state in backup
+        #[arg(long)]
+        include_state: bool,
+    },
+    /// List recent backups for a contract
+    List {
+        /// Contract ID
+        contract_id: String,
+    },
+    /// Restore a contract from a specific backup date
+    Restore {
+        /// Contract ID to restore
+        contract_id: String,
+        /// Backup date to restore from (YYYY-MM-DD)
+        backup_date: String,
+    },
+    /// Verify integrity of a specific backup
+    Verify {
+        /// Contract ID
+        contract_id: String,
+        /// Backup date to verify (YYYY-MM-DD)
+        backup_date: String,
+    },
+    /// Show backup statistics for a contract
+    Stats {
+        /// Contract ID
+        contract_id: String,
     },
 }
 
@@ -9280,7 +9522,7 @@ pub enum ContractCommands {
         #[arg(long, default_value_t = 10)]
         top_n: usize,
 
-        /// Output format: table, json, csv
+        /// Output format: table, json, csv, yaml
         #[arg(long, default_value = "table")]
         format: String,
 
@@ -9359,13 +9601,67 @@ pub enum ContractCommands {
         json: bool,
     },
 
-    /// Analyze a contract's dependencies and relationships (#836)
+    /// Analyze a contract's dependencies and relationships (#836, #1008)
+    ///
+    /// Retrieves the full dependency graph: contracts this address depends on,
+    /// contracts that depend on it, and a recursive dependency tree.
+    ///
+    /// Use `--summary` for a compact view when dealing with large graphs.
+    /// Use `--format json` to get the raw API response for scripting.
     Dependency {
         /// On-chain contract address
         address: String,
-        /// Dependency tree depth
+        /// Dependency tree depth (0 = direct dependencies only)
         #[arg(long, default_value_t = 1)]
         depth: u32,
+        /// Output format: table, json, csv, yaml
+        #[arg(long, default_value = "table")]
+        format: String,
+        /// Compact summary mode: show aggregate counts without the full tree
+        #[arg(long)]
+        summary: bool,
+    },
+
+    /// Update contract metadata after registration (#828)
+    ///
+    /// Usage: soroban-registry contract update <ADDRESS> [--name ...] [--dry-run]
+    Update {
+        /// Contract address, slug, or registry UUID
+        address: String,
+
+        /// Updated contract name
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Updated description
+        #[arg(long)]
+        description: Option<String>,
+
+        /// Updated category
+        #[arg(long)]
+        category: Option<String>,
+
+        /// Comma-separated tags
+        #[arg(long)]
+        tags: Option<String>,
+
+        /// Path to a new icon image (PNG, JPG, or SVG)
+        #[arg(long)]
+        icon: Option<String>,
+
+        /// Contract homepage URL (not yet supported by registry API)
+        #[arg(long)]
+        homepage: Option<String>,
+
+        /// Preview changes without submitting them
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip interactive confirmation
+        #[arg(long, short = 'y')]
+        yes: bool,
+
+        /// Output results as JSON
         #[arg(long)]
         json: bool,
     },
@@ -9971,10 +10267,20 @@ async fn main() -> Result<()> {
     } else {
         Some(cli.api_url.clone())
     };
-    let runtime = config::resolve_runtime_config(cli.network.clone(), cli_api_base, cli.timeout)?;
+    let runtime = config::resolve_runtime_config(
+        cli.network.clone(),
+        cli_api_base,
+        cli.timeout,
+        cli.profile.clone(),
+    )?;
     cli.api_url = runtime.api_base;
     cli.network = Some(runtime.network.to_string());
     cli.timeout = Some(runtime.timeout);
+
+    cached_http::init(cached_http::HttpCacheOptions {
+        no_cache: cli.no_cache,
+        verbose: cli.verbose,
+    });
 
     // ── Initialise logger ─────────────────────────────────────────────────────
     // -v counts; each level raises verbosity by one step.
@@ -10210,15 +10516,32 @@ pub async fn dispatch_command(
             json,
             export,
             format,
+            exit_code,
+            diff,
+            fields,
         } => {
-            compare::run(
+            let diff_format = compare::DiffFormat::parse(&diff)?;
+            let field_filter = fields.map(|values| values.join(","));
+            let code = compare::run(
                 &cli.api_url,
                 ids,
                 json,
                 export.as_deref(),
                 format.as_deref(),
+                compare::CompareOptions {
+                    exit_code,
+                    diff_format,
+                    fields: field_filter,
+                },
             )
             .await?;
+            if exit_code && code != compare::EXIT_IDENTICAL {
+                std::process::exit(code);
+            }
+        }
+        Commands::Completion { shell } => {
+            completion::generate_script(shell);
+            eprintln!("\n{}", completion::install_hint(shell));
         }
         Commands::Analytics {
             query,
@@ -10746,7 +11069,11 @@ pub async fn dispatch_command(
         // ── User profile management (#841) ───────────────────────────────────
         Commands::Profile { action } => match action {
             ProfileCommands::View { address, json } => {
-                log::debug!("Command: profile view | address={:?} json={}", address, json);
+                log::debug!(
+                    "Command: profile view | address={:?} json={}",
+                    address,
+                    json
+                );
                 user_profile::view(&cli.api_url, address.as_deref(), json).await?;
             }
             ProfileCommands::Edit {
@@ -10770,11 +11097,7 @@ pub async fn dispatch_command(
                 .await?;
             }
             ProfileCommands::Update { field, value } => {
-                log::debug!(
-                    "Command: profile update | field={} value={}",
-                    field,
-                    value
-                );
+                log::debug!("Command: profile update | field={} value={}", field, value);
                 user_profile::update_field(&cli.api_url, &field, &value).await?;
             }
             ProfileCommands::ListContracts {
@@ -10789,8 +11112,14 @@ pub async fn dispatch_command(
                     limit,
                     format
                 );
-                user_profile::list_contracts(&cli.api_url, address.as_deref(), limit, &format, json)
-                    .await?;
+                user_profile::list_contracts(
+                    &cli.api_url,
+                    address.as_deref(),
+                    limit,
+                    &format,
+                    json,
+                )
+                .await?;
             }
             ProfileCommands::Export { address, format } => {
                 log::debug!(
@@ -10999,8 +11328,38 @@ pub async fn dispatch_command(
                 auth::status(&cli.api_url).await?;
             }
             AuthCommands::Token { scopes, expires } => {
-                log::debug!("Command: auth token | scopes={:?} expires={:?}", scopes, expires);
+                log::debug!(
+                    "Command: auth token | scopes={:?} expires={:?}",
+                    scopes,
+                    expires
+                );
                 auth::token(&cli.api_url, scopes, expires.as_deref()).await?;
+            }
+        },
+        Commands::Backup { action } => match action {
+            BackupCommands::Create {
+                contract_id,
+                include_state,
+            } => {
+                backup::create_backup(&cli.api_url, &contract_id, include_state).await?;
+            }
+            BackupCommands::List { contract_id } => {
+                backup::list_backups(&cli.api_url, &contract_id).await?;
+            }
+            BackupCommands::Restore {
+                contract_id,
+                backup_date,
+            } => {
+                backup::restore_backup(&cli.api_url, &contract_id, &backup_date).await?;
+            }
+            BackupCommands::Verify {
+                contract_id,
+                backup_date,
+            } => {
+                backup::verify_backup(&cli.api_url, &contract_id, &backup_date).await?;
+            }
+            BackupCommands::Stats { contract_id } => {
+                backup::backup_stats(&cli.api_url, &contract_id).await?;
             }
         },
         Commands::State { action } => match action {
@@ -11308,7 +11667,16 @@ pub async fn dispatch_command(
                     batch,
                     no_cache
                 );
-                contract_verify::run(&cli.api_url, &address, &network, json, strict, batch, no_cache).await?;
+                contract_verify::run(
+                    &cli.api_url,
+                    &address,
+                    &network,
+                    json,
+                    strict,
+                    batch,
+                    no_cache,
+                )
+                .await?;
             }
             ContractCommands::Details {
                 address,
@@ -11354,6 +11722,10 @@ pub async fn dispatch_command(
                     publisher.as_deref(),
                     tags.as_deref(),
                     skip_abi,
+                    json,
+                )
+                .await?;
+            }
             ContractCommands::Risk {
                 address,
                 network,
@@ -11367,11 +11739,9 @@ pub async fn dispatch_command(
                     threshold,
                     json
                 );
-                contract_risk::run(
-                    &cli.api_url,
-                    &address,
-                    &network,
-                    threshold.as_deref(),
+                contract_risk::run(&cli.api_url, &address, &network, threshold.as_deref(), json)
+                    .await?;
+            }
             ContractCommands::Stats {
                 network,
                 category,
@@ -11428,6 +11798,7 @@ pub async fn dispatch_command(
                     page_size,
                 )
                 .await?;
+            }
             ContractCommands::Highlight {
                 address,
                 action,
@@ -11455,10 +11826,46 @@ pub async fn dispatch_command(
             ContractCommands::Dependency {
                 address,
                 depth,
-                json,
+                format,
+                summary,
             } => {
                 log::debug!("Command: contract dependency | address={} depth={}", address, depth);
-                contract_dependency::run(&cli.api_url, &address, depth, json).await?;
+                let fmt = crate::output_format::validate_format(&format)
+                    .unwrap_or(crate::output_format::OutputFormat::Table);
+                contract_dependency::run(&cli.api_url, &address, depth, fmt, summary).await?;
+            }
+            ContractCommands::Update {
+                address,
+                name,
+                description,
+                category,
+                tags,
+                icon,
+                homepage,
+                dry_run,
+                yes,
+                json,
+            } => {
+                let tags_vec = tags.map(|t| {
+                    t.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<_>>()
+                });
+                contract_update::run(contract_update::UpdateArgs {
+                    api_url: &cli.api_url,
+                    address: &address,
+                    name,
+                    description,
+                    category,
+                    tags: tags_vec,
+                    icon,
+                    homepage,
+                    dry_run,
+                    yes,
+                    json,
+                })
+                .await?;
             }
             ContractCommands::Import {
                 input_file,
@@ -11740,6 +12147,27 @@ pub async fn dispatch_command(
             )
             .await?;
         }
+        Commands::BatchUpdate {
+            file,
+            filter,
+            preview,
+            r#if: condition,
+            user_id,
+            rollback_on_error,
+            json,
+        } => {
+            batch_update::run_batch_update(batch_update::BatchUpdateArgs {
+                api_url: &cli.api_url,
+                file: file.as_deref(),
+                filter: filter.as_deref(),
+                preview,
+                condition: condition.as_deref(),
+                user_id: user_id.as_deref(),
+                rollback_on_error,
+                json,
+            })
+            .await?;
+        }
         Commands::BatchImport {
             input_dir,
             format,
@@ -11768,8 +12196,53 @@ pub async fn dispatch_command(
             file,
             value,
             rollback_on_error,
+            recipients,
+            message_type,
+            template,
+            preview,
+            schedule,
+            channels,
+            filter,
+            atomic,
+            report,
             json,
         } => {
+            if operation == "notify" {
+                let recipients = recipients
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("batch notify requires --recipients"))?;
+                let message = contracts.join(" ");
+                batch_notify::run_batch_notify(
+                    &cli.api_url,
+                    &message,
+                    recipients,
+                    &message_type,
+                    template.as_deref(),
+                    preview,
+                    schedule.as_deref(),
+                    channels,
+                    json,
+                )
+                .await?;
+                return Ok(());
+            }
+            if operation == "migrate" {
+                anyhow::ensure!(
+                    contracts.len() >= 2,
+                    "batch migrate requires SOURCE and DESTINATION"
+                );
+                batch_migrate::run_batch_migrate(
+                    &contracts[0],
+                    &contracts[1],
+                    filter.as_deref(),
+                    preview,
+                    atomic,
+                    report.as_deref(),
+                    json,
+                )
+                .await?;
+                return Ok(());
+            }
             let op = batch_ops::BatchOperation::parse(&operation)?;
             batch_ops::run(
                 &cli.api_url,
@@ -11812,7 +12285,10 @@ pub async fn dispatch_command(
                 log::debug!("Command: cache optimize | json={}", json);
                 cache::optimize(json)?;
             }
-            CacheCommands::Export { format, include_stale } => {
+            CacheCommands::Export {
+                format,
+                include_stale,
+            } => {
                 log::debug!(
                     "Command: cache export | format={} include_stale={}",
                     format,

@@ -2,17 +2,17 @@
 
 use anyhow::Result;
 use axum::extract::{Request, State};
-use axum::http::{header, HeaderName, HeaderValue, Method, StatusCode};
+use axum::http::StatusCode;
 use axum::middleware;
 use axum::response::Response;
 use prometheus::Registry;
 use sqlx::postgres::PgPoolOptions;
+use sqlx::ConnectOptions;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
-use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
 
 use api::aggregation;
@@ -29,6 +29,7 @@ use api::rate_limit;
 use api::rate_limit::RateLimitState;
 use api::request_tracing;
 use api::routes;
+use api::security::WebSecurityConfig;
 use api::state::AppState;
 use api::state_monitor::StateMonitorService;
 use api::validation;
@@ -64,25 +65,76 @@ async fn main() -> Result<()> {
         .map(|n| n.get())
         .unwrap_or(4);
 
-    let max_pool_size = std::env::var("DB_MAX_POOL_SIZE")
+    // Issue #876: Connection pool configuration
+    let min_pool_size: u32 = std::env::var("DB_MIN_POOL_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+
+    let max_pool_size: u32 = std::env::var("DB_MAX_POOL_SIZE")
         .ok()
         .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or((logical_cores * 2).max(10) as u32);
+        .unwrap_or_else(|| (logical_cores * 2).max(10) as u32)
+        .min(50); // hard cap per spec
+
+    let acquire_timeout_secs: u64 = std::env::var("DB_ACQUIRE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+
+    let idle_timeout_secs: u64 = std::env::var("DB_IDLE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(600); // 10 minutes
+
+    let max_lifetime_secs: u64 = std::env::var("DB_MAX_LIFETIME_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1800); // 30 minutes
+
+    let query_timeout_ms: u64 = std::env::var("DB_QUERY_TIMEOUT_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30000); // 30 seconds
+
+    let statement_cache_capacity: usize = std::env::var("DB_STATEMENT_CACHE_CAPACITY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(250);
+
+    let slow_query_threshold_ms: f64 = std::env::var("DB_SLOW_QUERY_THRESHOLD_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100.0);
 
     tracing::info!(
-        max_pool_size = max_pool_size,
-        logical_cores = logical_cores,
+        min_pool_size,
+        max_pool_size,
+        acquire_timeout_secs,
+        idle_timeout_secs,
+        max_lifetime_secs,
+        query_timeout_ms,
+        statement_cache_capacity,
+        slow_query_threshold_ms,
+        logical_cores,
         "Initializing database connection pool"
     );
 
+    // Prepared statement cache + query timeout (statement_timeout) per connection
+    let connect_options = config
+        .database_url
+        .parse::<sqlx::postgres::PgConnectOptions>()?
+        .statement_cache_capacity(statement_cache_capacity)
+        .log_slow_statements(log::LevelFilter::Warn, Duration::from_millis(slow_query_threshold_ms as u64))
+        .options([("statement_timeout", query_timeout_ms)]);
+
     let pool = PgPoolOptions::new()
+        .min_connections(min_pool_size)
         .max_connections(max_pool_size)
-        .acquire_timeout(std::time::Duration::from_secs(30))
-        .connect_with(
-            config
-                .database_url
-                .parse::<sqlx::postgres::PgConnectOptions>()?,
-        )
+        .acquire_timeout(Duration::from_secs(acquire_timeout_secs))
+        .idle_timeout(Duration::from_secs(idle_timeout_secs))
+        .max_lifetime(Duration::from_secs(max_lifetime_secs))
+        .connect_with(connect_options)
         .await?;
 
     // Run migrations (skip if SKIP_MIGRATIONS=true, useful when migrations were applied manually)
@@ -108,6 +160,9 @@ async fn main() -> Result<()> {
 
     // Spawn the periodic data integrity verification task (Issue #886)
     api::integrity::spawn_integrity_verification_task(pool.clone());
+
+    // Spawn the query-analysis flush + N+1 persistence task (Issue #887)
+    api::query_analysis::spawn_query_analysis_task(pool.clone());
 
     // Create prometheus registry for metrics
     let registry = Registry::new();
@@ -192,8 +247,12 @@ async fn main() -> Result<()> {
         Duration::from_secs(2), // Ping every 2 seconds
         Duration::from_secs(1), // Timeout after 1 second
     );
-    // Initialize feature flags manager
-    let feature_flags = Arc::new(api::feature_flags::FeatureFlagManager::new());
+    // Initialize feature flags manager from configuration (#1007)
+    let flag_entries = api::config::parse_feature_flags(&config.feature_flags_json);
+    let feature_flags = Arc::new(api::feature_flags::FeatureFlagManager::from_config(&flag_entries));
+    if !flag_entries.is_empty() {
+        tracing::info!(count = flag_entries.len(), "Feature flags loaded from configuration");
+    }
 
     // Create app state
     let is_shutting_down = Arc::new(AtomicBool::new(false));
@@ -259,6 +318,9 @@ async fn main() -> Result<()> {
     // Spawn the background DB and cache monitoring task
     db_monitoring::spawn_db_monitoring_task(pool.clone(), state.cache.clone());
 
+    // Spawn query monitor: snapshots pg_stat_statements and logs slow queries (Issue #876)
+    api::query_monitor::spawn_query_monitor_task(pool.clone(), slow_query_threshold_ms);
+
     // Spawn the health monitor background task (Issue #333)
     let hm_state = state.clone();
     let hm_status = state.health_monitor_status.clone();
@@ -278,47 +340,8 @@ async fn main() -> Result<()> {
     // Warm up the cache
     state.cache.clone().warm_up(pool.clone());
 
-    let allowed_origins = std::env::var("ALLOWED_ORIGINS").unwrap_or_else(|_| {
-        "http://localhost:3000,https://soroban-registry.vercel.app".to_string()
-    });
-
-    let origins: Vec<HeaderValue> = allowed_origins
-        .split(',')
-        .filter_map(|s| {
-            let s = s.trim();
-            if s.is_empty() {
-                None
-            } else {
-                Some(HeaderValue::from_str(s).expect("Invalid allowed origin"))
-            }
-        })
-        .collect();
-
-    let cors = CorsLayer::new()
-        .allow_origin(origins)
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PATCH,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
-        .allow_headers([
-            header::CONTENT_TYPE,
-            header::AUTHORIZATION,
-            request_tracing::X_REQUEST_ID.clone(),
-            request_tracing::X_CORRELATION_ID.clone(),
-        ])
-        .expose_headers([
-            request_tracing::X_REQUEST_ID.clone(),
-            request_tracing::X_CORRELATION_ID.clone(),
-            header::RETRY_AFTER,
-            HeaderName::from_static("x-ratelimit-limit"),
-            HeaderName::from_static("x-ratelimit-remaining"),
-            HeaderName::from_static("x-ratelimit-reset"),
-            HeaderName::from_static("x-ratelimit-tier"),
-        ])
-        .max_age(Duration::from_secs(3600));
+    let web_security = WebSecurityConfig::from_env();
+    let cors = web_security.build_cors_layer();
 
     // Build router
     let app = routes::application_routes(schema)
@@ -340,6 +363,10 @@ async fn main() -> Result<()> {
         .layer(middleware::from_fn_with_state(
             (*rate_limit_state).clone(),
             rate_limit::rate_limit_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            web_security,
+            api::security::csrf_and_origin_middleware,
         ))
         .layer(cors)
         .layer(middleware::from_fn(request_tracing::tracing_middleware))

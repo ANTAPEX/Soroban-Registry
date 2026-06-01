@@ -110,9 +110,16 @@ async fn find_publisher_id_by_address(
         .context("Failed to connect to registry API")?;
 
     if !res.status().is_success() {
+        if res.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!(
+                "Publisher not found for address '{}'. Verify the address is registered on the Stellar network and has published at least one contract.",
+                address
+            );
+        }
         anyhow::bail!(
-            "Could not look up publisher for address '{}'. Verify the address is registered.",
-            address
+            "Could not look up publisher for address '{}'. Registry API error: HTTP {}",
+            address,
+            res.status()
         );
     }
 
@@ -131,7 +138,8 @@ async fn find_publisher_id_by_address(
     }
 
     anyhow::bail!(
-        "No contracts found for address '{}'. The address may not be registered as a publisher.",
+        "No contracts found for address '{}'. This address may not be registered as a publisher, or it has no published contracts yet.\n\
+         Register as a publisher by publishing a contract: soroban-registry publish --contract-id <ID> --name <NAME> --publisher <ADDRESS>",
         address
     )
 }
@@ -331,7 +339,7 @@ pub async fn list_contracts(
 
     let status = res.status();
     if status == reqwest::StatusCode::NOT_FOUND {
-        anyhow::bail!("Publisher not found for the given address.");
+        anyhow::bail!("Publisher not found for the given address '{}'. Verify the address is registered on the Stellar network.", address.unwrap_or("unknown"));
     }
     if !status.is_success() {
         let body = res.text().await.unwrap_or_default();
@@ -413,7 +421,9 @@ pub async fn export(api_url: &str, address: Option<&str>, format: &str) -> Resul
     match format {
         "csv" => {
             // Profile fields as CSV header + row
-            println!("id,stellar_address,username,email,github_url,website,bio,avatar_url,created_at");
+            println!(
+                "id,stellar_address,username,email,github_url,website,bio,avatar_url,created_at"
+            );
             println!(
                 "{},{},{},{},{},{},{},{},{}",
                 profile.id,
@@ -565,9 +575,7 @@ fn print_contracts_csv(contracts: &[ContractSummary]) {
             c.contract_id.as_deref().unwrap_or(""),
             c.network.as_deref().unwrap_or(""),
             c.is_verified,
-            c.health_score
-                .map(|h| h.to_string())
-                .unwrap_or_default(),
+            c.health_score.map(|h| h.to_string()).unwrap_or_default(),
             c.created_at.as_deref().unwrap_or(""),
         );
     }

@@ -6,6 +6,7 @@ pub mod validators;
 use crate::validation::extractors::ValidatedJson;
 use crate::validation::handler_requests::BatchContractIdsRequest;
 use axum::{
+    body::Body,
     extract::{
         rejection::{JsonRejection, QueryRejection},
         Path, Query, State,
@@ -14,11 +15,12 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use axum::http::StatusCode;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use flate2::{write::GzEncoder, Compression};
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use shared::models::SourceFormat;
 use shared::{
     pagination::Cursor, AdvancedSearchRequest, AnalyticsEventType, AuditActionType,
@@ -42,7 +44,8 @@ use shared::{
 // Duplicate definitions have been removed to maintain a single source of truth.
 // ────────────────────────────────────────────────────────────────────────────
 use sqlx::{Postgres, QueryBuilder};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io::Write;
 use std::path::{Path as StdPath, PathBuf};
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -268,7 +271,9 @@ pub(crate) async fn track_contract_access(state: &AppState, contract_id: Uuid) {
 
 const NETWORKS_CACHE_NAMESPACE: &str = "system";
 const NETWORKS_CACHE_KEY: &str = "network_catalog";
+const NETWORKS_V1_CACHE_KEY: &str = "network_catalog_v1";
 const NETWORKS_REFRESH_INTERVAL_SECS: u64 = 60;
+const NETWORKS_V1_CACHE_TTL_SECS: i64 = 15 * 60;
 const NETWORKS_HEALTH_CACHE_NAMESPACE: &str = "health";
 const NETWORKS_HEALTH_CACHE_KEY: &str = "all_networks";
 const NETWORKS_HEALTH_TTL: u64 = 30;
@@ -333,6 +338,10 @@ struct StaticNetworkDefinition {
     id: &'static str,
     name: &'static str,
     network_type: Network,
+    chain_id: &'static str,
+    description: &'static str,
+    logo_url: &'static str,
+    avg_block_time_seconds: f64,
     rpc_url: String,
     explorer_url: String,
     friendbot_url: Option<String>,
@@ -368,6 +377,10 @@ fn configured_networks() -> Vec<StaticNetworkDefinition> {
             "mainnet",
             "Stellar Mainnet",
             Network::Mainnet,
+            "Public Global Stellar Network ; September 2015",
+            "Production Stellar public network for live Soroban contracts and assets.",
+            "https://assets.stellar.org/logos/stellar-logo.svg",
+            5.0,
             "STELLAR_RPC_MAINNET",
             "STELLAR_EXPLORER_MAINNET",
             "STELLAR_FRIENDBOT_MAINNET",
@@ -376,6 +389,10 @@ fn configured_networks() -> Vec<StaticNetworkDefinition> {
             "testnet",
             "Stellar Testnet",
             Network::Testnet,
+            "Test SDF Network ; September 2015",
+            "Public resettable Stellar test network for integration testing.",
+            "https://assets.stellar.org/logos/stellar-logo.svg",
+            5.0,
             "STELLAR_RPC_TESTNET",
             "STELLAR_EXPLORER_TESTNET",
             "STELLAR_FRIENDBOT_TESTNET",
@@ -384,6 +401,10 @@ fn configured_networks() -> Vec<StaticNetworkDefinition> {
             "futurenet",
             "Stellar Futurenet",
             Network::Futurenet,
+            "Test SDF Future Network ; October 2022",
+            "Preview network for upcoming Stellar and Soroban protocol changes.",
+            "https://assets.stellar.org/logos/stellar-logo.svg",
+            5.0,
             "STELLAR_RPC_FUTURENET",
             "STELLAR_EXPLORER_FUTURENET",
             "STELLAR_FRIENDBOT_FUTURENET",
@@ -393,10 +414,25 @@ fn configured_networks() -> Vec<StaticNetworkDefinition> {
     entries
         .into_iter()
         .map(
-            |(id, name, network_type, rpc_env, explorer_env, friendbot_env)| {
+            |(
+                id,
+                name,
+                network_type,
+                chain_id,
+                description,
+                logo_url,
+                avg_block_time_seconds,
+                rpc_env,
+                explorer_env,
+                friendbot_env,
+            )| {
                 StaticNetworkDefinition {
                     id,
                     name,
+                    chain_id,
+                    description,
+                    logo_url,
+                    avg_block_time_seconds,
                     rpc_url: std::env::var(rpc_env)
                         .unwrap_or_else(|_| default_rpc_url(&network_type).to_string()),
                     explorer_url: std::env::var(explorer_env)
@@ -409,6 +445,86 @@ fn configured_networks() -> Vec<StaticNetworkDefinition> {
             },
         )
         .collect()
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+pub struct NetworkListV1Query {
+    #[serde(default, rename = "real-time", alias = "real_time")]
+    pub real_time: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkStatusIndicator {
+    Healthy,
+    Degraded,
+    Maintenance,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct NetworkStatsV1 {
+    pub contract_count: i64,
+    pub transaction_volume_24h: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct NetworkHealthMetricsV1 {
+    pub avg_block_time_seconds: f64,
+    pub validator_count: i64,
+    pub last_indexed_ledger_height: Option<i64>,
+    pub last_indexed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub consecutive_failures: i32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct NetworkInfoV1 {
+    pub name: String,
+    pub chain_id: String,
+    pub network: Network,
+    pub rpc_endpoint: String,
+    pub status: NetworkStatusIndicator,
+    pub description: String,
+    pub logo_url: String,
+    pub explorer_url: String,
+    pub friendbot_url: Option<String>,
+    pub stats: NetworkStatsV1,
+    pub health: NetworkHealthMetricsV1,
+    pub last_checked_at: chrono::DateTime<chrono::Utc>,
+    pub status_message: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct NetworkListResponseV1 {
+    pub networks: Vec<NetworkInfoV1>,
+    pub cached_at: chrono::DateTime<chrono::Utc>,
+    pub cache_ttl_seconds: i64,
+    pub real_time: bool,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct NetworkStatsRow {
+    network: Network,
+    contract_count: i64,
+    transaction_volume_24h: i64,
+}
+
+fn network_maintenance_override(network_id: &str) -> bool {
+    let env_name = format!("STELLAR_NETWORK_{}_MAINTENANCE", network_id.to_uppercase());
+    std::env::var(env_name)
+        .map(|value| matches!(value.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+fn status_indicator(network_id: &str, status: &NetworkStatus) -> NetworkStatusIndicator {
+    if network_maintenance_override(network_id) {
+        return NetworkStatusIndicator::Maintenance;
+    }
+
+    match status {
+        NetworkStatus::Online => NetworkStatusIndicator::Healthy,
+        NetworkStatus::Degraded => NetworkStatusIndicator::Degraded,
+        NetworkStatus::Offline => NetworkStatusIndicator::Maintenance,
+    }
 }
 
 fn derive_network_status(
@@ -541,6 +657,132 @@ async fn refresh_network_catalog_cache(state: &AppState) -> Result<NetworkListRe
     Ok(response)
 }
 
+async fn fetch_network_stats(
+    db: &sqlx::PgPool,
+) -> Result<HashMap<String, NetworkStatsV1>, sqlx::Error> {
+    let rows: Vec<NetworkStatsRow> = sqlx::query_as(
+        r#"
+        SELECT
+            c.network,
+            COUNT(DISTINCT c.id)::BIGINT AS contract_count,
+            COALESCE((
+                SELECT SUM(ci.interaction_count)
+                FROM contract_interactions ci
+                WHERE ci.network = c.network
+                  AND ci.created_at >= NOW() - INTERVAL '24 hours'
+            ), 0)::BIGINT AS transaction_volume_24h
+        FROM contracts c
+        GROUP BY c.network
+        "#,
+    )
+    .fetch_all(db)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.network.to_string(),
+                NetworkStatsV1 {
+                    contract_count: row.contract_count,
+                    transaction_volume_24h: row.transaction_volume_24h,
+                },
+            )
+        })
+        .collect())
+}
+
+async fn fetch_active_validator_count(db: &sqlx::PgPool) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM validators WHERE status = 'active'")
+        .fetch_one(db)
+        .await
+}
+
+async fn fetch_network_catalog_v1(
+    state: &AppState,
+    real_time: bool,
+) -> Result<NetworkListResponseV1, ApiError> {
+    let catalog = fetch_network_catalog(&state.db)
+        .await
+        .map_err(|err| db_internal_error("fetch network catalog v1", err))?;
+    let stats = fetch_network_stats(&state.db)
+        .await
+        .map_err(|err| db_internal_error("fetch network stats", err))?;
+    let validator_count = fetch_active_validator_count(&state.db)
+        .await
+        .map_err(|err| db_internal_error("fetch validator count", err))?;
+    let definitions: HashMap<&'static str, StaticNetworkDefinition> = configured_networks()
+        .into_iter()
+        .map(|definition| (definition.id, definition))
+        .collect();
+
+    let networks = catalog
+        .networks
+        .into_iter()
+        .map(|network| {
+            let definition = definitions
+                .get(network.id.as_str())
+                .expect("configured network definition exists");
+            let network_stats = stats
+                .get(&network.network_type.to_string())
+                .cloned()
+                .unwrap_or(NetworkStatsV1 {
+                    contract_count: 0,
+                    transaction_volume_24h: 0,
+                });
+
+            NetworkInfoV1 {
+                name: network.name,
+                chain_id: definition.chain_id.to_string(),
+                network: network.network_type,
+                rpc_endpoint: network.endpoints.rpc_url,
+                status: status_indicator(definition.id, &network.status),
+                description: definition.description.to_string(),
+                logo_url: definition.logo_url.to_string(),
+                explorer_url: network.endpoints.explorer_url,
+                friendbot_url: network.endpoints.friendbot_url,
+                stats: network_stats,
+                health: NetworkHealthMetricsV1 {
+                    avg_block_time_seconds: definition.avg_block_time_seconds,
+                    validator_count,
+                    last_indexed_ledger_height: network.last_indexed_ledger_height,
+                    last_indexed_at: network.last_indexed_at,
+                    consecutive_failures: network.consecutive_failures,
+                },
+                last_checked_at: network.last_checked_at,
+                status_message: network.status_message,
+            }
+        })
+        .collect();
+
+    Ok(NetworkListResponseV1 {
+        networks,
+        cached_at: chrono::Utc::now(),
+        cache_ttl_seconds: NETWORKS_V1_CACHE_TTL_SECS,
+        real_time,
+    })
+}
+
+async fn refresh_network_catalog_v1_cache(
+    state: &AppState,
+) -> Result<NetworkListResponseV1, ApiError> {
+    let response = fetch_network_catalog_v1(state, false).await?;
+
+    if let Ok(serialized) = serde_json::to_string(&response) {
+        state
+            .cache
+            .put(
+                NETWORKS_CACHE_NAMESPACE,
+                NETWORKS_V1_CACHE_KEY,
+                serialized,
+                Some(Duration::from_secs(NETWORKS_V1_CACHE_TTL_SECS as u64)),
+            )
+            .await;
+    }
+
+    Ok(response)
+}
+
 pub async fn run_network_catalog_refresh(state: AppState) {
     let mut interval = tokio::time::interval(Duration::from_secs(NETWORKS_REFRESH_INTERVAL_SECS));
 
@@ -595,6 +837,10 @@ pub struct PublisherContractsQuery {
     pub limit: i64,
     #[serde(default)]
     pub offset: i64,
+    /// Filter by network (mainnet, testnet, futurenet)
+    pub network: Option<Network>,
+    /// Filter by category (e.g., DeFi, NFT)
+    pub category: Option<String>,
 }
 
 fn default_contracts_limit() -> i64 {
@@ -1150,6 +1396,12 @@ pub async fn health_check_detailed(State(state): State<AppState>) -> (StatusCode
     tag = "Observability"
 )]
 pub async fn get_stats(State(state): State<AppState>) -> ApiResult<Json<Value>> {
+    if let Some(cached) = state.cache.get_stats("global").await {
+        if let Ok(val) = serde_json::from_str::<Value>(&cached) {
+            return Ok(Json(val));
+        }
+    }
+
     let total_contracts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contracts")
         .fetch_one(&state.db)
         .await
@@ -1166,11 +1418,17 @@ pub async fn get_stats(State(state): State<AppState>) -> ApiResult<Json<Value>> 
         .await
         .map_err(|err| db_internal_error("count publishers", err))?;
 
-    Ok(Json(json!({
+    let stats = json!({
         "total_contracts": total_contracts,
         "verified_contracts": verified_contracts,
         "total_publishers": total_publishers,
-    })))
+    });
+
+    if let Ok(serialized) = serde_json::to_string(&stats) {
+        state.cache.put_stats("global", serialized).await;
+    }
+
+    Ok(Json(stats))
 }
 
 #[utoipa::path(
@@ -1193,6 +1451,40 @@ pub async fn list_networks(State(state): State<AppState>) -> ApiResult<Json<Netw
     }
 
     let response = refresh_network_catalog_cache(&state).await?;
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/networks",
+    params(NetworkListV1Query),
+    responses(
+        (status = 200, description = "Supported Soroban networks with stats and health metadata", body = NetworkListResponseV1)
+    ),
+    tag = "Networks"
+)]
+pub async fn list_networks_v1(
+    State(state): State<AppState>,
+    Query(query): Query<NetworkListV1Query>,
+) -> ApiResult<Json<NetworkListResponseV1>> {
+    if query.real_time {
+        return Ok(Json(fetch_network_catalog_v1(&state, true).await?));
+    }
+
+    if let (Some(cached), true) = state
+        .cache
+        .get(NETWORKS_CACHE_NAMESPACE, NETWORKS_V1_CACHE_KEY)
+        .await
+    {
+        if let Ok(payload) = serde_json::from_str::<NetworkListResponseV1>(&cached) {
+            let cache_age = chrono::Utc::now() - payload.cached_at;
+            if cache_age.num_seconds() < NETWORKS_V1_CACHE_TTL_SECS {
+                return Ok(Json(payload));
+            }
+        }
+    }
+
+    let response = refresh_network_catalog_v1_cache(&state).await?;
     Ok(Json(response))
 }
 
@@ -1737,6 +2029,36 @@ pub async fn list_contracts(
 
     let mut response = PaginatedResponse::new(contracts, total, page, limit);
 
+    // Populate active filter metadata
+    {
+        let mut networks: Option<Vec<String>> = None;
+        if let Some(n) = &params.networks {
+            if !n.is_empty() {
+                networks = Some(n.iter().map(|net| net.to_string()).collect());
+            }
+        } else if let Some(n) = &params.network {
+            networks = Some(vec![n.to_string()]);
+        }
+        let categories = params.categories.clone().filter(|c| !c.is_empty());
+        let tags = params.tags.clone().filter(|t| !t.is_empty());
+        let verified_only = params.verified_only;
+        let verification_status = params
+            .verification_status
+            .as_ref()
+            .map(|s| format!("{s:?}").to_lowercase());
+
+        let filters = shared::SearchFilterMetadata {
+            networks,
+            categories,
+            verified_only,
+            verification_status,
+            tags,
+            maturity: params.maturity.as_ref().map(|m| format!("{:?}", m)),
+            query: params.query.clone(),
+        };
+        response = response.with_filters(filters);
+    }
+
     if has_more {
         if let Some(last_item) = response.items.last() {
             let next_cursor = shared::pagination::Cursor::new(last_item.created_at, last_item.id);
@@ -1750,6 +2072,14 @@ pub async fn list_contracts(
         params.query.as_deref(),
         limit,
     );
+
+    // Write to cache after successful DB fetch
+    if !cache_key.is_empty() {
+        if let Ok(serialized) = serde_json::to_string(&response) {
+            state.cache.put_contracts(cache_key, serialized).await;
+        }
+    }
+
     Json(response).into_response()
 }
 
@@ -1806,6 +2136,28 @@ fn render_contract_export(
                 contracts: contracts.to_vec(),
             })
             .map_err(|err| ApiError::internal(format!("Failed to render JSON export: {err}")))
+        }
+        ContractExportFormat::Jsonl => {
+            // Header line: one JSON object carrying the export metadata.
+            let mut out = serde_json::to_string(&serde_json::json!({
+                "_type": "export_metadata",
+                "exported_at": metadata.exported_at,
+                "format": "jsonl",
+                "total_count": metadata.total_count,
+                "async_export": metadata.async_export,
+                "filters": metadata.filters,
+            }))
+            .map_err(|err| ApiError::internal(format!("Failed to render JSONL header: {err}")))?;
+            out.push('\n');
+
+            for contract in contracts {
+                let line = serde_json::to_string(contract).map_err(|err| {
+                    ApiError::internal(format!("Failed to render JSONL record: {err}"))
+                })?;
+                out.push_str(&line);
+                out.push('\n');
+            }
+            Ok(out)
         }
         ContractExportFormat::Yaml => serde_yaml::to_string(&ContractMetadataExportEnvelope {
             metadata: metadata.clone(),
@@ -1893,6 +2245,7 @@ fn contract_export_response(
 ) -> Response {
     let content_type = match format {
         ContractExportFormat::Json => "application/json; charset=utf-8",
+        ContractExportFormat::Jsonl => "application/x-ndjson; charset=utf-8",
         ContractExportFormat::Yaml => "application/yaml; charset=utf-8",
         ContractExportFormat::Csv => "text/csv; charset=utf-8",
     };
@@ -2403,6 +2756,27 @@ pub async fn get_contract(
     Path(id): Path<String>,
     Query(query): Query<GetContractQuery>,
 ) -> ApiResult<Json<ContractGetResponse>> {
+    // Only cache public contract fetches (no auth context, no network override)
+    // to avoid leaking private data through the cache.
+    let cache_key = if claims.is_none() && query.network.is_none() {
+        Some(id.clone())
+    } else {
+        None
+    };
+
+    if let Some(ref key) = cache_key {
+        if let Some(cached) = state.cache.get_contract_meta(key).await {
+            if let Ok(contract) = serde_json::from_str::<Contract>(&cached) {
+                track_contract_access(&state, contract.id).await;
+                return Ok(Json(ContractGetResponse {
+                    contract,
+                    current_network: None,
+                    network_config: None,
+                }));
+            }
+        }
+    }
+
     let mut contract: Contract = if let Ok(contract_uuid) = Uuid::parse_str(&id) {
         sqlx::query_as("SELECT * FROM contracts WHERE id = $1")
             .bind(contract_uuid)
@@ -2460,6 +2834,19 @@ pub async fn get_contract(
             color: r.color,
         })
         .collect();
+
+    // Cache public contracts after tags are populated
+    if contract.visibility == shared::VisibilityType::Public {
+        if let Some(ref key) = cache_key {
+            if let Ok(serialized) = serde_json::to_string(&contract) {
+                state.cache.put_contract_meta(key, serialized.clone()).await;
+                // Also cache by the canonical contract_id string so both UUID and slug lookups hit
+                if key != &contract.contract_id {
+                    state.cache.put_contract_meta(&contract.contract_id, serialized).await;
+                }
+            }
+        }
+    }
 
     // Visibility check
     if contract.visibility == shared::VisibilityType::Private {
@@ -2937,6 +3324,8 @@ pub async fn revert_contract_version(
     state.cache.invalidate_abi(&contract_id).await;
     state.cache.invalidate_abi(&contract_uuid.to_string()).await;
     state.cache.invalidate_contracts().await;
+    state.cache.invalidate_contract_meta(&contract_id).await;
+    state.cache.invalidate_contract_meta(&contract_uuid.to_string()).await;
 
     Ok(Json(version_row))
 }
@@ -3683,6 +4072,8 @@ pub async fn create_contract_version(
         .cache
         .invalidate_abi(&format!("{}@{}", contract_id, req.version))
         .await;
+    state.cache.invalidate_contract_meta(&contract_id).await;
+    state.cache.invalidate_contract_meta(&contract_uuid.to_string()).await;
 
     // Store differential patch for the new version (Issue #501).
     let new_snapshot = crate::patch_handlers::VersionSnapshot {
@@ -3964,6 +4355,18 @@ pub async fn publish_contract(
         .await
         .map_err(|err| db_internal_error("fetch contract after insert", err))?;
 
+    // Backfill contract metadata cache for immediate reads
+    if let Ok(contract_json) = serde_json::to_string(&contract) {
+        let _ = state
+            .cache
+            .put_contract_meta(&contract.contract_id, contract_json.clone())
+            .await;
+        let _ = state
+            .cache
+            .put_contract_meta(&contract.id.to_string(), contract_json)
+            .await;
+    }
+
     // Save dependencies if provided
     if !req.dependencies.is_empty() {
         if let Err(e) =
@@ -4179,21 +4582,54 @@ pub async fn get_publisher_contracts(
     let limit = query.limit.clamp(1, 100);
     let offset = query.offset.max(0);
 
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contracts WHERE publisher_id = $1")
-        .bind(publisher_uuid)
+    let mut count_qb: QueryBuilder<'_, sqlx::Postgres> =
+        QueryBuilder::new("SELECT COUNT(*) FROM contracts WHERE publisher_id = ");
+    count_qb.push_bind(publisher_uuid);
+
+    if let Some(network) = &query.network {
+        count_qb.push(" AND network = ");
+        count_qb.push_bind(network);
+    }
+    if let Some(category) = &query.category {
+        let cat = category.trim();
+        if !cat.is_empty() {
+            count_qb.push(" AND category = ");
+            count_qb.push_bind(cat);
+        }
+    }
+
+    let total: i64 = count_qb
+        .build_query_scalar()
         .fetch_one(&state.db)
         .await
         .map_err(|err| db_internal_error("get publisher contracts count", err))?;
 
-    let contracts: Vec<Contract> = sqlx::query_as(
-        "SELECT * FROM contracts WHERE publisher_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
-    )
-    .bind(publisher_uuid)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|err| db_internal_error("get publisher contracts", err))?;
+    let mut qb: QueryBuilder<'_, sqlx::Postgres> =
+        QueryBuilder::new("SELECT * FROM contracts WHERE publisher_id = ");
+    qb.push_bind(publisher_uuid);
+
+    if let Some(network) = &query.network {
+        qb.push(" AND network = ");
+        qb.push_bind(network);
+    }
+    if let Some(category) = &query.category {
+        let cat = category.trim();
+        if !cat.is_empty() {
+            qb.push(" AND category = ");
+            qb.push_bind(cat);
+        }
+    }
+
+    qb.push(" ORDER BY created_at DESC LIMIT ");
+    qb.push_bind(limit);
+    qb.push(" OFFSET ");
+    qb.push_bind(offset);
+
+    let contracts: Vec<Contract> = qb
+        .build_query_as()
+        .fetch_all(&state.db)
+        .await
+        .map_err(|err| db_internal_error("get publisher contracts", err))?;
 
     let page = (offset / limit) + 1;
     let body = PaginatedResponse::new(contracts, total, page, limit);
@@ -4206,6 +4642,17 @@ pub async fn get_publisher_contracts(
 pub struct ContractAbiQuery {
     pub version: Option<String>,
     pub bypass_cache: Option<bool>,
+    pub format: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ContractAbiRow {
+    contract_uuid: Uuid,
+    contract_id: String,
+    version: Option<String>,
+    abi: Value,
+    compiler: Option<String>,
+    generated_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Fetch ABI JSON string for contract (by id or id@version)
@@ -4241,12 +4688,190 @@ pub async fn get_contract_abi(
     Path(id): Path<String>,
     Query(query): Query<ContractAbiQuery>,
     State(state): State<AppState>,
-) -> ApiResult<Json<Value>> {
-    let bypass = query.bypass_cache.unwrap_or(false);
-    let abi_json = resolve_contract_abi(&state, &id, query.version.as_deref(), bypass).await?;
-    let abi: Value = serde_json::from_str(&abi_json)
-        .map_err(|e| ApiError::internal(format!("Invalid ABI JSON: {}", e)))?;
-    Ok(Json(json!({ "abi": abi })))
+) -> ApiResult<Response> {
+    build_contract_abi_response(HeaderMap::new(), Path(id), Query(query), State(state)).await
+}
+
+pub async fn get_contract_abi_v1(
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(query): Query<ContractAbiQuery>,
+    State(state): State<AppState>,
+) -> ApiResult<Response> {
+    build_contract_abi_response(headers, Path(id), Query(query), State(state)).await
+}
+
+async fn build_contract_abi_response(
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(query): Query<ContractAbiQuery>,
+    State(state): State<AppState>,
+) -> ApiResult<Response> {
+    let format = query.format.as_deref().unwrap_or("v1");
+    if !matches!(format, "v1" | "v2") {
+        return Err(ApiError::bad_request(
+            "InvalidAbiFormat",
+            "format must be v1 or v2",
+        ));
+    }
+
+    let cache_key = format!(
+        "abi-response:{}:{}:{}",
+        id,
+        query.version.as_deref().unwrap_or("latest"),
+        format
+    );
+    let body = if let Some(cached) = state
+        .cache
+        .get_abi(&cache_key, query.bypass_cache.unwrap_or(false))
+        .await
+    {
+        cached
+    } else {
+        let row = fetch_contract_abi_row(&state, &id, query.version.as_deref()).await?;
+        let envelope = contract_abi_envelope(&row, format)?;
+        let encoded = serde_json::to_string(&envelope)
+            .map_err(|e| ApiError::internal(format!("serialize ABI response: {}", e)))?;
+        state.cache.put_abi(&cache_key, encoded.clone()).await;
+        encoded
+    };
+
+    let hash = abi_hash(&body);
+    let accepts_gzip = headers
+        .get(header::ACCEPT_ENCODING)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(',').any(|part| part.trim().starts_with("gzip")))
+        .unwrap_or(false);
+
+    let mut builder = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::CACHE_CONTROL, "public, max-age=86400")
+        .header("X-ABI-Hash", hash);
+
+    if accepts_gzip {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder
+            .write_all(body.as_bytes())
+            .map_err(|_| ApiError::internal("Failed to compress ABI response"))?;
+        let compressed = encoder
+            .finish()
+            .map_err(|_| ApiError::internal("Failed to finalize ABI compression"))?;
+        builder = builder.header(header::CONTENT_ENCODING, "gzip");
+        return builder
+            .body(Body::from(compressed))
+            .map_err(|_| ApiError::internal("Failed to build ABI response"));
+    }
+
+    builder
+        .body(Body::from(body))
+        .map_err(|_| ApiError::internal("Failed to build ABI response"))
+}
+
+async fn fetch_contract_abi_row(
+    state: &AppState,
+    id: &str,
+    version: Option<&str>,
+) -> ApiResult<ContractAbiRow> {
+    let contract_uuid = fetch_contract_identity(state, id).await?.0;
+
+    if let Some(version) = version {
+        return sqlx::query_as::<_, ContractAbiRow>(
+            "SELECT c.id AS contract_uuid,
+                    c.contract_id,
+                    ca.version,
+                    ca.abi,
+                    v.compiler_version AS compiler,
+                    ca.created_at AS generated_at
+             FROM contracts c
+             JOIN contract_abis ca ON ca.contract_id = c.id
+             LEFT JOIN verifications v ON v.contract_id = c.id
+             WHERE c.id = $1 AND ca.version = $2
+             ORDER BY v.verified_at DESC NULLS LAST
+             LIMIT 1",
+        )
+        .bind(contract_uuid)
+        .bind(version)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|err| db_internal_error("fetch contract ABI version", err))?
+        .ok_or_else(|| ApiError::not_found("AbiNotFound", "ABI version not found"));
+    }
+
+    if let Some(row) = sqlx::query_as::<_, ContractAbiRow>(
+        "SELECT c.id AS contract_uuid,
+                c.contract_id,
+                ca.version,
+                ca.abi,
+                v.compiler_version AS compiler,
+                ca.created_at AS generated_at
+         FROM contracts c
+         JOIN contract_abis ca ON ca.contract_id = c.id
+         LEFT JOIN verifications v ON v.contract_id = c.id
+         WHERE c.id = $1
+         ORDER BY ca.created_at DESC, v.verified_at DESC NULLS LAST
+         LIMIT 1",
+    )
+    .bind(contract_uuid)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|err| db_internal_error("fetch latest contract ABI", err))?
+    {
+        return Ok(row);
+    }
+
+    sqlx::query_as::<_, ContractAbiRow>(
+        "SELECT c.id AS contract_uuid,
+                c.contract_id,
+                NULL::VARCHAR AS version,
+                c.abi,
+                v.compiler_version AS compiler,
+                c.updated_at AS generated_at
+         FROM contracts c
+         LEFT JOIN verifications v ON v.contract_id = c.id
+         WHERE c.id = $1 AND c.abi IS NOT NULL
+         ORDER BY v.verified_at DESC NULLS LAST
+         LIMIT 1",
+    )
+    .bind(contract_uuid)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|err| db_internal_error("fetch fallback contract ABI", err))?
+    .ok_or_else(|| ApiError::not_found("AbiNotFound", "No ABI found for contract"))
+}
+
+fn contract_abi_envelope(row: &ContractAbiRow, format: &str) -> ApiResult<Value> {
+    let metadata = json!({
+        "contract_uuid": row.contract_uuid,
+        "contract_id": row.contract_id,
+        "version": row.version.as_deref().unwrap_or("latest"),
+        "compiler": row.compiler.as_deref().unwrap_or("unknown"),
+        "generated_at": row.generated_at,
+        "format": format,
+    });
+
+    match format {
+        "v1" => Ok(json!({
+            "metadata": metadata,
+            "abi": row.abi,
+        })),
+        "v2" => {
+            let mut envelope = BTreeMap::new();
+            envelope.insert("metadata", metadata);
+            envelope.insert("spec", row.abi.clone());
+            Ok(json!(envelope))
+        }
+        _ => Err(ApiError::bad_request(
+            "InvalidAbiFormat",
+            "format must be v1 or v2",
+        )),
+    }
+}
+
+fn abi_hash(body: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(body.as_bytes());
+    format!("sha256:{:x}", hasher.finalize())
 }
 
 #[utoipa::path(
@@ -5171,6 +5796,8 @@ pub async fn update_contract_metadata(
     }
 
     state.cache.invalidate_contracts().await;
+    state.cache.invalidate_contract_meta(&after.contract_id).await;
+    state.cache.invalidate_contract_meta(&after.id.to_string()).await;
 
     // Increment usage counter asynchronously (fire-and-forget)
     // Failures are logged but never block the main request
@@ -5608,9 +6235,7 @@ pub async fn batch_update_contract_metadata(
     State(state): State<AppState>,
     ValidatedJson(req): ValidatedJson<shared::BatchMetadataUpdateRequest>,
 ) -> ApiResult<Json<shared::BatchMetadataUpdateResponse>> {
-    let batch_id = req
-        .batch_id
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let batch_id = req.batch_id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let user_id = req.user_id;
 
     let mut results: Vec<shared::BatchMetadataUpdateItemResult> = Vec::new();
@@ -5988,6 +6613,142 @@ pub async fn get_all_audit_logs(
     .map_err(|err| db_internal_error("fetch all audit logs", err))?;
 
     Ok(Json(logs))
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+pub struct AuditQueryParams {
+    pub page: Option<i64>,
+    pub per_page: Option<i64>,
+    pub since: Option<String>,
+    pub until: Option<String>,
+    pub sort_by: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/contracts/{id}/audits",
+    params(
+        ("id" = String, Path, description = "Contract UUID or Stellar ID"),
+        AuditQueryParams
+    ),
+    responses(
+        (status = 200, description = "Paginated audit results", body = PaginatedAuditsResponse),
+        (status = 404, description = "Contract not found"),
+        (status = 400, description = "Invalid parameters")
+    ),
+    tag = "Contracts"
+)]
+pub async fn get_contract_audits(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(params): Query<AuditQueryParams>,
+) -> ApiResult<Json<shared::PaginatedAuditsResponse>> {
+    let contract_id = resolve_contract_id(&state, &id).await?;
+    
+    let page = params.page.unwrap_or(1).max(1);
+    let per_page = params.per_page.unwrap_or(10).clamp(1, 100);
+    let offset = (page - 1) * per_page;
+    
+    let since_dt = params.since.as_deref().and_then(parse_datetime);
+    let until_dt = params.until.as_deref().and_then(parse_datetime);
+
+    let rows: Vec<(Uuid, i32, i32, i32, i32, i32, Option<DateTime<Utc>>)> = sqlx::query_as(
+        "SELECT id, total_issues, critical_issues, high_issues, medium_issues, low_issues, completed_at
+         FROM security_scans
+         WHERE contract_id = $1 AND completed_at IS NOT NULL
+         AND (($2::timestamptz IS NULL) OR (completed_at >= $2))
+         AND (($3::timestamptz IS NULL) OR (completed_at <= $3))
+         ORDER BY completed_at DESC LIMIT $4 OFFSET $5"
+    )
+    .bind(contract_id)
+    .bind(since_dt)
+    .bind(until_dt)
+    .bind(per_page)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| db_internal_error("fetch audits", e))?;
+
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM security_scans 
+         WHERE contract_id = $1 AND completed_at IS NOT NULL
+         AND (($2::timestamptz IS NULL) OR (completed_at >= $2))
+         AND (($3::timestamptz IS NULL) OR (completed_at <= $3))"
+    )
+    .bind(contract_id)
+    .bind(since_dt)
+    .bind(until_dt)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    let audits = rows.into_iter().map(|(scan_id, total, crit, high, med, low, completed_at)| {
+        let status = if crit > 0 {
+            shared::AuditStatus::Failed
+        } else if high > 0 || med > 0 {
+            shared::AuditStatus::Issues
+        } else {
+            shared::AuditStatus::Passed
+        };
+
+        let mut findings = vec![];
+        [(crit, "critical"), (high, "high"), (med, "medium"), (low, "low")]
+            .iter()
+            .filter(|(count, _)| *count > 0)
+            .for_each(|(count, sev)| {
+                findings.push(shared::ContractAuditFinding {
+                    severity: sev.to_string(),
+                    count: *count,
+                });
+            });
+
+        shared::ContractAuditResponse {
+            id: scan_id,
+            contract_id,
+            audit_type: shared::AuditType::Informal,
+            status,
+            auditor: Some("Automated Security Scanner".to_string()),
+            audit_date: completed_at.unwrap_or_else(Utc::now),
+            findings_summary: findings,
+            total_issues: total,
+            report_url: Some(format!("/api/v1/contracts/{}/audits/{}", contract_id, scan_id)),
+        }
+    }).collect();
+
+    Ok(Json(shared::PaginatedAuditsResponse {
+        audits,
+        total,
+        page,
+        per_page,
+    }))
+}
+
+fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
+    chrono::DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+async fn resolve_contract_id(state: &AppState, id: &str) -> ApiResult<Uuid> {
+    if let Ok(uuid) = Uuid::parse_str(id) {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM contracts WHERE id = $1)")
+            .bind(uuid)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|e| db_internal_error("check contract", e))?;
+        return if exists {
+            Ok(uuid)
+        } else {
+            Err(ApiError::not_found("contract", "Contract not found"))
+        };
+    }
+
+    sqlx::query_scalar::<_, Uuid>("SELECT id FROM contracts WHERE contract_id = $1 LIMIT 1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| db_internal_error("resolve contract", e))?
+        .ok_or_else(|| ApiError::not_found("contract", "Contract not found"))
 }
 
 #[utoipa::path(
@@ -6919,6 +7680,150 @@ mod tests {
         assert_eq!(sanitized.cursor, None);
         assert_eq!(sanitized.category.as_deref(), Some("DeFi"));
     }
+
+    fn minimal_export_metadata(format: ContractExportFormat) -> ContractExportMetadata {
+        ContractExportMetadata {
+            exported_at: Utc::now(),
+            format,
+            total_count: 0,
+            async_export: false,
+            filters: ContractSearchParams::default(),
+        }
+    }
+
+    #[test]
+    fn jsonl_export_empty_produces_only_header_line() {
+        let metadata = minimal_export_metadata(ContractExportFormat::Jsonl);
+        let output = render_contract_export(&ContractExportFormat::Jsonl, &metadata, &[])
+            .expect("jsonl export should render with no records");
+
+        let lines: Vec<&str> = output.lines().collect();
+        // Only the metadata header line should be present.
+        assert_eq!(lines.len(), 1, "empty export should have exactly one line");
+        let header: serde_json::Value =
+            serde_json::from_str(lines[0]).expect("header should be valid JSON");
+        assert_eq!(header["_type"], "export_metadata");
+        assert_eq!(header["format"], "jsonl");
+        assert_eq!(header["total_count"], 0);
+    }
+
+    #[test]
+    fn jsonl_export_with_records_produces_one_line_per_record_plus_header() {
+        let metadata = ContractExportMetadata {
+            exported_at: Utc::now(),
+            format: ContractExportFormat::Jsonl,
+            total_count: 2,
+            async_export: false,
+            filters: ContractSearchParams::default(),
+        };
+        let record = ContractMetadataExportRecord {
+            id: Uuid::nil(),
+            logical_id: None,
+            contract_id: "CJSONLTEST".to_string(),
+            wasm_hash: "aabbccdd".to_string(),
+            name: "JSONL Contract".to_string(),
+            description: None,
+            publisher_id: Uuid::nil(),
+            publisher_stellar_address: "GJSONLADDR".to_string(),
+            publisher_username: None,
+            network: "testnet".to_string(),
+            is_verified: false,
+            category: None,
+            tags: vec![],
+            maturity: None,
+            health_score: 0,
+            is_maintenance: false,
+            deployment_count: 0,
+            audit_status: None,
+            visibility: "public".to_string(),
+            organization_id: None,
+            network_configs: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            verified_at: None,
+            last_verified_at: None,
+            last_accessed_at: None,
+        };
+        let records = vec![record.clone(), record];
+        let output = render_contract_export(&ContractExportFormat::Jsonl, &metadata, &records)
+            .expect("jsonl export should render");
+
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(
+            lines.len(),
+            3,
+            "should have 1 header + 2 record lines, got {}: {:?}",
+            lines.len(),
+            lines
+        );
+        // Every line is valid JSON.
+        for line in &lines {
+            serde_json::from_str::<serde_json::Value>(line)
+                .expect("each line should be valid JSON");
+        }
+        // First line is the metadata header.
+        let header: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(header["_type"], "export_metadata");
+        // Record lines contain the contract_id.
+        assert!(lines[1].contains("CJSONLTEST"));
+    }
+
+    #[test]
+    fn jsonl_format_display_is_jsonl() {
+        assert_eq!(ContractExportFormat::Jsonl.to_string(), "jsonl");
+    }
+
+    #[test]
+    fn jsonl_format_content_type_is_json() {
+        assert_eq!(
+            ContractExportFormat::Jsonl.content_type(),
+            "application/json"
+        );
+    }
+
+    #[test]
+    fn csv_export_empty_has_header_row_only() {
+        let metadata = minimal_export_metadata(ContractExportFormat::Csv);
+        let output = render_contract_export(&ContractExportFormat::Csv, &metadata, &[])
+            .expect("csv export should render with no records");
+
+        // Must have metadata comments and the column header row; no data rows.
+        assert!(output.contains("# exported_at="));
+        assert!(output.contains("id,logical_id,contract_id"));
+        let data_lines: Vec<&str> = output
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .skip(1) // skip the column header
+            .collect();
+        assert!(
+            data_lines.is_empty(),
+            "empty csv export should have no data rows, found: {data_lines:?}"
+        );
+    }
+
+    #[test]
+    fn parse_datetime_rfc3339_format() {
+        let dt_str = "2024-01-15T10:30:00Z";
+        let parsed = parse_datetime(dt_str);
+        assert!(parsed.is_some());
+        let dt = parsed.unwrap();
+        assert_eq!(dt.year(), 2024);
+        assert_eq!(dt.month(), 1);
+        assert_eq!(dt.day(), 15);
+    }
+
+    #[test]
+    fn parse_datetime_invalid_format_returns_none() {
+        let dt_str = "2024-01-15 invalid";
+        let parsed = parse_datetime(dt_str);
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn parse_datetime_empty_string_returns_none() {
+        let parsed = parse_datetime("");
+        assert!(parsed.is_none());
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -7304,7 +8209,8 @@ pub async fn delete_favorite_search(
         .map_err(|err| db_internal_error("delete favorite search", err))?;
 
     if result.rows_affected() == 0 {
-        return Err(ApiError::not_found(            "FavoriteNotFound",
+        return Err(ApiError::not_found(
+            "FavoriteNotFound",
             "Favorite search not found",
         ));
     }
@@ -7323,34 +8229,33 @@ pub async fn handle_export_audit(
                created_at
         FROM audit_logs
         ORDER BY created_at DESC
-        "#
+        "#,
     )
     .fetch_all(&state.db)
     .await
-    .map_err(|e| ApiError::new(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "DatabaseError",
-        format!("Failed to export audit logs: {e}")
-    ))?;
+    .map_err(|e| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DatabaseError",
+            format!("Failed to export audit logs: {e}"),
+        )
+    })?;
 
     Ok(Json(logs))
 }
 
 // Axum Handler to enforce retention criteria
-pub async fn handle_retention_cleanup(
-    State(state): State<AppState>,
-) -> ApiResult<String> {
-    let result = sqlx::query(
-        "DELETE FROM audit_logs WHERE created_at < NOW() - INTERVAL '1 year'"
-    )
-    .execute(&state.db)
-    .await
-    .map_err(|e| ApiError::new(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "DatabaseError",
-        format!("Failed to prune logs: {e}")
-    ))?;
-    
+pub async fn handle_retention_cleanup(State(state): State<AppState>) -> ApiResult<String> {
+    let result = sqlx::query("DELETE FROM audit_logs WHERE created_at < NOW() - INTERVAL '1 year'")
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DatabaseError",
+                format!("Failed to prune logs: {e}"),
+            )
+        })?;
+
     Ok(format!("Pruned rows: {}", result.rows_affected()))
 }
-

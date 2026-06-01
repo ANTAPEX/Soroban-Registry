@@ -103,6 +103,13 @@ pub async fn publish_abi(
     .await
     .map_err(|e| ApiError::internal(format!("Failed to store ABI: {}", e)))?;
 
+    // Backfill ABI cache for fast subsequent reads (both uuid@version and uuid keys).
+    if let Ok(abi_str) = serde_json::to_string(&req.abi) {
+        let version_key = format!("{}@{}", contract_id.to_string(), &req.version);
+        let _ = state.cache.put_abi(&version_key, abi_str.clone()).await;
+        let _ = state.cache.put_abi(&contract_id.to_string(), abi_str).await;
+    }
+
     // Auto compatibility check against the previous version if requested.
     let compatibility = if req.check_compatibility.unwrap_or(false) {
         let prev = sqlx::query_as::<_, ContractAbiRecord>(
@@ -244,7 +251,53 @@ async fn fetch_abi_record(
     contract_id: Uuid,
     version: &str,
 ) -> ApiResult<ContractAbiRecord> {
-    sqlx::query_as::<_, ContractAbiRecord>(
+    // First try L1/L2 cache for the ABI payload to avoid fetching large ABI blobs from Postgres.
+    let version_key = format!("{}@{}", contract_id.to_string(), version);
+    if let Some(cached) = state.cache.get_abi(&version_key, false).await {
+        // Parse cached ABI JSON into a Value and fetch metadata (without ABI) from DB.
+        let abi_val: Value = serde_json::from_str(&cached).map_err(|e| {
+            ApiError::internal(format!("Failed to parse cached ABI JSON: {}", e))
+        })?;
+
+        #[derive(sqlx::FromRow)]
+        struct AbiMetaRow {
+            id: Uuid,
+            contract_id: Uuid,
+            version: String,
+            is_deprecated: bool,
+            deprecated_at: Option<chrono::DateTime<Utc>>,
+            changelog: Option<String>,
+            created_at: chrono::DateTime<Utc>,
+        }
+
+        let meta: Option<AbiMetaRow> = sqlx::query_as(
+            r#"SELECT id, contract_id, version, is_deprecated, deprecated_at, changelog, created_at
+               FROM contract_abis
+               WHERE contract_id = $1 AND version = $2"#,
+        )
+        .bind(contract_id)
+        .bind(version)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(format!("DB error: {}", e)))?;
+
+        if let Some(m) = meta {
+            return Ok(ContractAbiRecord {
+                id: m.id,
+                contract_id: m.contract_id,
+                version: m.version,
+                abi: abi_val,
+                is_deprecated: m.is_deprecated,
+                deprecated_at: m.deprecated_at,
+                changelog: m.changelog,
+                created_at: m.created_at,
+            });
+        }
+        // If metadata not found fall through to full query which will return proper 404.
+    }
+
+    // Cache miss: fetch full record (including ABI) and populate cache for future requests.
+    let rec = sqlx::query_as::<_, ContractAbiRecord>(
         r#"
         SELECT id, contract_id, version, abi, is_deprecated, deprecated_at, changelog, created_at
         FROM contract_abis
@@ -256,7 +309,15 @@ async fn fetch_abi_record(
     .fetch_optional(&state.db)
     .await
     .map_err(|e| ApiError::internal(format!("DB error: {}", e)))?
-    .ok_or_else(|| ApiError::not_found("abi", format!("ABI version {} not found", version)))
+    .ok_or_else(|| ApiError::not_found("abi", format!("ABI version {} not found", version)))?;
+
+    // Backfill caches (store ABI JSON under both uuid@version and uuid keys).
+    if let Ok(abi_str) = serde_json::to_string(&rec.abi) {
+        let _ = state.cache.put_abi(&version_key, abi_str.clone()).await;
+        let _ = state.cache.put_abi(&contract_id.to_string(), abi_str).await;
+    }
+
+    Ok(rec)
 }
 
 // ── Helper: run diff and build report ────────────────────────────────────

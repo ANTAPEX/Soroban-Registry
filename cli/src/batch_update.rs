@@ -165,7 +165,9 @@ pub async fn run_batch_update(args: BatchUpdateArgs<'_>) -> Result<()> {
             let ovr = overrides.get(id.as_str());
             BatchUpdateItem {
                 contract_id: id.clone(),
-                name: ovr.and_then(|o| o.name.clone()).or_else(|| manifest.metadata.name.clone()),
+                name: ovr
+                    .and_then(|o| o.name.clone())
+                    .or_else(|| manifest.metadata.name.clone()),
                 description: ovr
                     .and_then(|o| o.description.clone())
                     .or_else(|| manifest.metadata.description.clone()),
@@ -219,7 +221,11 @@ pub async fn run_batch_update(args: BatchUpdateArgs<'_>) -> Result<()> {
     println!("{}", "=".repeat(60).cyan());
     println!("  {}: {}", "Contracts".bold(), items.len());
     if !skipped_ids.is_empty() {
-        println!("  {}: {} (condition not met)", "Skipped".bold(), skipped_ids.len().to_string().yellow());
+        println!(
+            "  {}: {} (condition not met)",
+            "Skipped".bold(),
+            skipped_ids.len().to_string().yellow()
+        );
     }
     println!("  {}: {}", "Batch ID".bold(), batch_id.bright_black());
     println!();
@@ -320,10 +326,11 @@ fn load_manifest(path: &str) -> Result<UpdateManifest> {
         .to_lowercase();
     match ext.as_str() {
         "json" => serde_json::from_str(&content).context("Failed to parse JSON manifest"),
-        "yaml" | "yml" => {
-            serde_yaml::from_str(&content).context("Failed to parse YAML manifest")
-        }
-        _ => anyhow::bail!("Unsupported manifest format '{}' — use .yaml, .yml, or .json", ext),
+        "yaml" | "yml" => serde_yaml::from_str(&content).context("Failed to parse YAML manifest"),
+        _ => anyhow::bail!(
+            "Unsupported manifest format '{}' — use .yaml, .yml, or .json",
+            ext
+        ),
     }
 }
 
@@ -354,7 +361,10 @@ async fn fetch_ids_by_filter(api_url: &str, filter: &str) -> Result<Vec<String>>
     let mut page = 1i64;
 
     loop {
-        let url = format!("{}/api/contracts?limit=100&page={}&{}", api_url, page, query_params);
+        let url = format!(
+            "{}/api/contracts?limit=100&page={}&{}",
+            api_url, page, query_params
+        );
         let resp = client
             .get(&url)
             .send_with_retry()
@@ -387,7 +397,11 @@ async fn fetch_ids_by_filter(api_url: &str, filter: &str) -> Result<Vec<String>>
         let total_pages = body.get("pages").and_then(|v| v.as_i64()).unwrap_or(1);
 
         for item in &items {
-            if let Some(id) = item.get("id").or_else(|| item.get("contract_id")).and_then(|v| v.as_str()) {
+            if let Some(id) = item
+                .get("id")
+                .or_else(|| item.get("contract_id"))
+                .and_then(|v| v.as_str())
+            {
                 if !id.is_empty() {
                     ids.push(id.to_string());
                 }
@@ -407,7 +421,9 @@ async fn fetch_ids_by_filter(api_url: &str, filter: &str) -> Result<Vec<String>>
 
 fn deduplicate_ids(ids: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
-    ids.into_iter().filter(|id| seen.insert(id.clone())).collect()
+    ids.into_iter()
+        .filter(|id| seen.insert(id.clone()))
+        .collect()
 }
 
 // ── Condition parsing ──────────────────────────────────────────────────────────
@@ -564,9 +580,17 @@ fn print_preview_table(report: &BatchUpdateReport) {
     println!("\n{}", "Batch Metadata Update — Preview".bold().cyan());
     println!("{}", "=".repeat(60).cyan());
     println!("  {}: {}", "Total contracts".bold(), report.total);
-    println!("  {}: {}", "Would update".bold(), (report.total - report.skipped).to_string().green());
+    println!(
+        "  {}: {}",
+        "Would update".bold(),
+        (report.total - report.skipped).to_string().green()
+    );
     if report.skipped > 0 {
-        println!("  {}: {}", "Would skip".bold(), report.skipped.to_string().yellow());
+        println!(
+            "  {}: {}",
+            "Would skip".bold(),
+            report.skipped.to_string().yellow()
+        );
     }
     println!();
     println!("{:<40} {}", "Contract ID".bold(), "Action".bold());
@@ -577,26 +601,49 @@ fn print_preview_table(report: &BatchUpdateReport) {
             "skipped" => "skip (condition)".yellow(),
             _ => r.status.as_str().normal(),
         };
-        println!("{:<40} {}", &r.contract_id[..r.contract_id.len().min(40)], action);
+        println!(
+            "{:<40} {}",
+            &r.contract_id[..r.contract_id.len().min(40)],
+            action
+        );
     }
     println!();
-    println!("{}", "(no writes were made — remove --preview to apply)".bright_black());
+    println!(
+        "{}",
+        "(no writes were made — remove --preview to apply)".bright_black()
+    );
 }
 
 fn print_report_table(report: &BatchUpdateReport) {
     println!("{}", "Results".bold().cyan());
     println!("{}", "=".repeat(60).cyan());
-    println!("  {}: {}", "Updated".bold(), report.updated.to_string().green());
+    println!(
+        "  {}: {}",
+        "Updated".bold(),
+        report.updated.to_string().green()
+    );
     if report.skipped > 0 {
-        println!("  {}: {}", "Skipped".bold(), report.skipped.to_string().yellow());
+        println!(
+            "  {}: {}",
+            "Skipped".bold(),
+            report.skipped.to_string().yellow()
+        );
     }
     if report.failed > 0 {
         println!("  {}: {}", "Failed".bold(), report.failed.to_string().red());
     }
     if report.rolled_back > 0 {
-        println!("  {}: {}", "Rolled back".bold(), report.rolled_back.to_string().yellow());
+        println!(
+            "  {}: {}",
+            "Rolled back".bold(),
+            report.rolled_back.to_string().yellow()
+        );
     }
-    println!("  {}: {}", "Batch ID".bold(), report.batch_id.bright_black());
+    println!(
+        "  {}: {}",
+        "Batch ID".bold(),
+        report.batch_id.bright_black()
+    );
     println!();
 
     let has_errors = report.results.iter().any(|r| r.error.is_some());

@@ -14,6 +14,7 @@ use crate::{
     error::{ApiError, ApiResult},
     ml_detector,
     state::AppState,
+    vulnerability_database,
 };
 use shared::{
     ContractSecuritySummary, CreateSecurityScannerRequest, IssueSeverity, IssueStatus,
@@ -107,6 +108,21 @@ pub async fn trigger_security_scan(
             ml_detector::persist_ml_scan(&state, contract_id, contract_version_id, source_code)
                 .await?;
 
+        return Ok(Json(scan));
+    }
+
+    if let Ok((source_code, _verification_id)) =
+        ml_detector::source_for_contract(&state, contract_id, req.version.as_deref()).await
+    {
+        let scan = persist_pattern_scan(
+            &state,
+            contract_id,
+            contract_version_id,
+            source_code,
+            requested_scan_type,
+            "manual",
+        )
+        .await?;
         return Ok(Json(scan));
     }
 
@@ -468,6 +484,21 @@ pub async fn auto_scan_contract(
     contract_id: Uuid,
     contract_version_id: Option<Uuid>,
 ) -> Result<Uuid, ApiError> {
+    if let Ok((source_code, _verification_id)) =
+        ml_detector::source_for_contract(state, contract_id, None).await
+    {
+        let scan = persist_pattern_scan(
+            state,
+            contract_id,
+            contract_version_id,
+            source_code,
+            "full",
+            "upload",
+        )
+        .await?;
+        return Ok(scan.id);
+    }
+
     let scan = sqlx::query_as::<_, SecurityScan>(
         r#"
         INSERT INTO security_scans
@@ -483,4 +514,132 @@ pub async fn auto_scan_contract(
     .map_err(|e| ApiError::internal(format!("Failed to create auto scan: {}", e)))?;
 
     Ok(scan.id)
+}
+
+async fn persist_pattern_scan(
+    state: &AppState,
+    contract_id: Uuid,
+    contract_version_id: Option<Uuid>,
+    source_code: String,
+    scan_type: &str,
+    triggered_by_event: &str,
+) -> Result<SecurityScan, ApiError> {
+    let started = std::time::Instant::now();
+    let findings = vulnerability_database::scan_source(&source_code);
+    let critical = findings
+        .iter()
+        .filter(|finding| finding.severity == IssueSeverity::Critical)
+        .count() as i32;
+    let high = findings
+        .iter()
+        .filter(|finding| finding.severity == IssueSeverity::High)
+        .count() as i32;
+    let medium = findings
+        .iter()
+        .filter(|finding| finding.severity == IssueSeverity::Medium)
+        .count() as i32;
+    let low = findings
+        .iter()
+        .filter(|finding| finding.severity == IssueSeverity::Low)
+        .count() as i32;
+    let score = vulnerability_database::severity_score(&findings);
+
+    let scan = sqlx::query_as::<_, SecurityScan>(
+        r#"
+        INSERT INTO security_scans
+            (contract_id, contract_version_id, scanner_id, status, scan_type, triggered_by_event,
+             total_issues, critical_issues, high_issues, medium_issues, low_issues,
+             scan_duration_ms, scanner_version, scan_parameters, scan_result_raw,
+             started_at, completed_at, created_at, updated_at)
+        VALUES
+            ($1, $2, NULL, 'completed', $3, $4,
+             $5, $6, $7, $8, $9,
+             $10, 'local-pattern-db-v1', $11, $12, NOW(), NOW(), NOW(), NOW())
+        RETURNING *
+        "#,
+    )
+    .bind(contract_id)
+    .bind(contract_version_id)
+    .bind(scan_type)
+    .bind(triggered_by_event)
+    .bind(findings.len() as i32)
+    .bind(critical)
+    .bind(high)
+    .bind(medium)
+    .bind(low)
+    .bind(started.elapsed().as_millis().min(i32::MAX as u128) as i32)
+    .bind(serde_json::json!({
+        "database": "built_in",
+        "pattern_count": vulnerability_database::built_in_patterns().len(),
+    }))
+    .bind(serde_json::json!({
+        "scanner": "local-pattern-db-v1",
+        "score": score,
+        "findings": findings,
+    }))
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to create vulnerability scan: {}", e)))?;
+
+    for finding in &findings {
+        let _ = sqlx::query(
+            r#"
+            INSERT INTO security_issues
+                (id, scan_id, contract_id, contract_version_id, title, description, severity, status,
+                 category, cwe_id, cve_id, source_file, source_line_start, source_line_end,
+                 code_snippet, remediation, reference_urls, external_issue_id,
+                 is_false_positive, created_at, updated_at)
+            VALUES
+                ($1, $2, $3, $4, $5, $6, $7, 'open',
+                 $8, $9, $10, 'source.rs', $11, $12,
+                 $13, $14, $15, $16, false, NOW(), NOW())
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(scan.id)
+        .bind(contract_id)
+        .bind(contract_version_id)
+        .bind(finding.title)
+        .bind(finding.description)
+        .bind(&finding.severity)
+        .bind(finding.category)
+        .bind(finding.cwe_id)
+        .bind(finding.cve_id)
+        .bind(Some(finding.line))
+        .bind(Some(finding.line))
+        .bind(Some(finding.snippet.clone()))
+        .bind(Some(finding.remediation.to_string()))
+        .bind(Some(finding.references.clone()))
+        .bind(Some(finding.pattern_id.to_string()))
+        .execute(&state.db)
+        .await;
+    }
+
+    if let Some(version_id) = contract_version_id {
+        let _ = sqlx::query(
+            r#"
+            INSERT INTO security_score_history
+                (id, contract_id, contract_version_id, overall_score, score_breakdown,
+                 critical_count, high_count, medium_count, low_count, scan_id, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(contract_id)
+        .bind(version_id)
+        .bind(score)
+        .bind(serde_json::json!({
+            "scanner": "local-pattern-db-v1",
+            "total_findings": findings.len(),
+        }))
+        .bind(critical)
+        .bind(high)
+        .bind(medium)
+        .bind(low)
+        .bind(scan.id)
+        .execute(&state.db)
+        .await;
+    }
+
+    Ok(scan)
 }

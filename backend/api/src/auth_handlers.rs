@@ -1,14 +1,16 @@
 use crate::validation::extractors::ValidatedJson;
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     Json,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     error::{ApiError, ApiResult},
+    security::{generate_csrf_token, WebSecurityConfig, CSRF_HEADER_NAME},
     state::AppState,
+    validation::extractors::{FieldError, Validatable},
 };
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -48,10 +50,72 @@ pub struct VerifyRequest {
 pub struct VerifyResponse {
     /// JSON Web Token for authentication
     pub token: String,
+    /// Opaque refresh token for rotating access tokens
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
     /// Always "Bearer"
     pub token_type: &'static str,
     /// Seconds until token expiration
     pub expires_in_seconds: u64,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct CsrfTokenResponse {
+    pub token: String,
+    pub header_name: &'static str,
+    pub expires_in_seconds: u64,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct RefreshTokenRequest {
+    pub refresh_token: String,
+    #[serde(default)]
+    pub expires_in_seconds: Option<u64>,
+}
+
+impl Validatable for RefreshTokenRequest {
+    fn sanitize(&mut self) {
+        self.refresh_token = self.refresh_token.trim().to_string();
+    }
+
+    fn validate(&self) -> Result<(), Vec<FieldError>> {
+        if self.refresh_token.is_empty() {
+            Err(vec![FieldError::new(
+                "refresh_token",
+                "refresh_token is required",
+            )])
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Generate a CSRF token and same-site cookie for browser clients.
+///
+/// GET /api/auth/csrf
+pub async fn get_csrf_token() -> ApiResult<(HeaderMap, Json<CsrfTokenResponse>)> {
+    let config = WebSecurityConfig::from_env();
+    let token = generate_csrf_token();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&config.csrf_cookie(&token))
+            .map_err(|_| ApiError::internal("Failed to build CSRF cookie"))?,
+    );
+    headers.insert(
+        CSRF_HEADER_NAME,
+        HeaderValue::from_str(&token)
+            .map_err(|_| ApiError::internal("Failed to build CSRF token header"))?,
+    );
+
+    Ok((
+        headers,
+        Json(CsrfTokenResponse {
+            token,
+            header_name: CSRF_HEADER_NAME,
+            expires_in_seconds: 7_200,
+        }),
+    ))
 }
 
 #[utoipa::path(
@@ -127,8 +191,8 @@ pub async fn verify_challenge(
         .unwrap_or(86_400)
         .clamp(300, 30 * 24 * 60 * 60);
     let mut mgr = state.auth_mgr.write().unwrap();
-    let token = mgr
-        .verify_and_issue_jwt(
+    let pair = mgr
+        .verify_and_issue_token_pair(
             &payload.address,
             &payload.public_key,
             &payload.signature,
@@ -146,9 +210,38 @@ pub async fn verify_challenge(
     Ok((
         StatusCode::OK,
         Json(VerifyResponse {
-            token,
+            token: pair.access_token,
+            refresh_token: Some(pair.refresh_token),
             token_type: "Bearer",
-            expires_in_seconds,
+            expires_in_seconds: pair.expires_in_seconds,
+        }),
+    ))
+}
+
+pub async fn refresh_token(
+    State(state): State<AppState>,
+    ValidatedJson(payload): ValidatedJson<RefreshTokenRequest>,
+) -> Result<(StatusCode, Json<VerifyResponse>), ApiError> {
+    let expires_in_seconds = payload
+        .expires_in_seconds
+        .unwrap_or(86_400)
+        .clamp(300, 30 * 24 * 60 * 60);
+    let pair = {
+        let mut mgr = state
+            .auth_mgr
+            .write()
+            .map_err(|_| ApiError::internal("Authentication state unavailable"))?;
+        mgr.refresh_access_token(&payload.refresh_token, expires_in_seconds)
+            .map_err(|_| ApiError::unauthorized("Invalid or expired refresh token"))?
+    };
+
+    Ok((
+        StatusCode::OK,
+        Json(VerifyResponse {
+            token: pair.access_token,
+            refresh_token: Some(pair.refresh_token),
+            token_type: pair.token_type,
+            expires_in_seconds: pair.expires_in_seconds,
         }),
     ))
 }

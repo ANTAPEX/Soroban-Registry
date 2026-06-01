@@ -1,3 +1,4 @@
+use crate::output_format::{self, OutputFormat};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
@@ -192,8 +193,15 @@ fn emit_report(report: &AnalyticsReport, format: &str, export: Option<&str>) -> 
     let rendered = match format {
         "json" => serde_json::to_string_pretty(report)?,
         "csv" => to_csv(report),
+        "yaml" | "yml" => {
+            let json_val = serde_json::to_value(report)?;
+            output_format::render_yaml(&json_val)?
+        }
         "table" => to_table(report),
-        _ => anyhow::bail!("Invalid format '{}'. Allowed: table, json, csv", format),
+        _ => anyhow::bail!(
+            "Invalid format '{}'. Allowed: table, json, csv, yaml",
+            format
+        ),
     };
 
     println!("{}", rendered);

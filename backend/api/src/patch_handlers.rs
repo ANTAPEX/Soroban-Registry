@@ -284,7 +284,7 @@ fn abi_functions_map(abi: &Value) -> std::collections::HashMap<String, Value> {
 /// Replay the patch chain to reconstruct the state at `target_version`.
 /// Returns None if the version or its patch chain is not found.
 async fn reconstruct_version(
-    db: &sqlx::PgPool,
+    state: &crate::state::AppState,
     contract_uuid: Uuid,
     target_version: &str,
 ) -> Result<Option<ReconstructedVersion>, sqlx::Error> {
@@ -298,7 +298,7 @@ async fn reconstruct_version(
          ORDER BY created_at ASC",
     )
     .bind(contract_uuid)
-    .fetch_all(db)
+    .fetch_all(&state.db)
     .await?;
 
     if patches.is_empty() {
@@ -317,8 +317,8 @@ async fn reconstruct_version(
     let mut current_version = root.to_version.clone();
 
     if current_version == target_version {
-        // Fetch ABI separately — it is stored in contract_abis.
-        let abi = fetch_abi(db, contract_uuid, target_version).await?;
+        // Fetch ABI separately — it is stored in contract_abis. Use cache-aware helper.
+        let abi = fetch_abi(state, contract_uuid, target_version).await?;
         current.abi = abi;
         current.version = current_version;
         current.reconstructed_via_patches = true;
@@ -334,7 +334,7 @@ async fn reconstruct_version(
                 apply_patch_to_state(&mut current, p);
                 current_version = p.to_version.clone();
                 if current_version == target_version {
-                    let abi = fetch_abi(db, contract_uuid, target_version).await?;
+                    let abi = fetch_abi(state, contract_uuid, target_version).await?;
                     current.abi = abi;
                     current.version = current_version;
                     current.reconstructed_via_patches = true;
@@ -407,16 +407,35 @@ fn apply_patch_to_state(state: &mut ReconstructedVersion, patch: &ContractPatch)
 }
 
 async fn fetch_abi(
-    db: &sqlx::PgPool,
+    state: &crate::state::AppState,
     contract_uuid: Uuid,
     version: &str,
 ) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<(Value,)> =
-        sqlx::query_as("SELECT abi FROM contract_abis WHERE contract_id = $1 AND version = $2")
-            .bind(contract_uuid)
-            .bind(version)
-            .fetch_optional(db)
-            .await?;
+    let version_key = format!("{}@{}", contract_uuid.to_string(), version);
+
+    // L1/L2: try cache first
+    if let Some(cached) = state.cache.get_abi(&version_key, false).await {
+        if let Ok(v) = serde_json::from_str::<Value>(&cached) {
+            return Ok(Some(v));
+        }
+    }
+
+    // DB fallback
+    let row: Option<(Value,)> = sqlx::query_as(
+        "SELECT abi FROM contract_abis WHERE contract_id = $1 AND version = $2",
+    )
+    .bind(contract_uuid)
+    .bind(version)
+    .fetch_optional(&state.db)
+    .await?;
+
+    if let Some((val,)) = &row {
+        if let Ok(abi_str) = serde_json::to_string(val) {
+            let _ = state.cache.put_abi(&version_key, abi_str.clone()).await;
+            let _ = state.cache.put_abi(&contract_uuid.to_string(), abi_str).await;
+        }
+    }
+
     Ok(row.map(|(v,)| v))
 }
 
@@ -541,7 +560,7 @@ pub async fn reconstruct_contract_version(
 ) -> ApiResult<Json<ReconstructedVersion>> {
     let contract_uuid = resolve_contract_uuid(&state, &id).await?;
 
-    let result = reconstruct_version(&state.db, contract_uuid, &req.target_version)
+    let result = reconstruct_version(&state, contract_uuid, &req.target_version)
         .await
         .map_err(|err| db_internal_error("reconstruct version", err))?;
 
@@ -591,7 +610,7 @@ pub async fn bulk_apply_patches(
     for target in &req.targets {
         let result = async {
             let contract_uuid = resolve_contract_uuid(&state, &target.contract_id).await?;
-            let version = reconstruct_version(&state.db, contract_uuid, &target.target_version)
+            let version = reconstruct_version(&state, contract_uuid, &target.target_version)
                 .await
                 .map_err(|err| db_internal_error("reconstruct version (bulk)", err))?;
             Ok::<Option<ReconstructedVersion>, ApiError>(version)

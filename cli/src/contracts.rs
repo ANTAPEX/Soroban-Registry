@@ -1,4 +1,5 @@
 use crate::net::RequestBuilderExt;
+use crate::output_format::{self, OutputFormat};
 use anyhow::{Context, Result};
 use colored::Colorize;
 use reqwest::StatusCode;
@@ -16,13 +17,6 @@ pub struct ContractListItem {
     pub health_score: i32,
     pub created_at: String,
     pub tags: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputFormat {
-    Table,
-    Json,
-    Csv,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,48 +75,35 @@ pub async fn list_contracts(
     sort_order: Option<&str>,
     output_format: OutputFormat,
 ) -> Result<()> {
-    // Build query parameters - ensure limit is reasonable
-    let limit = limit.min(100); // API probably has a max limit
-    let mut params = vec![format!("limit={}", limit), format!("offset={}", offset)];
-
+    let limit = limit.min(100);
+    let url = format!("{}/api/contracts", api_url);
+    let mut query: Vec<(&str, String)> =
+        vec![("limit", limit.to_string()), ("offset", offset.to_string())];
     if let Some(net) = network {
-        params.push(format!("network={}", net));
+        query.push(("network", net.to_string()));
     }
-
     if let Some(cat) = category {
-        params.push(format!("category={}", cat));
+        query.push(("category", cat.to_string()));
     }
-
-    // Add sorting parameters (API will handle them server-side)
     if let Some(sort) = sort_by {
-        params.push(format!("sort_by={}", sort));
+        query.push(("sort_by", sort.to_string()));
     }
     if let Some(order) = sort_order {
-        params.push(format!("sort_order={}", order));
+        query.push(("sort_order", order.to_string()));
     }
 
-    let query_string = params.join("&");
-    let url = format!("{}/api/contracts?{}", api_url, query_string);
+    log::debug!("Fetching contracts from: {url}");
 
-    log::debug!("Fetching contracts from: {}", url);
-
-    let client = crate::net::client();
-    let response = client
-        .get(&url)
-        .send_with_retry()
+    let (status, body) = crate::cached_http::cached_get(&url, &query)
         .await
         .context("Failed to fetch contracts from API")?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("API request failed with status {}: {}", status, body);
+    if !status.is_success() {
+        anyhow::bail!("API request failed with status {status}: {body}");
     }
 
-    let response_body: serde_json::Value = response
-        .json()
-        .await
-        .context("Failed to parse contracts response")?;
+    let response_body: serde_json::Value =
+        serde_json::from_str(&body).context("Failed to parse contracts response")?;
 
     // Extract contracts from response
     let contracts_array = response_body
@@ -222,6 +203,7 @@ pub async fn list_contracts(
         OutputFormat::Table => print_table(&contracts),
         OutputFormat::Json => print_json(&contracts),
         OutputFormat::Csv => print_csv(&contracts),
+        OutputFormat::Yaml => print_yaml(&contracts),
     }
 
     Ok(())
@@ -336,26 +318,40 @@ fn print_csv(contracts: &[ContractListItem]) {
     }
 }
 
+fn print_yaml(contracts: &[ContractListItem]) {
+    let data = json!({
+        "contracts": contracts,
+        "count": contracts.len()
+    });
+
+    match output_format::render_yaml(&data) {
+        Ok(yaml) => println!("{}", yaml),
+        Err(e) => eprintln!("Error rendering YAML: {}", e),
+    }
+}
+
 pub async fn info(api_url: &str, id: &str, json_output: bool) -> Result<()> {
     let t0 = std::time::Instant::now();
-    let client = crate::net::client();
-    
-    // Assuming the backend accepts query params to eagerly load relationships
-    let url = format!("{}/api/contracts/{}?include_stats=true&include_versions=true&include_abi=true", api_url, id);
-    
-    let response = client
-        .get(&url)
-        .send_with_retry()
+
+    let url = format!("{}/api/contracts/{}", api_url, id);
+    let query = vec![
+        ("include_stats", "true".to_string()),
+        ("include_versions", "true".to_string()),
+        ("include_abi", "true".to_string()),
+    ];
+
+    let (status, body) = crate::cached_http::cached_get(&url, &query)
         .await
         .context("Failed to connect to the registry API")?;
 
-    if response.status() == StatusCode::NOT_FOUND {
+    if status == StatusCode::NOT_FOUND {
         anyhow::bail!("Contract not found for address or slug: {}", id.bold());
-    } else if !response.status().is_success() {
-        anyhow::bail!("Failed to fetch contract info: HTTP {}", response.status());
+    } else if !status.is_success() {
+        anyhow::bail!("Failed to fetch contract info: HTTP {status}");
     }
 
-    let data: serde_json::Value = response.json().await.context("Invalid JSON response from server")?;
+    let data: serde_json::Value =
+        serde_json::from_str(&body).context("Invalid JSON response from server")?;
 
     if json_output {
         println!("{}", serde_json::to_string_pretty(&data)?);
@@ -394,10 +390,10 @@ pub async fn info(api_url: &str, id: &str, json_output: bool) -> Result<()> {
     if let Some(stats) = data.get("stats") {
         println!("\n{}", "Activity & Stats".bold().magenta());
         println!("{}", "-".repeat(40).magenta());
-        
+
         let deployments = stats["deployments_count"].as_u64().unwrap_or(0);
         let interactions = stats["interactions_count"].as_u64().unwrap_or(0);
-        
+
         println!("{:<15} {}", "Deployments:".bold(), deployments);
         println!("{:<15} {}", "Interactions:".bold(), interactions);
     }
@@ -405,8 +401,11 @@ pub async fn info(api_url: &str, id: &str, json_output: bool) -> Result<()> {
     if let Some(abi) = data.get("abi").and_then(|a| a.as_array()) {
         println!("\n{}", "ABI Methods Preview".bold().yellow());
         println!("{}", "-".repeat(40).yellow());
-        
-        let functions: Vec<_> = abi.iter().filter(|item| item["type"] == "function").collect();
+
+        let functions: Vec<_> = abi
+            .iter()
+            .filter(|item| item["type"] == "function")
+            .collect();
         if functions.is_empty() {
             println!("  No exposed functions found.");
         } else {
@@ -423,15 +422,19 @@ pub async fn info(api_url: &str, id: &str, json_output: bool) -> Result<()> {
     if let Some(versions) = data.get("versions").and_then(|v| v.as_array()) {
         println!("\n{}", "Version History".bold().blue());
         println!("{}", "-".repeat(40).blue());
-        
+
         if versions.is_empty() {
             println!("  No version history available.");
         } else {
             for (i, version) in versions.iter().take(3).enumerate() {
                 let ver_str = version["version"].as_str().unwrap_or("unknown");
                 let date = version["published_at"].as_str().unwrap_or("unknown");
-                let current_tag = if i == 0 { " (latest)".bright_black() } else { "".normal() };
-                
+                let current_tag = if i == 0 {
+                    " (latest)".bright_black()
+                } else {
+                    "".normal()
+                };
+
                 println!("  • v{} - {}{}", ver_str.cyan(), date, current_tag);
             }
         }
@@ -466,8 +469,15 @@ pub async fn run_details(
 
     if !response.status().is_success() {
         let status = response.status();
+        if status == StatusCode::NOT_FOUND {
+            anyhow::bail!("Contract not found for address: {}", address.bold());
+        }
         let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("API request failed with status {}: {}", status, body);
+        anyhow::bail!(
+            "Failed to fetch contract details: HTTP {} - {}",
+            status,
+            body
+        );
     }
 
     let contract: serde_json::Value = response

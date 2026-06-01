@@ -14,6 +14,7 @@ path = "src/main.rs"
 shared = { path = "../backend/shared" }
 contract_abi = { path = "../backend/contract_abi" }
 clap = { version = "4.5", features = ["derive", "env"] }
+clap_complete = "4.5"
 tokio = { version = "1", features = ["full", "macros", "rt-multi-thread"] }
 reqwest = { version = "0.12", default-features = false, features = [
 	"json",

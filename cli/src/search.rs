@@ -1,12 +1,12 @@
-use crate::net::RequestBuilderExt;  
+use crate::net::RequestBuilderExt;
 use colored::Colorize;
-use std::time::Instant;
 use shared::models::Contract;
+use std::time::Instant;
 
 pub async fn run(
     query: &str,
     verified_only: bool,
-    network: Option<&String>,
+    networks: Option<&String>,
     category: Option<&String>,
     sort: Option<&String>,
     limit: usize,
@@ -17,46 +17,40 @@ pub async fn run(
     let start = Instant::now();
 
     let url = format!("{}/api/contracts", api_url);
-    let client = crate::net::client(); 
-    let mut all_contracts: Vec<Contract> = client
-        .get(&url)
-        .send_with_retry()  
-        .await?
-        .json()
-        .await?;
+    let client = crate::net::client();
+    let mut all_contracts: Vec<Contract> = client.get(&url).send_with_retry().await?.json().await?;
 
-    // Full-text search match against query string
     let q = query.to_lowercase();
     all_contracts.retain(|c| {
         c.name.to_lowercase().contains(&q)
-            || c.description.as_deref()
+            || c.description
+                .as_deref()
                 .unwrap_or("")
                 .to_lowercase()
                 .contains(&q)
     });
 
-    // Network Filter execution
-    if let Some(network_filter) = network {
+    if let Some(nets) = networks {
+        let network_list: Vec<&str> = nets.split(',').map(|s| s.trim()).collect();
         all_contracts.retain(|c| {
-            format!("{:?}", c.network).to_lowercase() == network_filter.to_lowercase()
+            let net_str = format!("{:?}", c.network).to_lowercase();
+            network_list.iter().any(|n| n.to_lowercase() == net_str)
         });
     }
 
-    // Category Filter execution
     if let Some(category_filter) = category {
         all_contracts.retain(|c| {
-            c.category.as_deref()
+            c.category
+                .as_deref()
                 .unwrap_or("")
                 .eq_ignore_ascii_case(category_filter)
         });
     }
 
-    // Verification filtering matching the backend model boolean field (is_verified)
     if verified_only {
         all_contracts.retain(|c| c.is_verified);
     }
 
-    // Sorting options matching choices
     let sort_mode = sort.map(|s| s.as_str()).unwrap_or("relevance");
     match sort_mode {
         "updated" => all_contracts.sort_by(|a, b| b.updated_at.cmp(&a.updated_at)),
@@ -64,14 +58,14 @@ pub async fn run(
         "name" => all_contracts.sort_by(|a, b| a.name.cmp(&b.name)),
         _ => {
             all_contracts.sort_by(|a, b| {
-                b.relevance_score.unwrap_or(0.0)
+                b.relevance_score
+                    .unwrap_or(0.0)
                     .partial_cmp(&a.relevance_score.unwrap_or(0.0))
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
         }
     }
 
-    // Applying Offset and Limit layout constraints safely
     if offset < all_contracts.len() {
         all_contracts = all_contracts.split_off(offset);
     } else {
@@ -80,9 +74,31 @@ pub async fn run(
     all_contracts.truncate(limit);
     let elapsed = start.elapsed();
 
-    // Handle JSON format request option
     if output_json {
-        println!("{}", serde_json::to_string_pretty(&all_contracts)?);
+        let contracts: Vec<serde_json::Value> = all_contracts
+            .iter()
+            .map(|c| {
+                let tag_names: Vec<String> = c.tags.iter().map(|t| t.name.clone()).collect();
+                serde_json::json!({
+                    "id": c.id,
+                    "name": c.name,
+                    "contract_id": c.contract_id,
+                    "network": c.network,
+                    "category": c.category.as_deref().unwrap_or(""),
+                    "is_verified": c.is_verified,
+                    "health_score": c.health_score,
+                    "created_at": c.created_at.to_rfc3339(),
+                    "tags": tag_names,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "contracts": contracts,
+                "count": contracts.len()
+            }))?
+        );
         return Ok(());
     }
 
@@ -97,6 +113,20 @@ pub async fn run(
         all_contracts.len().to_string().green().bold(),
         elapsed.as_millis()
     );
+
+    let mut filters: Vec<String> = Vec::new();
+    if let Some(nets) = networks {
+        filters.push(format!("networks: {}", nets));
+    }
+    if let Some(cat) = category {
+        filters.push(format!("category: {}", cat));
+    }
+    if verified_only {
+        filters.push("verified".to_string());
+    }
+    if !filters.is_empty() {
+        println!("  {}\n", filters.join(" | ").bright_blue());
+    }
 
     for contract in &all_contracts {
         let highlighted_name = highlight_match(&contract.name, query);
@@ -113,10 +143,16 @@ pub async fn run(
         println!("   {}", highlighted_desc);
         println!(
             "   {} {:?} | {} {}",
-            "Network:".dimmed(), contract.network,
-            "Category:".dimmed(), contract.category.as_deref().unwrap_or("unknown")
+            "Network:".dimmed(),
+            contract.network,
+            "Category:".dimmed(),
+            contract.category.as_deref().unwrap_or("unknown")
         );
-        println!("   {} {}", "Updated:".dimmed(), contract.updated_at.format("%Y-%m-%d %H:%M:%S"));
+        println!(
+            "   {} {}",
+            "Updated:".dimmed(),
+            contract.updated_at.format("%Y-%m-%d %H:%M:%S")
+        );
         println!();
     }
 
@@ -139,4 +175,35 @@ fn highlight_match(text: &str, query: &str) -> String {
     }
     result.push_str(&text[last..]);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn parse_multiple_networks_comma_separated() {
+        let input = "testnet,mainnet,futurenet";
+        let networks: Vec<&str> = input.split(',').map(|s| s.trim()).collect();
+        assert_eq!(networks.len(), 3);
+        assert!(networks.contains(&"testnet"));
+        assert!(networks.contains(&"mainnet"));
+        assert!(networks.contains(&"futurenet"));
+    }
+
+    #[test]
+    fn parse_single_network() {
+        let input = "testnet";
+        let networks: Vec<&str> = input.split(',').map(|s| s.trim()).collect();
+        assert_eq!(networks.len(), 1);
+        assert_eq!(networks[0], "testnet");
+    }
+
+    #[test]
+    fn parse_networks_with_spaces() {
+        let input = "testnet, mainnet , futurenet";
+        let networks: Vec<&str> = input.split(',').map(|s| s.trim()).collect();
+        assert_eq!(networks.len(), 3);
+        assert_eq!(networks[0], "testnet");
+        assert_eq!(networks[1], "mainnet");
+        assert_eq!(networks[2], "futurenet");
+    }
 }

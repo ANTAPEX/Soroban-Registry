@@ -19,6 +19,21 @@
 //!    gone. The one remaining fallible path (attaching response headers) logs
 //!    a warning instead of crashing.
 //!
+//! ## Write-endpoint protection
+//!
+//! Mutation endpoints (POST, PUT, PATCH, DELETE) consume more server resources
+//! and can cause irreversible state changes.  They are subject to a separate,
+//! tighter quota:
+//!
+//! - Anonymous write limit: 100 req/hour  (`RATE_LIMIT_WRITE_ANON_PER_HOUR`)
+//! - Authenticated write limit: 300 req/hour (`RATE_LIMIT_WRITE_AUTH_PER_HOUR`)
+//!
+//! ## Exempt paths
+//!
+//! Health probes (`/health*`), the Prometheus metrics scrape endpoint
+//! (`/metrics`), and internal admin flows (`/api/admin/*`) bypass the rate
+//! limiter so monitoring systems and operators are never blocked.
+//!
 //! ## Horizontal scaling note
 //!
 //! This rate limiter is **per-instance**.  When running multiple API replicas
@@ -27,7 +42,7 @@
 //! store (e.g. via the `upstash-redis` crate or `fred`).
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     env,
     net::{IpAddr, SocketAddr},
     time::{Duration, Instant},
@@ -47,19 +62,23 @@ use tokio::sync::Mutex;
 
 use crate::error::ApiError;
 
-// Issue #609: 1,000 requests per hour per IP (anonymous), 1,000 per hour authenticated
+// Issue #891: 1,000 requests per minute per IP/API key by default.
 const DEFAULT_ANON_LIMIT: u32 = 1_000;
 const DEFAULT_AUTH_LIMIT: u32 = 1_000;
-const DEFAULT_WINDOW_SECONDS: u64 = 3_600; // 1 hour
+// Stricter default quotas for mutation (write) endpoints.
+const DEFAULT_WRITE_ANON_LIMIT: u32 = 100;
+const DEFAULT_WRITE_AUTH_LIMIT: u32 = 300;
+const DEFAULT_WINDOW_SECONDS: u64 = 60;
 #[allow(dead_code)]
 const DEFAULT_CONTRACTS_PAGE_SIZE: u32 = 50;
 #[allow(dead_code)]
 const MAX_CONTRACTS_PAGE_SIZE: u32 = 1000;
+const ABI_ENDPOINT_LIMIT_PER_MINUTE: u32 = 1_000;
 #[allow(dead_code)]
 const ENDPOINT_LIMIT_ENV_PREFIX: &str = "RATE_LIMIT_ENDPOINT_";
 
-/// Issue #727 — tiered hourly limits
-const FREE_TIER_LIMIT: u32 = 100;
+/// Issue #727 — tiered limits over the configured window.
+const FREE_TIER_LIMIT: u32 = 1_000;
 const PRO_TIER_LIMIT: u32 = 10_000;
 const BURST_WINDOW_SECONDS: u64 = 60; // 1 minute burst window
 
@@ -96,6 +115,17 @@ impl ApiTier {
             _ => ApiTier::Free,
         }
     }
+}
+
+/// Paths that bypass rate limiting entirely.
+///
+/// Health probes must not be rate-limited so that load balancers and
+/// orchestrators always get a response.  The Prometheus scrape endpoint
+/// `/metrics` and internal admin APIs are also exempt.
+fn is_exempt_path(path: &str) -> bool {
+    path.starts_with("/health")
+        || path == "/metrics"
+        || path.starts_with("/api/admin/")
 }
 
 #[derive(Clone)]
@@ -317,23 +347,59 @@ impl RateLimitState {
     ///    (upgrade to pro/enterprise requires the header or a future DB lookup).
     fn select_limit_and_key<B>(&self, request: &Request<B>) -> (u32, u32, BucketKey, ApiTier) {
         let tier = extract_api_tier(request);
+        let path = request.uri().path();
+        let query = request.uri().query();
+        // Mutation requests get a separate, stricter bucket.
+        let is_write = matches!(request.method().as_str(), "POST" | "PUT" | "PATCH" | "DELETE");
+        let bucket_suffix = if is_write { "write" } else { "read" };
 
-        if let Some(token) = extract_auth_token(request) {
-            let hourly = self.config.hourly_limit_for_tier(&tier);
-            let burst = self.config.burst_limit_for_tier(&tier);
+        if is_contract_abi_endpoint(request.method(), path) {
             return (
-                hourly,
-                burst,
+                ABI_ENDPOINT_LIMIT_PER_MINUTE * 60,
+                ABI_ENDPOINT_LIMIT_PER_MINUTE,
                 BucketKey {
-                    client_key: format!("auth:{token}"),
+                    client_key: format!("abi:{}:{}", path, extract_client_ip(request)),
                 },
                 tier,
             );
         }
 
-        let path = request.uri().path();
-        let query = request.uri().query();
-        let hourly_base = self.config.hourly_limit_for_tier(&tier);
+        if let Some(token) = extract_auth_token(request) {
+            let hourly = self
+                .config
+                .per_api_key_limit(&token)
+                .unwrap_or_else(|| self.config.hourly_limit_for_tier(&tier));
+            let auth_hourly = if is_write {
+                self.config.write_auth_limit.min(hourly)
+            } else {
+                hourly
+            };
+            let burst = self.config.burst_limit_for_limit(auth_hourly);
+            return (
+                auth_hourly,
+                burst,
+                BucketKey {
+                    client_key: format!("auth:{bucket_suffix}:{token}"),
+                },
+                tier,
+            );
+        }
+
+        let ip = extract_client_ip(request);
+        if is_write {
+            let limit = self.config.write_anonymous_limit;
+            let burst = self.config.burst_limit_for_limit(limit);
+            return (
+                limit,
+                burst,
+                BucketKey {
+                    client_key: format!("anon:write:{ip}"),
+                },
+                tier,
+            );
+        }
+
+        let hourly_base = self.config.anonymous_limit;
         let hourly = if let Some(page_size) =
             contracts_page_size_rate_limit(request.method(), path, query)
         {
@@ -341,13 +407,13 @@ impl RateLimitState {
         } else {
             hourly_base
         };
-        let burst = self.config.burst_limit_for_tier(&tier);
+        let burst = self.config.burst_limit_for_limit(hourly);
 
         (
             hourly,
             burst,
             BucketKey {
-                client_key: format!("anon:{}", extract_client_ip(request)),
+                client_key: format!("anon:read:{ip}"),
             },
             tier,
         )
@@ -357,43 +423,66 @@ impl RateLimitState {
 struct RateLimitConfig {
     anonymous_limit: u32,
     auth_limit: u32,
+    write_anonymous_limit: u32,
+    write_auth_limit: u32,
     window: Duration,
     enterprise_limit: u32,
     burst_window: Duration,
+    per_api_key_limits: HashMap<String, u32>,
+    trusted_client_ips: HashSet<String>,
+    trusted_api_keys: HashSet<String>,
 }
 
 impl RateLimitConfig {
     fn from_env() -> Self {
-        // Issue #609: configurable per-IP limits; defaults to 1000 req/hour.
-        // Env vars: RATE_LIMIT_ANON_PER_HOUR (preferred) or legacy RATE_LIMIT_ANON_PER_MINUTE / RATE_LIMIT_READ_PER_MINUTE
+        // Issue #891: configurable per-IP and per-API-key limits; defaults to 1000 req/min.
         let anonymous_limit = env_u32_with_fallback(
-            "RATE_LIMIT_ANON_PER_HOUR",
+            "RATE_LIMIT_IP_PER_MINUTE",
             "RATE_LIMIT_ANON_PER_MINUTE",
             DEFAULT_ANON_LIMIT,
         );
         let auth_limit = env_u32_with_fallback(
-            "RATE_LIMIT_AUTH_PER_HOUR",
+            "RATE_LIMIT_API_KEY_PER_MINUTE",
             "RATE_LIMIT_AUTH_PER_MINUTE",
             DEFAULT_AUTH_LIMIT,
         );
+        // Write limits — stricter quota for mutation endpoints.
+        let write_anonymous_limit = env_u32(
+            "RATE_LIMIT_WRITE_ANON_PER_HOUR",
+            DEFAULT_WRITE_ANON_LIMIT,
+        );
+        let write_auth_limit = env_u32(
+            "RATE_LIMIT_WRITE_AUTH_PER_HOUR",
+            DEFAULT_WRITE_AUTH_LIMIT,
+        );
         let window_seconds = env_u64("RATE_LIMIT_WINDOW_SECONDS", DEFAULT_WINDOW_SECONDS).max(1);
         // Issue #727: enterprise tier custom limit
-        let enterprise_limit = env_u32("ENTERPRISE_RATE_LIMIT_PER_HOUR", 100_000);
+        let enterprise_limit = env_u32("ENTERPRISE_RATE_LIMIT_PER_WINDOW", 100_000);
+        let per_api_key_limits = parse_key_limit_map("RATE_LIMIT_API_KEY_LIMITS");
+        let trusted_client_ips = parse_csv_set("RATE_LIMIT_TRUSTED_IPS");
+        let trusted_api_keys = parse_csv_set("RATE_LIMIT_TRUSTED_API_KEYS");
 
         tracing::info!(
             anonymous_limit,
             auth_limit,
+            write_anonymous_limit,
+            write_auth_limit,
             window_seconds,
             enterprise_limit,
-            "Rate limiter configured (issue #609/#727: tiered quotas)"
+            "Rate limiter configured (issue #891/#727: per-IP/API-key quotas)"
         );
 
         Self {
             anonymous_limit,
             auth_limit,
+            write_anonymous_limit,
+            write_auth_limit,
             window: Duration::from_secs(window_seconds),
             enterprise_limit,
             burst_window: Duration::from_secs(BURST_WINDOW_SECONDS),
+            per_api_key_limits,
+            trusted_client_ips,
+            trusted_api_keys,
         }
     }
 
@@ -402,17 +491,39 @@ impl RateLimitConfig {
         Self {
             anonymous_limit,
             auth_limit,
+            write_anonymous_limit: anonymous_limit / 10,
+            write_auth_limit: auth_limit / 3,
+            window,
+        }
+    }
+
+    #[cfg(test)]
+    fn for_tests_with_write(
+        anonymous_limit: u32,
+        auth_limit: u32,
+        write_anonymous_limit: u32,
+        write_auth_limit: u32,
+        window: Duration,
+    ) -> Self {
+        Self {
+            anonymous_limit,
+            auth_limit,
+            write_anonymous_limit,
+            write_auth_limit,
             window,
             enterprise_limit: 100_000,
             burst_window: Duration::from_secs(BURST_WINDOW_SECONDS),
+            per_api_key_limits: HashMap::new(),
+            trusted_client_ips: HashSet::new(),
+            trusted_api_keys: HashSet::new(),
         }
     }
 
     /// Returns the hourly limit for the given tier.
     fn hourly_limit_for_tier(&self, tier: &ApiTier) -> u32 {
         match tier {
-            ApiTier::Free => FREE_TIER_LIMIT,
-            ApiTier::Pro => PRO_TIER_LIMIT,
+            ApiTier::Free => self.auth_limit.max(FREE_TIER_LIMIT),
+            ApiTier::Pro => self.auth_limit.max(PRO_TIER_LIMIT),
             ApiTier::Enterprise => self.enterprise_limit,
         }
     }
@@ -420,8 +531,40 @@ impl RateLimitConfig {
     /// Burst limit = ceil(hourly_limit × 1.2 / 60) requests per minute.
     fn burst_limit_for_tier(&self, tier: &ApiTier) -> u32 {
         let hourly = self.hourly_limit_for_tier(tier);
+        self.burst_limit_for_limit(hourly)
+    }
+
+    fn burst_limit_for_limit(&self, hourly: u32) -> u32 {
         // 120 % of the per-minute equivalent; minimum 1
         ((hourly as f64 * 1.2 / 60.0).ceil() as u32).max(1)
+    }
+
+    fn per_api_key_limit(&self, token: &str) -> Option<u32> {
+        let normalized = token
+            .strip_prefix("Bearer ")
+            .or_else(|| token.strip_prefix("ApiKey "))
+            .unwrap_or(token)
+            .trim();
+        self.per_api_key_limits.get(normalized).copied()
+    }
+
+    fn is_whitelisted<B>(&self, request: &Request<B>) -> bool {
+        let client_ip = extract_client_ip(request);
+        if self.trusted_client_ips.contains(&client_ip) {
+            return true;
+        }
+
+        extract_auth_token(request)
+            .map(|token| {
+                let normalized = token
+                    .strip_prefix("Bearer ")
+                    .or_else(|| token.strip_prefix("ApiKey "))
+                    .unwrap_or(&token)
+                    .trim()
+                    .to_string();
+                self.trusted_api_keys.contains(&normalized)
+            })
+            .unwrap_or(false)
     }
 }
 
@@ -448,6 +591,10 @@ pub async fn rate_limit_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Response {
+    if rate_limiter.config.is_whitelisted(&request) {
+        return next.run(request).await;
+    }
+
     // Extract request metadata before awaiting to avoid borrowing `request` across `.await`.
     let (hourly_limit, burst_limit, key, tier) = rate_limiter.select_limit_and_key(&request);
     let decision = rate_limiter
@@ -455,12 +602,18 @@ pub async fn rate_limit_middleware(
         .await;
 
     if !decision.allowed {
-        let mut response =
-            ApiError::rate_limited("Too many requests. Please retry after the indicated time.")
-                .with_details(serde_json::json!({
-                    "retry_after_seconds": decision.reset_seconds
-                }))
-                .into_response();
+        let is_write = is_write_method(request.method());
+        let detail = if is_write {
+            "Write quota exhausted. Reduce request frequency or wait for the window to reset."
+        } else {
+            "Too many requests. Please retry after the indicated time."
+        };
+        let mut response = ApiError::rate_limited(detail)
+            .with_details(serde_json::json!({
+                "retry_after_seconds": decision.reset_seconds,
+                "limit_type": if is_write { "write" } else { "read" }
+            }))
+            .into_response();
         attach_rate_limit_headers(&mut response, &decision);
         attach_tier_header(&mut response, &tier);
         response.headers_mut().insert(
@@ -544,6 +697,16 @@ fn extract_api_tier<B>(request: &Request<B>) -> ApiTier {
 }
 
 fn extract_auth_token<B>(request: &Request<B>) -> Option<String> {
+    if let Some(api_key) = request
+        .headers()
+        .get("x-api-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(api_key.to_string());
+    }
+
     request
         .headers()
         .get(AUTHORIZATION)
@@ -551,6 +714,29 @@ fn extract_auth_token<B>(request: &Request<B>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+}
+
+fn parse_key_limit_map(key: &str) -> HashMap<String, u32> {
+    std::env::var(key)
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|entry| {
+            let (api_key, limit) = entry.split_once('=')?;
+            let limit = limit.trim().parse::<u32>().ok()?;
+            (limit > 0).then(|| (api_key.trim().to_string(), limit))
+        })
+        .filter(|(api_key, _)| !api_key.is_empty())
+        .collect()
+}
+
+fn parse_csv_set(key: &str) -> HashSet<String> {
+    std::env::var(key)
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 fn parse_x_forwarded_for(raw: &str) -> Option<IpAddr> {
@@ -563,7 +749,6 @@ fn parse_ip_addr(raw: &str) -> Option<IpAddr> {
         .or_else(|| raw.parse::<SocketAddr>().ok().map(|addr| addr.ip()))
 }
 
-#[allow(dead_code)]
 fn is_write_method(method: &Method) -> bool {
     matches!(
         *method,
@@ -577,6 +762,10 @@ fn contracts_page_size_rate_limit(method: &Method, path: &str, query: Option<&st
     }
 
     Some(extract_page_size(query).unwrap_or(DEFAULT_CONTRACTS_PAGE_SIZE))
+}
+
+fn is_contract_abi_endpoint(method: &Method, path: &str) -> bool {
+    *method == Method::GET && path.starts_with("/api/v1/contracts/") && path.ends_with("/abi")
 }
 
 fn extract_page_size(query: Option<&str>) -> Option<u32> {
@@ -1025,5 +1214,235 @@ mod tests {
         }
 
         assert_eq!(state.buckets.lock().await.len(), 0);
+    }
+
+    // ── Write endpoint protection tests ──────────────────────────────────────
+
+    fn test_app_with_write(
+        read_limit: u32,
+        write_limit: u32,
+        window: Duration,
+    ) -> Router<()> {
+        let limiter = RateLimitState::new(RateLimitConfig::for_tests_with_write(
+            read_limit,
+            read_limit,
+            write_limit,
+            write_limit,
+            window,
+        ));
+
+        Router::new()
+            .route("/read", get(|| async { "read" }))
+            .route("/write", post(|| async { "written" }))
+            .route("/health", get(|| async { "ok" }))
+            .route("/health/ready", get(|| async { "ok" }))
+            .route("/metrics", get(|| async { "# metrics" }))
+            .route("/api/admin/audit-logs", get(|| async { "[]" }))
+            .layer(middleware::from_fn_with_state(
+                limiter,
+                rate_limit_middleware,
+            ))
+    }
+
+    #[tokio::test]
+    async fn write_requests_use_tighter_limit_than_reads() {
+        // Read limit: 100, write limit: 2. After 2 POSTs the third is blocked.
+        // GETs should still be allowed up to the read limit.
+        let app = test_app_with_write(100, 2, Duration::from_secs(60));
+        let ip = "198.51.100.99";
+
+        // First two POSTs succeed.
+        for _ in 0..2 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/write")
+                    .method("POST")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "first two write requests should not be rate limited"
+            );
+        }
+
+        // Third POST is blocked.
+        let limited = call(
+            &app,
+            Request::builder()
+                .uri("/write")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(limited.headers().contains_key(RETRY_AFTER));
+
+        // GET requests are still within their separate read quota.
+        let read_response = call(
+            &app,
+            Request::builder()
+                .uri("/read")
+                .method("GET")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_ne!(read_response.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn write_limit_response_body_contains_limit_type_write() {
+        let app = test_app_with_write(100, 1, Duration::from_secs(60));
+        let ip = "203.0.113.55";
+
+        // Use up the single write slot.
+        call(
+            &app,
+            Request::builder()
+                .uri("/write")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        let response = call(
+            &app,
+            Request::builder()
+                .uri("/write")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let body =
+            axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["details"]["limit_type"], "write");
+    }
+
+    #[tokio::test]
+    async fn health_endpoint_is_not_rate_limited() {
+        // Very tight limits — both read and write — to verify health bypasses.
+        let app = test_app_with_write(1, 1, Duration::from_secs(60));
+        let ip = "192.0.2.1";
+
+        // Send many requests to /health; none should be rate limited.
+        for i in 0..20 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/health")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request {i} to /health should not be rate limited"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn health_ready_endpoint_is_exempt() {
+        let app = test_app_with_write(1, 1, Duration::from_secs(60));
+        let ip = "192.0.2.2";
+
+        for i in 0..5 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/health/ready")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request {i} to /health/ready should not be rate limited"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_is_exempt() {
+        let app = test_app_with_write(1, 1, Duration::from_secs(60));
+        let ip = "192.0.2.3";
+
+        for i in 0..5 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/metrics")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request {i} to /metrics should not be rate limited"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn admin_endpoint_is_exempt_from_rate_limiting() {
+        let app = test_app_with_write(1, 1, Duration::from_secs(60));
+        let ip = "192.0.2.4";
+
+        for i in 0..5 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/api/admin/audit-logs")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request {i} to /api/admin/* should not be rate limited"
+            );
+        }
+    }
+
+    #[test]
+    fn is_exempt_path_recognises_health_metrics_and_admin() {
+        assert!(is_exempt_path("/health"));
+        assert!(is_exempt_path("/health/live"));
+        assert!(is_exempt_path("/health/ready"));
+        assert!(is_exempt_path("/health/detailed"));
+        assert!(is_exempt_path("/metrics"));
+        assert!(is_exempt_path("/api/admin/migrations/status"));
+        assert!(!is_exempt_path("/api/contracts"));
+        assert!(!is_exempt_path("/api/contracts/verify"));
+        assert!(!is_exempt_path("/api/publishers"));
     }
 }

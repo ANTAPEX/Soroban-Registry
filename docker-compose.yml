@@ -16,7 +16,22 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: soroban-registry-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
+  
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -24,12 +39,16 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-soroban_registry}
       RUST_LOG: ${RUST_LOG:-info}
-      OTLP_ENDPOINT: http://jaeger:4317
+      OTLP_ENDPOINT: http://jaeger:4318
       OTEL_SERVICE_NAME: soroban-registry-api
+      REDIS_ENABLED: ${REDIS_ENABLED:-true}
+      REDIS_URL: redis://redis:6379
     ports:
       - "3001:3001"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       jaeger:
         condition: service_started
@@ -209,6 +228,7 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   cargo_cache:
   prometheus_data:
   alertmanager_data:
