@@ -216,7 +216,9 @@ async fn run_with_timeout(
             });
             match tokio::time::timeout(timeout, fut).await {
                 Err(_) => RunOutcome::timeout("builtin", secs),
-                Ok(Err(join_err)) => RunOutcome::failed(format!("analysis task failed: {join_err}")),
+                Ok(Err(join_err)) => {
+                    RunOutcome::failed(format!("analysis task failed: {join_err}"))
+                }
                 Ok(Ok(Err(e))) => RunOutcome::failed(e),
                 Ok(Ok(Ok(report))) => {
                     let value = serde_json::to_value(&report).unwrap_or(serde_json::json!({}));
@@ -232,7 +234,9 @@ async fn run_with_timeout(
                 }
             }
         }
-        VerifierBackend::External(url) => run_external(url, &wasm, contract_id, timeout, secs).await,
+        VerifierBackend::External(url) => {
+            run_external(url, &wasm, contract_id, timeout, secs).await
+        }
     }
 }
 
@@ -309,9 +313,7 @@ pub fn requirement_satisfied(
 ) -> bool {
     match requirement {
         // Mandatory: a completed run meeting the confidence bar is required.
-        "mandatory" => {
-            status == Some("completed") && confidence.unwrap_or(0.0) >= min_confidence
-        }
+        "mandatory" => status == Some("completed") && confidence.unwrap_or(0.0) >= min_confidence,
         // Optional/disabled (and anything else): always considered satisfied.
         _ => true,
     }
@@ -506,7 +508,10 @@ pub async fn upsert_property(
     Json(req): Json<UpsertPropertyRequest>,
 ) -> Result<Json<PropertyConfig>, ApiError> {
     if req.property_key.trim().is_empty() {
-        return Err(ApiError::bad_request("INVALID_KEY", "property_key is required"));
+        return Err(ApiError::bad_request(
+            "INVALID_KEY",
+            "property_key is required",
+        ));
     }
     let row = sqlx::query_as::<_, PropertyConfig>(
         r#"
@@ -539,12 +544,11 @@ pub async fn upsert_property(
 
 /// GET /api/formal-verification/policies
 pub async fn list_policies(State(state): State<AppState>) -> Result<Json<Vec<Policy>>, ApiError> {
-    let rows = sqlx::query_as::<_, Policy>(
-        "SELECT * FROM formal_verification_policies ORDER BY category",
-    )
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| ApiError::internal_error("FV_POLICY_LIST_ERROR", e.to_string()))?;
+    let rows =
+        sqlx::query_as::<_, Policy>("SELECT * FROM formal_verification_policies ORDER BY category")
+            .fetch_all(&state.db)
+            .await
+            .map_err(|e| ApiError::internal_error("FV_POLICY_LIST_ERROR", e.to_string()))?;
     Ok(Json(rows))
 }
 
@@ -554,13 +558,19 @@ pub async fn set_policy(
     Path(category): Path<String>,
     Json(req): Json<SetPolicyRequest>,
 ) -> Result<Json<Policy>, ApiError> {
-    if !matches!(req.requirement.as_str(), "mandatory" | "optional" | "disabled") {
+    if !matches!(
+        req.requirement.as_str(),
+        "mandatory" | "optional" | "disabled"
+    ) {
         return Err(ApiError::bad_request(
             "INVALID_REQUIREMENT",
             "requirement must be mandatory, optional, or disabled",
         ));
     }
-    let min_conf = req.min_confidence.unwrap_or(DEFAULT_MIN_CONFIDENCE).clamp(0.0, 1.0);
+    let min_conf = req
+        .min_confidence
+        .unwrap_or(DEFAULT_MIN_CONFIDENCE)
+        .clamp(0.0, 1.0);
     let row = sqlx::query_as::<_, Policy>(
         r#"
         INSERT INTO formal_verification_policies (category, requirement, min_confidence)
@@ -820,22 +830,45 @@ mod tests {
         let base = cache_key("hash1", "builtin", &["p1".into()]);
         assert_ne!(base, cache_key("hash2", "builtin", &["p1".into()]));
         assert_ne!(base, cache_key("hash1", "external", &["p1".into()]));
-        assert_ne!(base, cache_key("hash1", "builtin", &["p1".into(), "p2".into()]));
+        assert_ne!(
+            base,
+            cache_key("hash1", "builtin", &["p1".into(), "p2".into()])
+        );
         assert_eq!(base.len(), 64);
     }
 
     #[test]
     fn mandatory_requires_completed_and_confidence() {
-        assert!(requirement_satisfied("mandatory", Some("completed"), Some(0.9), 0.8));
-        assert!(!requirement_satisfied("mandatory", Some("completed"), Some(0.5), 0.8));
-        assert!(!requirement_satisfied("mandatory", Some("timeout"), Some(0.9), 0.8));
+        assert!(requirement_satisfied(
+            "mandatory",
+            Some("completed"),
+            Some(0.9),
+            0.8
+        ));
+        assert!(!requirement_satisfied(
+            "mandatory",
+            Some("completed"),
+            Some(0.5),
+            0.8
+        ));
+        assert!(!requirement_satisfied(
+            "mandatory",
+            Some("timeout"),
+            Some(0.9),
+            0.8
+        ));
         assert!(!requirement_satisfied("mandatory", None, None, 0.8));
     }
 
     #[test]
     fn optional_and_disabled_always_satisfied() {
         assert!(requirement_satisfied("optional", None, None, 0.8));
-        assert!(requirement_satisfied("disabled", Some("failed"), Some(0.0), 0.8));
+        assert!(requirement_satisfied(
+            "disabled",
+            Some("failed"),
+            Some(0.0),
+            0.8
+        ));
     }
 
     #[test]

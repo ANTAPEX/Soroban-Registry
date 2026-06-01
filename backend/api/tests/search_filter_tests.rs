@@ -40,12 +40,20 @@ async fn test_mixed_filter_combinations_and_empty_results() {
 
     // Check pagination metadata structure
     assert!(body.get("items").is_some(), "Response must include items");
-    assert!(body.get("total").is_some(), "Response must include total count");
-    
-    // Check that response filters metadata is populated correctly
-    let filters = body.get("filters").expect("Response must include active filter metadata");
     assert!(
-        filters.get("verified_only").and_then(Value::as_bool).unwrap_or(false),
+        body.get("total").is_some(),
+        "Response must include total count"
+    );
+
+    // Check that response filters metadata is populated correctly
+    let filters = body
+        .get("filters")
+        .expect("Response must include active filter metadata");
+    assert!(
+        filters
+            .get("verified_only")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
         "verified_only should be true in response metadata"
     );
     assert_eq!(
@@ -91,9 +99,5 @@ async fn test_mixed_filter_combinations_and_empty_results() {
         0,
         "Expected empty result set items array length to be 0"
     );
-    assert_eq!(
-        total,
-        0,
-        "Expected empty result set total count to be 0"
-    );
+    assert_eq!(total, 0, "Expected empty result set total count to be 0");
 }

@@ -46,7 +46,10 @@ async fn test_get_contract_deployments_v1_lifecycle() {
     // trigger indexer events or directly verify retrieval when data exists.
     // Let's call the GET deployments endpoint for this new contract (should be empty initially)
     let res = client
-        .get(format!("{}/api/v1/contracts/{}/deployments", base, contract_uuid))
+        .get(format!(
+            "{}/api/v1/contracts/{}/deployments",
+            base, contract_uuid
+        ))
         .send()
         .await
         .unwrap();
@@ -68,7 +71,10 @@ async fn test_get_contract_deployments_v1_not_found() {
     let non_existent_id = uuid::Uuid::new_v4().to_string();
 
     let res = client
-        .get(format!("{}/api/v1/contracts/{}/deployments", base, non_existent_id))
+        .get(format!(
+            "{}/api/v1/contracts/{}/deployments",
+            base, non_existent_id
+        ))
         .send()
         .await
         .unwrap();

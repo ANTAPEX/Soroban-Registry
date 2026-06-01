@@ -255,9 +255,8 @@ async fn fetch_abi_record(
     let version_key = format!("{}@{}", contract_id.to_string(), version);
     if let Some(cached) = state.cache.get_abi(&version_key, false).await {
         // Parse cached ABI JSON into a Value and fetch metadata (without ABI) from DB.
-        let abi_val: Value = serde_json::from_str(&cached).map_err(|e| {
-            ApiError::internal(format!("Failed to parse cached ABI JSON: {}", e))
-        })?;
+        let abi_val: Value = serde_json::from_str(&cached)
+            .map_err(|e| ApiError::internal(format!("Failed to parse cached ABI JSON: {}", e)))?;
 
         #[derive(sqlx::FromRow)]
         struct AbiMetaRow {

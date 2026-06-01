@@ -2842,7 +2842,10 @@ pub async fn get_contract(
                 state.cache.put_contract_meta(key, serialized.clone()).await;
                 // Also cache by the canonical contract_id string so both UUID and slug lookups hit
                 if key != &contract.contract_id {
-                    state.cache.put_contract_meta(&contract.contract_id, serialized).await;
+                    state
+                        .cache
+                        .put_contract_meta(&contract.contract_id, serialized)
+                        .await;
                 }
             }
         }
@@ -3325,7 +3328,10 @@ pub async fn revert_contract_version(
     state.cache.invalidate_abi(&contract_uuid.to_string()).await;
     state.cache.invalidate_contracts().await;
     state.cache.invalidate_contract_meta(&contract_id).await;
-    state.cache.invalidate_contract_meta(&contract_uuid.to_string()).await;
+    state
+        .cache
+        .invalidate_contract_meta(&contract_uuid.to_string())
+        .await;
 
     Ok(Json(version_row))
 }
@@ -4073,7 +4079,10 @@ pub async fn create_contract_version(
         .invalidate_abi(&format!("{}@{}", contract_id, req.version))
         .await;
     state.cache.invalidate_contract_meta(&contract_id).await;
-    state.cache.invalidate_contract_meta(&contract_uuid.to_string()).await;
+    state
+        .cache
+        .invalidate_contract_meta(&contract_uuid.to_string())
+        .await;
 
     // Store differential patch for the new version (Issue #501).
     let new_snapshot = crate::patch_handlers::VersionSnapshot {
@@ -5796,8 +5805,14 @@ pub async fn update_contract_metadata(
     }
 
     state.cache.invalidate_contracts().await;
-    state.cache.invalidate_contract_meta(&after.contract_id).await;
-    state.cache.invalidate_contract_meta(&after.id.to_string()).await;
+    state
+        .cache
+        .invalidate_contract_meta(&after.contract_id)
+        .await;
+    state
+        .cache
+        .invalidate_contract_meta(&after.id.to_string())
+        .await;
 
     // Increment usage counter asynchronously (fire-and-forget)
     // Failures are logged but never block the main request
@@ -6644,11 +6659,11 @@ pub async fn get_contract_audits(
     Query(params): Query<AuditQueryParams>,
 ) -> ApiResult<Json<shared::PaginatedAuditsResponse>> {
     let contract_id = resolve_contract_id(&state, &id).await?;
-    
+
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(10).clamp(1, 100);
     let offset = (page - 1) * per_page;
-    
+
     let since_dt = params.since.as_deref().and_then(parse_datetime);
     let until_dt = params.until.as_deref().and_then(parse_datetime);
 
@@ -6673,7 +6688,7 @@ pub async fn get_contract_audits(
         "SELECT COUNT(*) FROM security_scans 
          WHERE contract_id = $1 AND completed_at IS NOT NULL
          AND (($2::timestamptz IS NULL) OR (completed_at >= $2))
-         AND (($3::timestamptz IS NULL) OR (completed_at <= $3))"
+         AND (($3::timestamptz IS NULL) OR (completed_at <= $3))",
     )
     .bind(contract_id)
     .bind(since_dt)
@@ -6682,17 +6697,24 @@ pub async fn get_contract_audits(
     .await
     .unwrap_or(0);
 
-    let audits = rows.into_iter().map(|(scan_id, total, crit, high, med, low, completed_at)| {
-        let status = if crit > 0 {
-            shared::AuditScanStatus::Failed
-        } else if high > 0 || med > 0 {
-            shared::AuditScanStatus::Issues
-        } else {
-            shared::AuditScanStatus::Passed
-        };
+    let audits = rows
+        .into_iter()
+        .map(|(scan_id, total, crit, high, med, low, completed_at)| {
+            let status = if crit > 0 {
+                shared::AuditScanStatus::Failed
+            } else if high > 0 || med > 0 {
+                shared::AuditScanStatus::Issues
+            } else {
+                shared::AuditScanStatus::Passed
+            };
 
-        let mut findings = vec![];
-        [(crit, "critical"), (high, "high"), (med, "medium"), (low, "low")]
+            let mut findings = vec![];
+            [
+                (crit, "critical"),
+                (high, "high"),
+                (med, "medium"),
+                (low, "low"),
+            ]
             .iter()
             .filter(|(count, _)| *count > 0)
             .for_each(|(count, sev)| {
@@ -6702,18 +6724,22 @@ pub async fn get_contract_audits(
                 });
             });
 
-        shared::ContractAuditResponse {
-            id: scan_id,
-            contract_id,
-            audit_type: shared::AuditType::Informal,
-            status,
-            auditor: Some("Automated Security Scanner".to_string()),
-            audit_date: completed_at.unwrap_or_else(Utc::now),
-            findings_summary: findings,
-            total_issues: total,
-            report_url: Some(format!("/api/v1/contracts/{}/audits/{}", contract_id, scan_id)),
-        }
-    }).collect();
+            shared::ContractAuditResponse {
+                id: scan_id,
+                contract_id,
+                audit_type: shared::AuditType::Informal,
+                status,
+                auditor: Some("Automated Security Scanner".to_string()),
+                audit_date: completed_at.unwrap_or_else(Utc::now),
+                findings_summary: findings,
+                total_issues: total,
+                report_url: Some(format!(
+                    "/api/v1/contracts/{}/audits/{}",
+                    contract_id, scan_id
+                )),
+            }
+        })
+        .collect();
 
     Ok(Json(shared::PaginatedAuditsResponse {
         audits,
@@ -6731,11 +6757,12 @@ fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
 
 async fn resolve_contract_id(state: &AppState, id: &str) -> ApiResult<Uuid> {
     if let Ok(uuid) = Uuid::parse_str(id) {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM contracts WHERE id = $1)")
-            .bind(uuid)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| db_internal_error("check contract", e))?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM contracts WHERE id = $1)")
+                .bind(uuid)
+                .fetch_one(&state.db)
+                .await
+                .map_err(|e| db_internal_error("check contract", e))?;
         return if exists {
             Ok(uuid)
         } else {

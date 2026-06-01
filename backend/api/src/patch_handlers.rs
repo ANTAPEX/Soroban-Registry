@@ -421,18 +421,20 @@ async fn fetch_abi(
     }
 
     // DB fallback
-    let row: Option<(Value,)> = sqlx::query_as(
-        "SELECT abi FROM contract_abis WHERE contract_id = $1 AND version = $2",
-    )
-    .bind(contract_uuid)
-    .bind(version)
-    .fetch_optional(&state.db)
-    .await?;
+    let row: Option<(Value,)> =
+        sqlx::query_as("SELECT abi FROM contract_abis WHERE contract_id = $1 AND version = $2")
+            .bind(contract_uuid)
+            .bind(version)
+            .fetch_optional(&state.db)
+            .await?;
 
     if let Some((val,)) = &row {
         if let Ok(abi_str) = serde_json::to_string(val) {
             let _ = state.cache.put_abi(&version_key, abi_str.clone()).await;
-            let _ = state.cache.put_abi(&contract_uuid.to_string(), abi_str).await;
+            let _ = state
+                .cache
+                .put_abi(&contract_uuid.to_string(), abi_str)
+                .await;
         }
     }
 

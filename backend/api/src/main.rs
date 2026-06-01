@@ -125,7 +125,10 @@ async fn main() -> Result<()> {
         .database_url
         .parse::<sqlx::postgres::PgConnectOptions>()?
         .statement_cache_capacity(statement_cache_capacity)
-        .log_slow_statements(log::LevelFilter::Warn, Duration::from_millis(slow_query_threshold_ms as u64))
+        .log_slow_statements(
+            log::LevelFilter::Warn,
+            Duration::from_millis(slow_query_threshold_ms as u64),
+        )
         .options([("statement_timeout", query_timeout_ms)]);
 
     let pool = PgPoolOptions::new()
@@ -249,9 +252,14 @@ async fn main() -> Result<()> {
     );
     // Initialize feature flags manager from configuration (#1007)
     let flag_entries = api::config::parse_feature_flags(&config.feature_flags_json);
-    let feature_flags = Arc::new(api::feature_flags::FeatureFlagManager::from_config(&flag_entries));
+    let feature_flags = Arc::new(api::feature_flags::FeatureFlagManager::from_config(
+        &flag_entries,
+    ));
     if !flag_entries.is_empty() {
-        tracing::info!(count = flag_entries.len(), "Feature flags loaded from configuration");
+        tracing::info!(
+            count = flag_entries.len(),
+            "Feature flags loaded from configuration"
+        );
     }
 
     // Create app state
