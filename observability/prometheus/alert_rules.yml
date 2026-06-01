@@ -1,0 +1,21 @@
+groups:
+  - name: database-high-availability
+    rules:
+      - alert: DatabaseReplicationLagHigh
+        expr: db_replication_lag_ms > 100
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Database replication lag is above target
+          description: Replica lag is {{ $value }} ms, which is above the 100 ms target.
+
+      - alert: DatabaseReplicationHealthDegraded
+        expr: db_replication_health == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Database replication health is degraded
+          description: The replica monitor reports an unhealthy replication state.
+

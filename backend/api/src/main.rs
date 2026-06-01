@@ -315,7 +315,29 @@ async fn main() -> Result<()> {
     webhook_delivery::spawn_webhook_delivery_task(pool.clone());
 
     // Spawn the background DB and cache monitoring task
-    db_monitoring::spawn_db_monitoring_task(pool.clone(), state.cache.clone());
+    let replication_monitor = match (
+        std::env::var("DATABASE_PRIMARY_URL"),
+        std::env::var("DATABASE_REPLICA_URL"),
+    ) {
+        (Ok(primary_url), Ok(replica_url)) => {
+            let lag_threshold_ms = std::env::var("DATABASE_REPLICATION_LAG_THRESHOLD_MS")
+                .ok()
+                .and_then(|value| value.parse::<i64>().ok())
+                .unwrap_or(100);
+            Some(api::db_monitoring::ReplicationMonitorConfig {
+                primary_url,
+                replica_url,
+                lag_threshold_ms,
+                check_interval: Duration::from_secs(5),
+            })
+        }
+        _ => None,
+    };
+    db_monitoring::spawn_db_monitoring_task(
+        pool.clone(),
+        state.cache.clone(),
+        replication_monitor,
+    );
 
     // Spawn query monitor: snapshots pg_stat_statements and logs slow queries (Issue #876)
     api::query_monitor::spawn_query_monitor_task(pool.clone(), slow_query_threshold_ms);

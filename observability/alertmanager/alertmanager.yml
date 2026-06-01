@@ -1,0 +1,13 @@
+global: {}
+
+route:
+  receiver: default
+  group_by: ["alertname", "cluster", "service"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: default
+
+templates: []

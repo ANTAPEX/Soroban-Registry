@@ -66,7 +66,9 @@ docker-compose up -d
 # Frontend: http://localhost:3000
 ```
 
-This starts PostgreSQL, the backend API, and the Next.js frontend with sensible defaults.[cite:352]
+This starts the PostgreSQL HA pair behind `pgpool`, the backend API, and the Next.js frontend with sensible defaults.[cite:352]
+
+The Docker stack now uses a primary/replica PostgreSQL pair behind `pgpool`, so the API and other database-backed services get read balancing plus automatic failover. If you want the operator runbook, see [docs/database-high-availability.md](docs/database-high-availability.md).
 
 ---
 
@@ -122,14 +124,14 @@ Re-run `cargo sqlx prepare` whenever a query macro or migration changes.
 
 ### Persistent PostgreSQL
 
-The repository's `docker-compose.yml` defines a named volume, `postgres_data`, for the Postgres service. That means the database survives container restarts and `docker-compose down`; your data is only removed if you explicitly delete the volume.
+The repository's `docker-compose.yml` defines named volumes for the primary and replica PostgreSQL nodes. That means each database survives container restarts and `docker-compose down`; your data is only removed if you explicitly delete the volumes.
 
 ```bash
-# Start or reattach to the same database instance
-docker-compose up -d postgres
+# Start or reattach to the HA database stack
+docker-compose up -d postgres-primary postgres-replica pgpool
 
 # Apply migrations against the persistent database
-docker-compose exec postgres psql -U postgres -d soroban_registry -c "SELECT 1"
+docker-compose exec postgres-primary psql -U postgres -d soroban_registry -c "SELECT 1"
 sqlx migrate run --source database/migrations
 
 # Stop services without deleting data
@@ -139,7 +141,7 @@ docker-compose down
 docker-compose down -v
 ```
 
-Use the same `DATABASE_URL` on future runs so the backend, SQLx checks, and any local tools all connect to the same persisted database.
+Use the same `DATABASE_URL` on future runs so the backend, SQLx checks, and any local tools all connect through `pgpool` to the same replicated database cluster.
 
 ### Backend API
 
