@@ -925,6 +925,20 @@ pub enum Commands {
         action: PluginCommands,
     },
 
+    /// Inspect contract event statistics
+    EventStats {
+        /// On-chain contract ID or registry UUID
+        contract_id: String,
+
+        /// Output format: table or json
+        #[arg(long, default_value = "table")]
+        format: String,
+
+        /// Export results to a file
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+    },
+
     /// External command (may be provided by an installed plugin)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -1896,6 +1910,10 @@ pub async fn dispatch_command(
                 }
             },
         },
+        Commands::EventStats { contract_id, format, output } => {
+            events::inspect_event_stats(&cli.api_url, &contract_id, &format, output.as_deref())
+                .await?;
+        }
         Commands::External(args) => {
             if args.is_empty() {
                 anyhow::bail!("No external command provided");
