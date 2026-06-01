@@ -213,6 +213,8 @@ pub mod ops {
     pub const CONTRACT_VERIFY: &str = "contract.verify";
     pub const CONTRACT_PUBLISH: &str = "contract.publish";
     pub const CONTRACT_DELETE: &str = "contract.delete";
+    pub const CONTRACT_UPDATE: &str = "contract.update";
+    pub const CONTRACT_EXPORT: &str = "contract.export";
     pub const PUBLISHER_CHANGE: &str = "publisher.change";
     pub const USER_ROLE_CHANGE: &str = "user.role_change";
     pub const ADMIN_ACTION: &str = "admin.action";
@@ -256,5 +258,89 @@ mod tests {
         assert!(!ops::PUBLISHER_CHANGE.is_empty());
         assert!(!ops::CONTRACT_DELETE.is_empty());
         assert!(!ops::USER_ROLE_CHANGE.is_empty());
+        assert!(!ops::CONTRACT_UPDATE.is_empty());
+        assert!(!ops::CONTRACT_EXPORT.is_empty());
+        assert!(!ops::CONTRACT_PUBLISHER_CHANGE.is_empty());
+    }
+
+    #[test]
+    fn test_audit_event_generation_and_no_secrets() {
+        let publish_event = AuditEvent {
+            actor_id: Some("user1".to_string()),
+            actor_email: None,
+            operation: ops::CONTRACT_PUBLISH.to_string(),
+            resource_type: "contract".to_string(),
+            resource_id: "contract1".to_string(),
+            metadata: serde_json::json!({
+                "contract_id": "contract_abc",
+                "network": "testnet"
+            }),
+            status: AuditStatus::Success,
+            error_message: None,
+        };
+        assert_eq!(publish_event.operation, "contract.publish");
+        assert!(!publish_event.metadata.to_string().contains("secret"));
+
+        let verify_event = AuditEvent {
+            actor_id: Some("user2".to_string()),
+            actor_email: None,
+            operation: ops::CONTRACT_VERIFY.to_string(),
+            resource_type: "contract".to_string(),
+            resource_id: "contract1".to_string(),
+            metadata: serde_json::json!({
+                "contract_id": "contract_abc",
+                "verification_id": "v_123"
+            }),
+            status: AuditStatus::Failure,
+            error_message: Some("Verification failed".to_string()),
+        };
+        assert_eq!(verify_event.operation, "contract.verify");
+
+        let update_event = AuditEvent {
+            actor_id: Some("user1".to_string()),
+            actor_email: None,
+            operation: ops::CONTRACT_UPDATE.to_string(),
+            resource_type: "contract".to_string(),
+            resource_id: "contract1".to_string(),
+            metadata: serde_json::json!({
+                "changes": {
+                    "name": { "before": "Old", "after": "New" }
+                }
+            }),
+            status: AuditStatus::Success,
+            error_message: None,
+        };
+        assert_eq!(update_event.operation, "contract.update");
+
+        let export_event = AuditEvent {
+            actor_id: Some("user1".to_string()),
+            actor_email: None,
+            operation: ops::CONTRACT_EXPORT.to_string(),
+            resource_type: "export".to_string(),
+            resource_id: "export_123".to_string(),
+            metadata: serde_json::json!({
+                "filters": { "network": "mainnet" },
+                "format": "json",
+                "total_count": 10
+            }),
+            status: AuditStatus::Success,
+            error_message: None,
+        };
+        assert_eq!(export_event.operation, "contract.export");
+
+        let delete_event = AuditEvent {
+            actor_id: None,
+            actor_email: None,
+            operation: ops::CONTRACT_DELETE.to_string(),
+            resource_type: "contract".to_string(),
+            resource_id: "contract1".to_string(),
+            metadata: serde_json::json!({
+                "contract_id": "contract_abc",
+                "retirement_at": "2030-01-01T00:00:00Z"
+            }),
+            status: AuditStatus::Success,
+            error_message: None,
+        };
+        assert_eq!(delete_event.operation, "contract.delete");
     }
 }

@@ -98,6 +98,7 @@ pub struct AppState {
     pub db_breaker: Arc<crate::db_resilience::CircuitBreaker>,
     pub db_queue: Arc<crate::db_resilience::DbQueue>,
     pub feature_flags: Arc<FeatureFlagManager>,
+    pub audit_logger: Arc<crate::audit::AuditLogger>,
 }
 
 impl AppState {
@@ -150,6 +151,8 @@ impl AppState {
             }
         };
 
+        let audit_logger = Arc::new(crate::audit::AuditLogger::new(db.clone()));
+
         Ok(Self {
             db,
             started_at: Instant::now(),
@@ -171,6 +174,7 @@ impl AppState {
             db_breaker,
             db_queue,
             feature_flags,
+            audit_logger,
         })
     }
 }

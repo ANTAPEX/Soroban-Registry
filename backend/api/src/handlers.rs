@@ -2585,6 +2585,24 @@ pub async fn export_contract_metadata(
 ) -> ApiResult<Response> {
     let filters = sanitized_export_filters(req.filters.clone());
     let total_count = count_contract_export_rows(&state, &filters, claims.as_ref()).await?;
+
+    let actor_id = claims.as_ref().map(|c| c.sub.clone());
+    let audit_event = crate::audit::AuditEvent {
+        actor_id: actor_id.clone(),
+        actor_email: None,
+        operation: crate::audit::ops::CONTRACT_EXPORT.to_string(),
+        resource_type: "export".to_string(),
+        resource_id: format!("export-{}", chrono::Utc::now().timestamp()),
+        metadata: serde_json::json!({
+            "filters": filters,
+            "format": req.format,
+            "total_count": total_count,
+        }),
+        status: crate::audit::AuditStatus::Success,
+        error_message: None,
+    };
+    let _ = state.audit_logger.log(audit_event).await;
+
     let should_run_async =
         req.async_mode.unwrap_or(false) || total_count > ASYNC_EXPORT_ROW_THRESHOLD;
 
@@ -4408,6 +4426,21 @@ pub async fn publish_contract(
     .await
     .map_err(|err| db_internal_error("write contract_created audit log", err))?;
 
+    let audit_event = crate::audit::AuditEvent {
+        actor_id: Some(publisher.id.to_string()),
+        actor_email: None,
+        operation: crate::audit::ops::CONTRACT_PUBLISH.to_string(),
+        resource_type: "contract".to_string(),
+        resource_id: contract.id.to_string(),
+        metadata: serde_json::json!({
+            "contract_id": contract.contract_id,
+            "network": contract.network.to_string(),
+        }),
+        status: crate::audit::AuditStatus::Success,
+        error_message: None,
+    };
+    let _ = state.audit_logger.log(audit_event).await;
+
     record_contract_interaction(
         &state.db,
         ContractInteractionInsert {
@@ -5443,6 +5476,21 @@ pub async fn verify_contract(
             )
             .await;
 
+            let audit_event = crate::audit::AuditEvent {
+                actor_id: Some(contract.publisher_id.to_string()),
+                actor_email: None,
+                operation: crate::audit::ops::CONTRACT_VERIFY.to_string(),
+                resource_type: "contract".to_string(),
+                resource_id: contract.id.to_string(),
+                metadata: serde_json::json!({
+                    "contract_id": contract.contract_id,
+                    "verification_id": verification_id.to_string(),
+                }),
+                status: crate::audit::AuditStatus::Success,
+                error_message: None,
+            };
+            let _ = state.audit_logger.log(audit_event).await;
+
             Ok(Json(json!({
                 "verified": true,
                 "status": "verified",
@@ -5521,6 +5569,20 @@ pub async fn verify_contract(
                 .map_err(|err| db_internal_error("write failed status audit log", err))?;
             }
 
+            let audit_event = crate::audit::AuditEvent {
+                actor_id: Some(contract.publisher_id.to_string()),
+                actor_email: None,
+                operation: crate::audit::ops::CONTRACT_VERIFY.to_string(),
+                resource_type: "contract".to_string(),
+                resource_id: contract.id.to_string(),
+                metadata: serde_json::json!({
+                    "contract_id": contract.contract_id,
+                }),
+                status: crate::audit::AuditStatus::Failure,
+                error_message: Some(failure_message.clone()),
+            };
+            let _ = state.audit_logger.log(audit_event).await;
+
             Err(ApiError::unprocessable(
                 "VerificationFailed",
                 failure_message,
@@ -5575,6 +5637,20 @@ pub async fn verify_contract(
                     db_internal_error("write verifier error status audit log", db_err)
                 })?;
             }
+
+            let audit_event = crate::audit::AuditEvent {
+                actor_id: Some(contract.publisher_id.to_string()),
+                actor_email: None,
+                operation: crate::audit::ops::CONTRACT_VERIFY.to_string(),
+                resource_type: "contract".to_string(),
+                resource_id: contract.id.to_string(),
+                metadata: serde_json::json!({
+                    "contract_id": contract.contract_id,
+                }),
+                status: crate::audit::AuditStatus::Failure,
+                error_message: Some(failure_message.clone()),
+            };
+            let _ = state.audit_logger.log(audit_event).await;
 
             Err(ApiError::unprocessable(
                 "VerificationFailed",
@@ -5790,9 +5866,23 @@ pub async fn update_contract_metadata(
             .contract_events
             .publish(ContractEventEnvelope::metadata_updated(
                 &after,
-                changes_value,
+                changes_value.clone(),
                 ContractEventVisibility::Public,
             ));
+
+        let audit_event = crate::audit::AuditEvent {
+            actor_id: Some(req.user_id.unwrap_or(before.publisher_id).to_string()),
+            actor_email: None,
+            operation: crate::audit::ops::CONTRACT_UPDATE.to_string(),
+            resource_type: "contract".to_string(),
+            resource_id: after.id.to_string(),
+            metadata: serde_json::json!({
+                "changes": changes_value,
+            }),
+            status: crate::audit::AuditStatus::Success,
+            error_message: None,
+        };
+        let _ = state.audit_logger.log(audit_event).await;
     }
 
     state.cache.invalidate_contracts().await;
@@ -6632,7 +6722,7 @@ pub struct AuditQueryParams {
         AuditQueryParams
     ),
     responses(
-        (status = 200, description = "Paginated audit results", body = PaginatedAuditsResponse),
+        (status = 200, description = "Paginated audit results", body = shared::PaginatedAuditsResponse),
         (status = 404, description = "Contract not found"),
         (status = 400, description = "Invalid parameters")
     ),
@@ -6652,7 +6742,7 @@ pub async fn get_contract_audits(
     let since_dt = params.since.as_deref().and_then(parse_datetime);
     let until_dt = params.until.as_deref().and_then(parse_datetime);
 
-    let rows: Vec<(Uuid, i32, i32, i32, i32, i32, Option<DateTime<Utc>>)> = sqlx::query_as(
+    let rows: Vec<(Uuid, i32, i32, i32, i32, i32, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
         "SELECT id, total_issues, critical_issues, high_issues, medium_issues, low_issues, completed_at
          FROM security_scans
          WHERE contract_id = $1 AND completed_at IS NOT NULL
@@ -6684,11 +6774,11 @@ pub async fn get_contract_audits(
 
     let audits = rows.into_iter().map(|(scan_id, total, crit, high, med, low, completed_at)| {
         let status = if crit > 0 {
-            shared::AuditStatus::Failed
+            shared::FormalAuditStatus::Failed
         } else if high > 0 || med > 0 {
-            shared::AuditStatus::Issues
+            shared::FormalAuditStatus::Issues
         } else {
-            shared::AuditStatus::Passed
+            shared::FormalAuditStatus::Passed
         };
 
         let mut findings = vec![];
@@ -6723,10 +6813,10 @@ pub async fn get_contract_audits(
     }))
 }
 
-fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
+fn parse_datetime(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     chrono::DateTime::parse_from_rfc3339(s)
         .ok()
-        .map(|dt| dt.with_timezone(&Utc))
+        .map(|dt| dt.with_timezone(&chrono::Utc))
 }
 
 async fn resolve_contract_id(state: &AppState, id: &str) -> ApiResult<Uuid> {

@@ -4232,8 +4232,8 @@ pub struct SecurityScanHistoryResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
-#[sqlx(type_name = "audit_status", rename_all = "snake_case")]
-pub enum AuditStatus {
+#[sqlx(type_name = "formal_audit_status", rename_all = "snake_case")]
+pub enum FormalAuditStatus {
     Passed,
     Issues,
     Failed,
@@ -4257,7 +4257,7 @@ pub struct ContractAuditResponse {
     pub id: Uuid,
     pub contract_id: Uuid,
     pub audit_type: AuditType,
-    pub status: AuditStatus,
+    pub status: FormalAuditStatus,
     pub auditor: Option<String>,
     pub audit_date: DateTime<Utc>,
     pub findings_summary: Vec<ContractAuditFinding>,

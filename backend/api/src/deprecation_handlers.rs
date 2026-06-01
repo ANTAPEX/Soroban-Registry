@@ -157,7 +157,23 @@ pub async fn deprecate_contract(
 
     notify_dependents(&state, contract_uuid, &contract_id, req.retirement_at).await?;
 
-    get_deprecation_info(State(state), Path(contract_id)).await
+    let audit_event = crate::audit::AuditEvent {
+        actor_id: None, // No user_id in req or claims yet, could be System
+        actor_email: None,
+        operation: crate::audit::ops::CONTRACT_DELETE.to_string(),
+        resource_type: "contract".to_string(),
+        resource_id: contract_id.clone(),
+        metadata: serde_json::json!({
+            "contract_id": contract_id,
+            "retirement_at": req.retirement_at,
+            "replacement_contract_id": req.replacement_contract_id,
+        }),
+        status: crate::audit::AuditStatus::Success,
+        error_message: None,
+    };
+    let _ = state.audit_logger.log(audit_event).await;
+
+    get_deprecation_info(State(state.clone()), Path(contract_id)).await
 }
 
 async fn notify_dependents(
