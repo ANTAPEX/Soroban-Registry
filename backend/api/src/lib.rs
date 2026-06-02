@@ -23,6 +23,7 @@ pub mod contract_analytics_handlers;
 pub mod contract_events;
 pub mod contract_stats_handlers;
 pub mod contributor_handlers;
+pub mod crypto;
 pub mod custom_metrics_handlers;
 pub mod dependency_handlers;
 pub mod deprecation_handlers;

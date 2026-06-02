@@ -60,5 +60,27 @@ fn validate_config(config: &AppConfig) -> Result<()> {
         anyhow::bail!("DATABASE_URL must be a valid postgres connection string");
     }
 
+    warn_if_database_tls_disabled(&config.database_url);
+
     Ok(())
+}
+
+/// Encryption in transit to the database (#895): Postgres connections should use
+/// TLS in any non-local deployment. We can't force it here without breaking local
+/// dev, but we surface a clear warning so misconfiguration is visible in logs.
+fn warn_if_database_tls_disabled(database_url: &str) {
+    let is_local = database_url.contains("@localhost")
+        || database_url.contains("@127.0.0.1")
+        || database_url.contains("@db")
+        || database_url.contains("@postgres");
+    let requests_tls = database_url.contains("sslmode=require")
+        || database_url.contains("sslmode=verify-ca")
+        || database_url.contains("sslmode=verify-full");
+
+    if !is_local && !requests_tls {
+        tracing::warn!(
+            "DATABASE_URL does not request TLS (sslmode=require/verify-full). \
+             Enable TLS so data in transit to Postgres is encrypted (#895)."
+        );
+    }
 }
