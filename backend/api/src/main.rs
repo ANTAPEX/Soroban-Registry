@@ -1,7 +1,7 @@
 #![warn(unused_imports)]
 
 use anyhow::Result;
-use axum::extract::{Request, State};
+use axum::extract::{MatchedPath, Request, State};
 use axum::http::StatusCode;
 use axum::middleware;
 use axum::response::Response;
@@ -11,7 +11,7 @@ use sqlx::ConnectOptions;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
@@ -35,7 +35,7 @@ use api::state_monitor::StateMonitorService;
 use api::validation;
 use api::webhook_delivery;
 
-async fn track_in_flight_middleware(
+async fn http_metrics_middleware(
     State(state): State<AppState>,
     req: Request,
     next: middleware::Next,
@@ -398,7 +398,7 @@ async fn main() -> Result<()> {
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            track_in_flight_middleware,
+            http_metrics_middleware,
         ))
         .layer(middleware::from_fn_with_state(
             (*rate_limit_state).clone(),
