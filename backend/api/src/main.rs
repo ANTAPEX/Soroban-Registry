@@ -1,7 +1,7 @@
 #![warn(unused_imports)]
 
 use anyhow::Result;
-use axum::extract::{Request, State};
+use axum::extract::{MatchedPath, Request, State};
 use axum::http::StatusCode;
 use axum::middleware;
 use axum::response::Response;
@@ -11,7 +11,7 @@ use sqlx::ConnectOptions;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
@@ -35,7 +35,7 @@ use api::state_monitor::StateMonitorService;
 use api::validation;
 use api::webhook_delivery;
 
-async fn track_in_flight_middleware(
+async fn http_metrics_middleware(
     State(state): State<AppState>,
     req: Request,
     next: middleware::Next,
@@ -47,10 +47,41 @@ async fn track_in_flight_middleware(
             "Service is shutting down and temporarily unavailable",
         ));
     }
+    let method = req.method().as_str().to_owned();
+    // Use the matched route template (e.g. "/api/contracts/:id") rather than the
+    // concrete URI so per-id paths don't explode the metric label cardinality.
+    let path = req
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map(|p| p.as_str().to_owned())
+        .unwrap_or_else(|| req.uri().path().to_owned());
+    let request_size = content_length_bytes(req.headers());
+
     metrics::HTTP_IN_FLIGHT.inc();
+    let start = std::time::Instant::now();
     let res = next.run(req).await;
+    let elapsed = start.elapsed().as_secs_f64();
     metrics::HTTP_IN_FLIGHT.dec();
+
+    metrics::observe_http(&method, &path, res.status().as_u16(), elapsed);
+    if let Some(bytes) = request_size {
+        metrics::HTTP_REQUEST_SIZE
+            .with_label_values(&[&method])
+            .observe(bytes);
+    }
+    if let Some(bytes) = content_length_bytes(res.headers()) {
+        metrics::HTTP_RESPONSE_SIZE
+            .with_label_values(&[&method])
+            .observe(bytes);
+    }
     Ok(res)
+}
+
+fn content_length_bytes(headers: &axum::http::HeaderMap) -> Option<f64> {
+    headers
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<f64>().ok())
 }
 
 #[tokio::main]
@@ -125,7 +156,10 @@ async fn main() -> Result<()> {
         .database_url
         .parse::<sqlx::postgres::PgConnectOptions>()?
         .statement_cache_capacity(statement_cache_capacity)
-        .log_slow_statements(log::LevelFilter::Warn, Duration::from_millis(slow_query_threshold_ms as u64))
+        .log_slow_statements(
+            log::LevelFilter::Warn,
+            Duration::from_millis(slow_query_threshold_ms as u64),
+        )
         .options([("statement_timeout", query_timeout_ms)]);
 
     let pool = PgPoolOptions::new()
@@ -249,9 +283,14 @@ async fn main() -> Result<()> {
     );
     // Initialize feature flags manager from configuration (#1007)
     let flag_entries = api::config::parse_feature_flags(&config.feature_flags_json);
-    let feature_flags = Arc::new(api::feature_flags::FeatureFlagManager::from_config(&flag_entries));
+    let feature_flags = Arc::new(api::feature_flags::FeatureFlagManager::from_config(
+        &flag_entries,
+    ));
     if !flag_entries.is_empty() {
-        tracing::info!(count = flag_entries.len(), "Feature flags loaded from configuration");
+        tracing::info!(
+            count = flag_entries.len(),
+            "Feature flags loaded from configuration"
+        );
     }
 
     // Create app state
@@ -316,7 +355,29 @@ async fn main() -> Result<()> {
     webhook_delivery::spawn_webhook_delivery_task(pool.clone());
 
     // Spawn the background DB and cache monitoring task
-    db_monitoring::spawn_db_monitoring_task(pool.clone(), state.cache.clone());
+    let replication_monitor = match (
+        std::env::var("DATABASE_PRIMARY_URL"),
+        std::env::var("DATABASE_REPLICA_URL"),
+    ) {
+        (Ok(primary_url), Ok(replica_url)) => {
+            let lag_threshold_ms = std::env::var("DATABASE_REPLICATION_LAG_THRESHOLD_MS")
+                .ok()
+                .and_then(|value| value.parse::<i64>().ok())
+                .unwrap_or(100);
+            Some(api::db_monitoring::ReplicationMonitorConfig {
+                primary_url,
+                replica_url,
+                lag_threshold_ms,
+                check_interval: Duration::from_secs(5),
+            })
+        }
+        _ => None,
+    };
+    db_monitoring::spawn_db_monitoring_task(
+        pool.clone(),
+        state.cache.clone(),
+        replication_monitor,
+    );
 
     // Spawn query monitor: snapshots pg_stat_statements and logs slow queries (Issue #876)
     api::query_monitor::spawn_query_monitor_task(pool.clone(), slow_query_threshold_ms);
@@ -342,6 +403,7 @@ async fn main() -> Result<()> {
 
     let web_security = WebSecurityConfig::from_env();
     let cors = web_security.build_cors_layer();
+    let https_config = api::security::HttpsConfig::from_env();
 
     // Build router
     let app = routes::application_routes(schema)
@@ -358,7 +420,7 @@ async fn main() -> Result<()> {
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            track_in_flight_middleware,
+            http_metrics_middleware,
         ))
         .layer(middleware::from_fn_with_state(
             (*rate_limit_state).clone(),
@@ -369,6 +431,10 @@ async fn main() -> Result<()> {
             api::security::csrf_and_origin_middleware,
         ))
         .layer(cors)
+        .layer(middleware::from_fn_with_state(
+            https_config,
+            api::security::https_enforcement_middleware,
+        ))
         .layer(middleware::from_fn(request_tracing::tracing_middleware))
         .with_state(state.clone());
 

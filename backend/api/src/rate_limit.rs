@@ -123,9 +123,7 @@ impl ApiTier {
 /// orchestrators always get a response.  The Prometheus scrape endpoint
 /// `/metrics` and internal admin APIs are also exempt.
 fn is_exempt_path(path: &str) -> bool {
-    path.starts_with("/health")
-        || path == "/metrics"
-        || path.starts_with("/api/admin/")
+    path.starts_with("/health") || path == "/metrics" || path.starts_with("/api/admin/")
 }
 
 #[derive(Clone)]
@@ -350,7 +348,10 @@ impl RateLimitState {
         let path = request.uri().path();
         let query = request.uri().query();
         // Mutation requests get a separate, stricter bucket.
-        let is_write = matches!(request.method().as_str(), "POST" | "PUT" | "PATCH" | "DELETE");
+        let is_write = matches!(
+            request.method().as_str(),
+            "POST" | "PUT" | "PATCH" | "DELETE"
+        );
         let bucket_suffix = if is_write { "write" } else { "read" };
 
         if is_contract_abi_endpoint(request.method(), path) {
@@ -447,14 +448,9 @@ impl RateLimitConfig {
             DEFAULT_AUTH_LIMIT,
         );
         // Write limits — stricter quota for mutation endpoints.
-        let write_anonymous_limit = env_u32(
-            "RATE_LIMIT_WRITE_ANON_PER_HOUR",
-            DEFAULT_WRITE_ANON_LIMIT,
-        );
-        let write_auth_limit = env_u32(
-            "RATE_LIMIT_WRITE_AUTH_PER_HOUR",
-            DEFAULT_WRITE_AUTH_LIMIT,
-        );
+        let write_anonymous_limit =
+            env_u32("RATE_LIMIT_WRITE_ANON_PER_HOUR", DEFAULT_WRITE_ANON_LIMIT);
+        let write_auth_limit = env_u32("RATE_LIMIT_WRITE_AUTH_PER_HOUR", DEFAULT_WRITE_AUTH_LIMIT);
         let window_seconds = env_u64("RATE_LIMIT_WINDOW_SECONDS", DEFAULT_WINDOW_SECONDS).max(1);
         // Issue #727: enterprise tier custom limit
         let enterprise_limit = env_u32("ENTERPRISE_RATE_LIMIT_PER_WINDOW", 100_000);
@@ -603,6 +599,17 @@ pub async fn rate_limit_middleware(
 
     if !decision.allowed {
         let is_write = is_write_method(request.method());
+        // Observability: surface throttle events so operators can spot abuse or
+        // accidental overload of public endpoints (issue #1005).
+        tracing::warn!(
+            client_ip = %extract_client_ip(&request),
+            tier = tier.as_str(),
+            limit_type = if is_write { "write" } else { "read" },
+            limit = decision.limit,
+            remaining = decision.remaining,
+            retry_after_seconds = decision.reset_seconds,
+            "Request throttled by rate limiter"
+        );
         let detail = if is_write {
             "Write quota exhausted. Reduce request frequency or wait for the window to reset."
         } else {
@@ -1218,11 +1225,7 @@ mod tests {
 
     // ── Write endpoint protection tests ──────────────────────────────────────
 
-    fn test_app_with_write(
-        read_limit: u32,
-        write_limit: u32,
-        window: Duration,
-    ) -> Router<()> {
+    fn test_app_with_write(read_limit: u32, write_limit: u32, window: Duration) -> Router<()> {
         let limiter = RateLimitState::new(RateLimitConfig::for_tests_with_write(
             read_limit,
             read_limit,
@@ -1327,10 +1330,9 @@ mod tests {
         .await;
 
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        let body =
-            axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["details"]["limit_type"], "write");
     }

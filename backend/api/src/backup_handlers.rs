@@ -12,6 +12,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{
+    crypto::EncryptionService,
     disaster_recovery_models::{
         CreateDisasterRecoveryPlanRequest, DisasterRecoveryPlan, ExecuteRecoveryRequest,
         RecoveryMetrics,
@@ -19,6 +20,38 @@ use crate::{
     error::{ApiError, ApiResult},
     state::AppState,
 };
+
+/// Encrypt a backup JSON field into a stored JSON string envelope (#895).
+/// Encrypted backups keep sensitive contract metadata and state snapshots
+/// unreadable at rest; in pass-through mode (no keys configured) the value is
+/// stored unchanged.
+fn encrypt_backup_field(
+    enc: &EncryptionService,
+    value: &serde_json::Value,
+) -> ApiResult<serde_json::Value> {
+    let envelope = enc
+        .encrypt_json(value)
+        .map_err(|e| ApiError::internal(format!("Failed to encrypt backup field: {e}")))?;
+    Ok(serde_json::Value::String(envelope))
+}
+
+/// Decrypt an encrypted backup field in place, leaving legacy plaintext rows
+/// untouched. Transparent to API consumers.
+fn decrypt_backup_field(enc: &EncryptionService, field: &mut Option<serde_json::Value>) -> ApiResult<()> {
+    if let Some(serde_json::Value::String(stored)) = field.as_ref() {
+        let decrypted = enc
+            .decrypt_json(stored)
+            .map_err(|e| ApiError::internal(format!("Failed to decrypt backup field: {e}")))?;
+        *field = Some(decrypted);
+    }
+    Ok(())
+}
+
+fn decrypt_backup(enc: &EncryptionService, backup: &mut ContractBackup) -> ApiResult<()> {
+    decrypt_backup_field(enc, &mut backup.metadata)?;
+    decrypt_backup_field(enc, &mut backup.state_snapshot)?;
+    Ok(())
+}
 
 pub async fn create_backup(
     State(state): State<AppState>,
@@ -48,7 +81,14 @@ pub async fn create_backup(
         None
     };
 
-    let backup = sqlx::query_as::<_, ContractBackup>(
+    // Encrypt sensitive backup contents at rest (#895).
+    let metadata = encrypt_backup_field(&state.encryption, &metadata)?;
+    let state_snapshot = match state_snapshot {
+        Some(snapshot) => Some(encrypt_backup_field(&state.encryption, &snapshot)?),
+        None => None,
+    };
+
+    let mut backup = sqlx::query_as::<_, ContractBackup>(
         r#"
         INSERT INTO contract_backups 
         (contract_id, backup_date, wasm_hash, metadata, state_snapshot, storage_size_bytes, primary_region, backup_regions)
@@ -70,6 +110,9 @@ pub async fn create_backup(
     .await
     .map_err(|e| ApiError::internal(format!("Failed to create backup: {}", e)))?;
 
+    // Return decrypted contents so encryption stays transparent to callers.
+    decrypt_backup(&state.encryption, &mut backup)?;
+
     Ok(Json(backup))
 }
 
@@ -77,13 +120,17 @@ pub async fn list_backups(
     State(state): State<AppState>,
     Path(contract_id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<ContractBackup>>> {
-    let backups = sqlx::query_as::<_, ContractBackup>(
+    let mut backups = sqlx::query_as::<_, ContractBackup>(
         "SELECT * FROM contract_backups WHERE contract_id = $1 ORDER BY backup_date DESC LIMIT 30",
     )
     .bind(contract_id)
     .fetch_all(&state.db)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    for backup in backups.iter_mut() {
+        decrypt_backup(&state.encryption, backup)?;
+    }
 
     Ok(Json(backups))
 }

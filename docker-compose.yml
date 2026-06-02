@@ -1,20 +1,101 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: soroban-registry-db
+  postgres-primary:
+    image: bitnami/postgresql-repmgr:16
+    container_name: soroban-registry-db-primary
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
-      POSTGRES_DB: ${POSTGRES_DB:-soroban_registry}
+      POSTGRESQL_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRESQL_USERNAME: ${POSTGRES_USER:-postgres}
+      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRESQL_DATABASE: ${POSTGRES_DB:-soroban_registry}
+      REPMGR_PASSWORD: ${REPMGR_PASSWORD:?REPMGR_PASSWORD must be set}
+      REPMGR_PRIMARY_HOST: postgres-primary
+      REPMGR_PRIMARY_PORT: "5432"
+      REPMGR_PARTNER_NODES: postgres-primary,postgres-replica
+      REPMGR_NODE_NAME: postgres-primary
+      REPMGR_NODE_NETWORK_NAME: postgres-primary
+      REPMGR_NODE_TYPE: primary
+      REPMGR_PORT_NUMBER: "5432"
+      REPMGR_USE_REPLICATION_SLOTS: "yes"
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_primary_data:/bitnami/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-soroban_registry}",
+        ]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  postgres-replica:
+    image: bitnami/postgresql-repmgr:16
+    container_name: soroban-registry-db-replica
+    environment:
+      POSTGRESQL_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRESQL_USERNAME: ${POSTGRES_USER:-postgres}
+      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRESQL_DATABASE: ${POSTGRES_DB:-soroban_registry}
+      REPMGR_PASSWORD: ${REPMGR_PASSWORD:?REPMGR_PASSWORD must be set}
+      REPMGR_PRIMARY_HOST: postgres-primary
+      REPMGR_PRIMARY_PORT: "5432"
+      REPMGR_PARTNER_NODES: postgres-primary,postgres-replica
+      REPMGR_NODE_NAME: postgres-replica
+      REPMGR_NODE_NETWORK_NAME: postgres-replica
+      REPMGR_NODE_TYPE: standby
+      REPMGR_PORT_NUMBER: "5432"
+      REPMGR_USE_REPLICATION_SLOTS: "yes"
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_replica_data:/bitnami/postgresql
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-soroban_registry}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  pgpool:
+    image: bitnami/pgpool:4
+    container_name: soroban-registry-pgpool
+    environment:
+      PGPOOL_BACKEND_NODES: 0:postgres-primary:5432,1:postgres-replica:5432
+      PGPOOL_ENABLE_LOAD_BALANCING: "yes"
+      PGPOOL_POSTGRES_USERNAME: ${POSTGRES_USER:-postgres}
+      PGPOOL_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      PGPOOL_SR_CHECK_USER: ${POSTGRES_USER:-postgres}
+      PGPOOL_SR_CHECK_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      PGPOOL_ADMIN_USERNAME: pgpool_admin
+      PGPOOL_ADMIN_PASSWORD: ${PGPOOL_ADMIN_PASSWORD:?PGPOOL_ADMIN_PASSWORD must be set}
+      PGPOOL_NUM_INIT_CHILDREN: "32"
+      PGPOOL_MAX_POOL: "4"
+      PGPOOL_LOG_CONNECTIONS: "yes"
+      PGPOOL_LOG_HOSTNAME: "yes"
+    ports:
+      - "5432:5432"
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      postgres-replica:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-soroban_registry}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
@@ -31,13 +112,15 @@ services:
       retries: 5
 
   api:
-  
     build:
       context: .
       dockerfile: backend/Dockerfile
     container_name: soroban-registry-api
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-soroban_registry}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?err}@pgpool:5432/${POSTGRES_DB:-soroban_registry}
+      DATABASE_PRIMARY_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?err}@postgres-primary:5432/${POSTGRES_DB:-soroban_registry}
+      DATABASE_REPLICA_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?err}@postgres-replica:5432/${POSTGRES_DB:-soroban_registry}
+      DATABASE_REPLICATION_LAG_THRESHOLD_MS: ${DATABASE_REPLICATION_LAG_THRESHOLD_MS:-100}
       RUST_LOG: ${RUST_LOG:-info}
       OTLP_ENDPOINT: http://jaeger:4318
       OTEL_SERVICE_NAME: soroban-registry-api
@@ -46,7 +129,7 @@ services:
     ports:
       - "3001:3001"
     depends_on:
-      postgres:
+      pgpool:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -69,13 +152,13 @@ services:
     container_name: soroban-registry-indexer
     command: ["/app/indexer"]
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-soroban_registry}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?err}@pgpool:5432/${POSTGRES_DB:-soroban_registry}
       RUST_LOG: ${INDEXER_RUST_LOG:-indexer=info}
       STELLAR_NETWORK: ${STELLAR_NETWORK:-testnet}
       OTLP_ENDPOINT: http://jaeger:4317
       OTEL_SERVICE_NAME: soroban-registry-indexer
     depends_on:
-      postgres:
+      pgpool:
         condition: service_healthy
       jaeger:
         condition: service_started
@@ -103,15 +186,13 @@ services:
       dockerfile: Dockerfile
     container_name: soroban-registry-tagging
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-soroban_registry}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?err}@pgpool:5432/${POSTGRES_DB:-soroban_registry}
       PORT: "3002"
     ports:
       - "3002:3002"
     depends_on:
-      postgres:
+      pgpool:
         condition: service_healthy
-
-  # ── Observability ─────────────────────────────────────────────────────────
 
   jaeger:
     image: jaegertracing/all-in-one:1.55
@@ -119,9 +200,9 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "16686:16686" # Jaeger UI
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:14269/"]
       interval: 10s
@@ -144,6 +225,10 @@ services:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./observability/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
       - prometheus_data:/prometheus
+    # Lets the host.docker.internal:9100 node-exporter scrape target resolve on
+    # Linux as well as Docker Desktop.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - api
 
@@ -227,8 +312,8 @@ services:
       - es_data:/usr/share/elasticsearch/data
 
 volumes:
-  postgres_data:
-  redis_data:
+  postgres_primary_data:
+  postgres_replica_data:
   cargo_cache:
   prometheus_data:
   alertmanager_data:

@@ -43,7 +43,7 @@ use shared::{
 // NOTE: All types are now imported from the shared crate.
 // Duplicate definitions have been removed to maintain a single source of truth.
 // ────────────────────────────────────────────────────────────────────────────
-use sqlx::{Postgres, QueryBuilder};
+use sqlx::{error::DatabaseError, Postgres, QueryBuilder};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path as StdPath, PathBuf};
@@ -87,7 +87,169 @@ use contract_abi::{generate_openapi, parse_json_spec, to_json, to_yaml};
 
 pub(crate) fn db_internal_error(operation: &str, err: sqlx::Error) -> ApiError {
     tracing::error!(operation = operation, error = ?err, "database operation failed");
+    if let sqlx::Error::Database(db_err) = &err {
+        let code = db_err.code().as_deref();
+        let constraint = db_err.constraint();
+        let message = database_constraint_message(operation, constraint, db_err.message());
+
+        return match code {
+            Some("23505") => ApiError::conflict("DatabaseConstraintViolation", message),
+            Some("23502") | Some("23503") | Some("23514") | Some("22001") | Some("P0001") => {
+                ApiError::bad_request("DatabaseConstraintViolation", message)
+            }
+            _ => ApiError::internal(message),
+        };
+    }
+
     ApiError::internal("An unexpected database error occurred")
+}
+
+fn database_constraint_message(
+    operation: &str,
+    constraint: Option<&str>,
+    db_message: &str,
+) -> String {
+    match constraint.unwrap_or("") {
+        "chk_publishers_stellar_address_format" => {
+            "stellar_address must be a valid Stellar address".to_string()
+        }
+        "chk_publishers_email_format" => {
+            "email must be a valid email address".to_string()
+        }
+        "chk_publishers_github_url_format" => {
+            "github_url must be a valid http:// or https:// URL".to_string()
+        }
+        "chk_publishers_website_url_format" => {
+            "website must be a valid http:// or https:// URL".to_string()
+        }
+        "chk_contracts_contract_id_format" => {
+            "contract_id must be a valid Stellar contract ID".to_string()
+        }
+        "chk_contracts_wasm_hash_format" => {
+            "wasm_hash must be a 64-character hexadecimal hash".to_string()
+        }
+        "chk_contracts_slug_format" => {
+            "slug must use lowercase letters, numbers, and hyphens".to_string()
+        }
+        "chk_contracts_health_score_range" => {
+            "health_score must be between 0 and 100".to_string()
+        }
+        "chk_contracts_deployment_count_non_negative" => {
+            "deployment_count must be zero or greater".to_string()
+        }
+        "chk_contracts_network_configs_object" => {
+            "network_configs must be a JSON object".to_string()
+        }
+        "chk_contracts_current_version_length" => {
+            "current_version is too long".to_string()
+        }
+        "chk_contributors_stellar_address_format" => {
+            "contributor stellar_address must be a valid Stellar address".to_string()
+        }
+        "chk_contributors_name_length" => {
+            "contributor name is too long".to_string()
+        }
+        "chk_tags_prefix_not_blank" => {
+            "tag prefix cannot be blank".to_string()
+        }
+        "chk_tags_name_not_blank" => {
+            "tag name cannot be blank".to_string()
+        }
+        "chk_tags_usage_count_non_negative" => {
+            "tag usage_count must be zero or greater".to_string()
+        }
+        "chk_tag_aliases_alias_not_blank" => {
+            "tag alias cannot be blank".to_string()
+        }
+        "chk_tag_usage_log_usage_count_non_negative" => {
+            "tag usage log count must be zero or greater".to_string()
+        }
+        "chk_organizations_name_not_blank" => {
+            "organization name cannot be blank".to_string()
+        }
+        "chk_organizations_slug_format" => {
+            "organization slug must use lowercase letters, numbers, and hyphens".to_string()
+        }
+        "chk_organizations_quota_contracts_positive" => {
+            "quota_contracts must be greater than zero".to_string()
+        }
+        "chk_organizations_rate_limit_requests_positive" => {
+            "rate_limit_requests must be greater than zero".to_string()
+        }
+        "chk_contract_versions_signature_algorithm" => {
+            "signature_algorithm must be ed25519 when provided".to_string()
+        }
+        "chk_contract_versions_commit_hash_format" => {
+            "commit_hash must be a 40-character hexadecimal hash".to_string()
+        }
+        "chk_contract_versions_source_url_format" => {
+            "source_url must be a valid http:// or https:// URL".to_string()
+        }
+        "chk_reviews_review_text_length" => {
+            "review_text is too long".to_string()
+        }
+        "chk_reviews_version_length" => {
+            "review version is too long".to_string()
+        }
+        "chk_verifications_error_message_length" => {
+            "error_message is too long".to_string()
+        }
+        "chk_verifications_compiler_version_length" => {
+            "compiler_version is too long".to_string()
+        }
+        "chk_organization_invitations_email_format" => {
+            "organization invitation email must be valid".to_string()
+        }
+        "chk_organization_invitations_time_order" => {
+            "expires_at must be later than created_at".to_string()
+        }
+        "chk_organization_invitations_accepted_at_order" => {
+            "accepted_at must be null or later than created_at".to_string()
+        }
+        "chk_user_preferences_theme" => {
+            "theme must be one of: dark, light, system".to_string()
+        }
+        "chk_user_preferences_language_not_blank" => {
+            "language must be between 2 and 10 characters".to_string()
+        }
+        "chk_user_preferences_favorites_json_array" => {
+            "favorites must be stored as a JSON array".to_string()
+        }
+        "chk_user_preferences_extensible_settings_json_object" => {
+            "extensible_settings must be stored as a JSON object".to_string()
+        }
+        "chk_user_preferences_webhook_url_format" => {
+            "webhook_url must be a valid http:// or https:// URL".to_string()
+        }
+        "chk_notification_queue_status" => {
+            "notification queue status is invalid".to_string()
+        }
+        "chk_notification_queue_priority_range" => {
+            "notification queue priority must be between 1 and 10".to_string()
+        }
+        "chk_notification_queue_retry_count_non_negative" => {
+            "retry_count must be zero or greater".to_string()
+        }
+        "chk_notification_queue_max_retries_non_negative" => {
+            "max_retries must be zero or greater".to_string()
+        }
+        "chk_notification_delivery_logs_status" => {
+            "notification delivery status is invalid".to_string()
+        }
+        "chk_contract_version_integrity" => {
+            "contract version data is inconsistent".to_string()
+        }
+        "chk_verification_integrity" => {
+            "verification data is inconsistent".to_string()
+        }
+        _ => {
+            if db_message.trim().is_empty() {
+                format!("{} failed due to a database constraint", operation)
+            } else {
+                db_message.to_string()
+            }
+        }
+    }
 }
 
 fn maturity_filter_value(maturity: &shared::MaturityLevel) -> &'static str {
@@ -2842,7 +3004,10 @@ pub async fn get_contract(
                 state.cache.put_contract_meta(key, serialized.clone()).await;
                 // Also cache by the canonical contract_id string so both UUID and slug lookups hit
                 if key != &contract.contract_id {
-                    state.cache.put_contract_meta(&contract.contract_id, serialized).await;
+                    state
+                        .cache
+                        .put_contract_meta(&contract.contract_id, serialized)
+                        .await;
                 }
             }
         }
@@ -3325,7 +3490,10 @@ pub async fn revert_contract_version(
     state.cache.invalidate_abi(&contract_uuid.to_string()).await;
     state.cache.invalidate_contracts().await;
     state.cache.invalidate_contract_meta(&contract_id).await;
-    state.cache.invalidate_contract_meta(&contract_uuid.to_string()).await;
+    state
+        .cache
+        .invalidate_contract_meta(&contract_uuid.to_string())
+        .await;
 
     Ok(Json(version_row))
 }
@@ -4073,7 +4241,10 @@ pub async fn create_contract_version(
         .invalidate_abi(&format!("{}@{}", contract_id, req.version))
         .await;
     state.cache.invalidate_contract_meta(&contract_id).await;
-    state.cache.invalidate_contract_meta(&contract_uuid.to_string()).await;
+    state
+        .cache
+        .invalidate_contract_meta(&contract_uuid.to_string())
+        .await;
 
     // Store differential patch for the new version (Issue #501).
     let new_snapshot = crate::patch_handlers::VersionSnapshot {
@@ -5796,8 +5967,14 @@ pub async fn update_contract_metadata(
     }
 
     state.cache.invalidate_contracts().await;
-    state.cache.invalidate_contract_meta(&after.contract_id).await;
-    state.cache.invalidate_contract_meta(&after.id.to_string()).await;
+    state
+        .cache
+        .invalidate_contract_meta(&after.contract_id)
+        .await;
+    state
+        .cache
+        .invalidate_contract_meta(&after.id.to_string())
+        .await;
 
     // Increment usage counter asynchronously (fire-and-forget)
     // Failures are logged but never block the main request
@@ -6644,11 +6821,11 @@ pub async fn get_contract_audits(
     Query(params): Query<AuditQueryParams>,
 ) -> ApiResult<Json<shared::PaginatedAuditsResponse>> {
     let contract_id = resolve_contract_id(&state, &id).await?;
-    
+
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(10).clamp(1, 100);
     let offset = (page - 1) * per_page;
-    
+
     let since_dt = params.since.as_deref().and_then(parse_datetime);
     let until_dt = params.until.as_deref().and_then(parse_datetime);
 
@@ -6673,7 +6850,7 @@ pub async fn get_contract_audits(
         "SELECT COUNT(*) FROM security_scans 
          WHERE contract_id = $1 AND completed_at IS NOT NULL
          AND (($2::timestamptz IS NULL) OR (completed_at >= $2))
-         AND (($3::timestamptz IS NULL) OR (completed_at <= $3))"
+         AND (($3::timestamptz IS NULL) OR (completed_at <= $3))",
     )
     .bind(contract_id)
     .bind(since_dt)
@@ -6682,17 +6859,24 @@ pub async fn get_contract_audits(
     .await
     .unwrap_or(0);
 
-    let audits = rows.into_iter().map(|(scan_id, total, crit, high, med, low, completed_at)| {
-        let status = if crit > 0 {
-            shared::AuditStatus::Failed
-        } else if high > 0 || med > 0 {
-            shared::AuditStatus::Issues
-        } else {
-            shared::AuditStatus::Passed
-        };
+    let audits = rows
+        .into_iter()
+        .map(|(scan_id, total, crit, high, med, low, completed_at)| {
+            let status = if crit > 0 {
+                shared::AuditScanStatus::Failed
+            } else if high > 0 || med > 0 {
+                shared::AuditScanStatus::Issues
+            } else {
+                shared::AuditScanStatus::Passed
+            };
 
-        let mut findings = vec![];
-        [(crit, "critical"), (high, "high"), (med, "medium"), (low, "low")]
+            let mut findings = vec![];
+            [
+                (crit, "critical"),
+                (high, "high"),
+                (med, "medium"),
+                (low, "low"),
+            ]
             .iter()
             .filter(|(count, _)| *count > 0)
             .for_each(|(count, sev)| {
@@ -6702,18 +6886,22 @@ pub async fn get_contract_audits(
                 });
             });
 
-        shared::ContractAuditResponse {
-            id: scan_id,
-            contract_id,
-            audit_type: shared::AuditType::Informal,
-            status,
-            auditor: Some("Automated Security Scanner".to_string()),
-            audit_date: completed_at.unwrap_or_else(Utc::now),
-            findings_summary: findings,
-            total_issues: total,
-            report_url: Some(format!("/api/v1/contracts/{}/audits/{}", contract_id, scan_id)),
-        }
-    }).collect();
+            shared::ContractAuditResponse {
+                id: scan_id,
+                contract_id,
+                audit_type: shared::AuditType::Informal,
+                status,
+                auditor: Some("Automated Security Scanner".to_string()),
+                audit_date: completed_at.unwrap_or_else(Utc::now),
+                findings_summary: findings,
+                total_issues: total,
+                report_url: Some(format!(
+                    "/api/v1/contracts/{}/audits/{}",
+                    contract_id, scan_id
+                )),
+            }
+        })
+        .collect();
 
     Ok(Json(shared::PaginatedAuditsResponse {
         audits,
@@ -6731,11 +6919,12 @@ fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
 
 async fn resolve_contract_id(state: &AppState, id: &str) -> ApiResult<Uuid> {
     if let Ok(uuid) = Uuid::parse_str(id) {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM contracts WHERE id = $1)")
-            .bind(uuid)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| db_internal_error("check contract", e))?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM contracts WHERE id = $1)")
+                .bind(uuid)
+                .fetch_one(&state.db)
+                .await
+                .map_err(|e| db_internal_error("check contract", e))?;
         return if exists {
             Ok(uuid)
         } else {

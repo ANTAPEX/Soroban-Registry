@@ -75,12 +75,14 @@ impl FeatureFlagManager {
         }
 
         // Ensure safe defaults for known flags if not in config
-        flags.entry("new_dashboard".to_string()).or_insert(FeatureFlag {
-            key: "new_dashboard".to_string(),
-            is_enabled: false,
-            rollout_percentage: 0,
-            targeted_users: vec![],
-        });
+        flags
+            .entry("new_dashboard".to_string())
+            .or_insert(FeatureFlag {
+                key: "new_dashboard".to_string(),
+                is_enabled: false,
+                rollout_percentage: 0,
+                targeted_users: vec![],
+            });
 
         Self {
             flags: RwLock::new(flags),
@@ -162,7 +164,12 @@ impl FeatureFlagManager {
         for (key, flag) in flags.iter() {
             let (evaluations, hits) = metrics
                 .get(key)
-                .map(|m| (m.evaluations.load(Ordering::Relaxed), m.hits.load(Ordering::Relaxed)))
+                .map(|m| {
+                    (
+                        m.evaluations.load(Ordering::Relaxed),
+                        m.hits.load(Ordering::Relaxed),
+                    )
+                })
                 .unwrap_or((0, 0));
             result.push(FlagStatus {
                 key: key.clone(),
@@ -205,15 +212,16 @@ pub async fn require_feature_flag(
     } else {
         (
             StatusCode::NOT_FOUND,
-            format!("This endpoint requires the '{}' feature flag to be enabled", flag_key),
+            format!(
+                "This endpoint requires the '{}' feature flag to be enabled",
+                flag_key
+            ),
         )
             .into_response()
     }
 }
 
 /// GET /api/feature-flags — return status of all registered feature flags
-pub async fn get_flag_status_handler(
-    State(state): State<AppState>,
-) -> Json<Vec<FlagStatus>> {
+pub async fn get_flag_status_handler(State(state): State<AppState>) -> Json<Vec<FlagStatus>> {
     Json(state.feature_flags.get_all_status().await)
 }

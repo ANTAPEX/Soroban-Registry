@@ -1,10 +1,12 @@
-import { Router, Request, Response } from "express";
+import { NextFunction, Router, Request, Response } from "express";
 import { pool } from "./db.js";
+import { logger } from "./logger.js";
+import { BadRequestError, DatabaseError, NotFoundError } from "./errors.js";
 import type { Tag, TagWithAliases, HierarchicalTagGroup } from "./models.js";
 
 const router = Router();
 
-router.get("/tags", async (req: Request, res: Response) => {
+router.get("/tags", async (req: Request, res: Response, next: NextFunction) => {
   const prefix = (req.query.prefix as string) || "";
   const limit = Math.min(
     Math.max(parseInt(req.query.limit as string) || 20, 1),
@@ -51,15 +53,15 @@ router.get("/tags", async (req: Request, res: Response) => {
 
     res.json({ groups: result, total: rows.length });
   } catch (err) {
-    res.status(500).json({ error: "internal server error" });
+    next(new DatabaseError("Failed to fetch tags", err instanceof Error ? err : undefined));
   }
 });
 
-router.post("/tags", async (req: Request, res: Response) => {
+router.post("/tags", async (req: Request, res: Response, next: NextFunction) => {
   const { prefix, name, description } = req.body;
 
   if (!prefix || !name) {
-    res.status(400).json({ error: "prefix and name are required" });
+    next(new BadRequestError("prefix and name are required"));
     return;
   }
 
@@ -74,21 +76,18 @@ router.post("/tags", async (req: Request, res: Response) => {
       [prefix, name, description || null],
     );
 
+    logger.info({ tagId: rows[0].id, prefix, name }, "Tag created");
     res.status(201).json(rows[0]);
   } catch (err) {
-    res.status(500).json({ error: "internal server error" });
+    next(new DatabaseError("Failed to create tag", err instanceof Error ? err : undefined));
   }
 });
 
-router.post("/tags/alias", async (req: Request, res: Response) => {
+router.post("/tags/alias", async (req: Request, res: Response, next: NextFunction) => {
   const { alias, canonical_prefix, canonical_name } = req.body;
 
   if (!alias || !canonical_prefix || !canonical_name) {
-    res
-      .status(400)
-      .json({
-        error: "alias, canonical_prefix, and canonical_name are required",
-      });
+    next(new BadRequestError("alias, canonical_prefix, and canonical_name are required"));
     return;
   }
 
@@ -99,7 +98,7 @@ router.post("/tags/alias", async (req: Request, res: Response) => {
     );
 
     if (tagResult.rows.length === 0) {
-      res.status(404).json({ error: "canonical tag not found" });
+      next(new NotFoundError("canonical tag not found"));
       return;
     }
 
@@ -111,13 +110,14 @@ router.post("/tags/alias", async (req: Request, res: Response) => {
       [alias, tagResult.rows[0].id],
     );
 
+    logger.info({ alias, canonicalPrefix: canonical_prefix, canonicalName: canonical_name }, "Tag alias created");
     res.status(201).json(rows[0]);
   } catch (err) {
-    res.status(500).json({ error: "internal server error" });
+    next(new DatabaseError("Failed to create tag alias", err instanceof Error ? err : undefined));
   }
 });
 
-router.patch("/tags/:id/increment", async (req: Request, res: Response) => {
+router.patch("/tags/:id/increment", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { rows } = await pool.query<Tag>(
       `UPDATE tags SET usage_count = usage_count + 1 WHERE id = $1 RETURNING *`,
@@ -125,13 +125,13 @@ router.patch("/tags/:id/increment", async (req: Request, res: Response) => {
     );
 
     if (rows.length === 0) {
-      res.status(404).json({ error: "tag not found" });
+      next(new NotFoundError("tag not found"));
       return;
     }
 
     res.json(rows[0]);
   } catch (err) {
-    res.status(500).json({ error: "internal server error" });
+    next(new DatabaseError("Failed to increment tag usage count", err instanceof Error ? err : undefined));
   }
 });
 

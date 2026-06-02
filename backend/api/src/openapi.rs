@@ -178,7 +178,7 @@ use utoipa::OpenApi;
             UpdateReviewerStatusRequest,
             CollaborativeReviewDetails,
             CollaborativeReviewStatus,
-            AuditStatus,
+            AuditScanStatus,
             AuditType,
             ContractAuditFinding,
             ContractAuditResponse,

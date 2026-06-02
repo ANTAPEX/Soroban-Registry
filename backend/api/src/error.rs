@@ -6,6 +6,7 @@ use axum::{
 use chrono::{SecondsFormat, Utc};
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::backtrace::Backtrace;
 
 /// Standardized error types, payload normalization, and HTTP response handling for the API layer.
 ///
@@ -24,6 +25,49 @@ pub enum ErrorCode {
     PayloadTooLarge,
     RateLimited,
     InternalError,
+}
+
+/// Categorization of errors for monitoring and analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCategory {
+    /// Input validation or user-caused errors
+    Validation,
+    /// Authentication / authorization failures
+    Authentication,
+    /// Requested resource not found
+    NotFound,
+    /// Resource conflict (duplicate, version mismatch)
+    Conflict,
+    /// Database connectivity or query errors
+    Database,
+    /// Errors from Stellar RPC calls
+    StellarRpc,
+    /// Errors from external service dependencies (S3, Elasticsearch, etc.)
+    ExternalService,
+    /// Rate limiting
+    RateLimit,
+    /// Internal / unexpected errors
+    Internal,
+    /// Network / I/O errors
+    Network,
+}
+
+impl ErrorCategory {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ErrorCategory::Validation => "validation",
+            ErrorCategory::Authentication => "authentication",
+            ErrorCategory::NotFound => "not_found",
+            ErrorCategory::Conflict => "conflict",
+            ErrorCategory::Database => "database",
+            ErrorCategory::StellarRpc => "stellar_rpc",
+            ErrorCategory::ExternalService => "external_service",
+            ErrorCategory::RateLimit => "rate_limit",
+            ErrorCategory::Internal => "internal",
+            ErrorCategory::Network => "network",
+        }
+    }
 }
 
 impl ErrorCode {
@@ -55,11 +99,19 @@ pub struct ApiError {
     code: String,
     message: String,
     details: Option<Value>,
+    backtrace: Option<String>,
+    category: ErrorCategory,
 }
 
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}: {}", self.error_code, self.message)
+    }
+}
+
+impl std::error::Error for ApiError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
     }
 }
 
@@ -72,6 +124,32 @@ struct ErrorResponse {
     details: Value,
     timestamp: String,
     correlation_id: String,
+}
+
+fn capture_backtrace() -> Option<String> {
+    let backtrace = Backtrace::capture();
+    if backtrace.status() == std::backtrace::BacktraceStatus::Captured {
+        Some(format!("{:#}", backtrace))
+    } else {
+        None
+    }
+}
+
+impl ErrorCategory {
+    fn from_status(status: StatusCode) -> Self {
+        match status {
+            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
+                ErrorCategory::Validation
+            }
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => ErrorCategory::Authentication,
+            StatusCode::NOT_FOUND => ErrorCategory::NotFound,
+            StatusCode::CONFLICT => ErrorCategory::Conflict,
+            StatusCode::TOO_MANY_REQUESTS => ErrorCategory::RateLimit,
+            StatusCode::PAYLOAD_TOO_LARGE => ErrorCategory::Validation,
+            StatusCode::SERVICE_UNAVAILABLE => ErrorCategory::ExternalService,
+            _ => ErrorCategory::Internal,
+        }
+    }
 }
 
 fn normalize_error_code(code: impl Into<String>) -> String {
@@ -109,7 +187,11 @@ fn normalize_error_code(code: impl Into<String>) -> String {
 }
 
 impl ApiError {
-    pub fn new(status: StatusCode, error: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(
+        status: StatusCode,
+        error: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         let reason = error.into();
         let code = normalize_error_code(reason.clone());
         Self {
@@ -122,6 +204,8 @@ impl ApiError {
             } else {
                 Some(json!({ "reason": normalize_error_code(reason) }))
             },
+            backtrace: capture_backtrace(),
+            category: ErrorCategory::from_status(status),
         }
     }
 
@@ -147,7 +231,15 @@ impl ApiError {
     }
 
     pub fn internal(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", message)
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error_code: ErrorCode::InternalError,
+            code: "INTERNAL_ERROR".to_string(),
+            message: message.into(),
+            details: None,
+            backtrace: capture_backtrace(),
+            category: ErrorCategory::Internal,
+        }
     }
 
     pub fn unauthorized(message: impl Into<String>) -> Self {
@@ -175,11 +267,27 @@ impl ApiError {
     }
 
     pub fn db_error(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR", message)
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error_code: ErrorCode::InternalError,
+            code: "DATABASE_ERROR".to_string(),
+            message: message.into(),
+            details: None,
+            backtrace: capture_backtrace(),
+            category: ErrorCategory::Database,
+        }
     }
 
     pub fn internal_error(error: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, error, message)
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error_code: ErrorCode::InternalError,
+            code: normalize_error_code(error.into()),
+            message: message.into(),
+            details: None,
+            backtrace: capture_backtrace(),
+            category: ErrorCategory::Internal,
+        }
     }
 
     pub fn service_unavailable(message: impl Into<String>) -> Self {
@@ -197,6 +305,14 @@ impl ApiError {
     pub fn payload_too_large(message: impl Into<String>) -> Self {
         Self::new(StatusCode::PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE", message)
     }
+
+    pub fn category(&self) -> ErrorCategory {
+        self.category
+    }
+
+    pub fn backtrace(&self) -> Option<&str> {
+        self.backtrace.as_deref()
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -204,12 +320,15 @@ impl IntoResponse for ApiError {
         let correlation_id = crate::request_tracing::current_request_id()
             .unwrap_or_else(crate::request_tracing::generate_request_id);
         let details = self.details.unwrap_or_else(|| json!({}));
+        let category_str = self.category.as_str();
 
         tracing::error!(
             request_id = %correlation_id,
             status = self.status.as_u16(),
             code = %self.code,
             error_code = ?self.error_code,
+            category = %category_str,
+            backtrace = %self.backtrace.as_deref().unwrap_or("none"),
             details = %details,
             message = %self.message,
             "api_error"
@@ -236,8 +355,16 @@ pub type AppError = ApiError;
 
 impl From<sqlx::Error> for ApiError {
     fn from(e: sqlx::Error) -> Self {
-        tracing::error!(err = %e, "database error");
-        ApiError::internal("Database error")
+        tracing::error!(err = %e, category = "database", "database error");
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error_code: ErrorCode::InternalError,
+            code: "DATABASE_ERROR".to_string(),
+            message: "Database error".to_string(),
+            details: Some(json!({ "reason": e.to_string() })),
+            backtrace: capture_backtrace(),
+            category: ErrorCategory::Database,
+        }
     }
 }
 
@@ -248,6 +375,22 @@ impl From<StatusCode> for ApiError {
             format!("{}", ErrorCode::from_status(status)),
             status.canonical_reason().unwrap_or("Unknown Error"),
         )
+    }
+}
+
+impl From<anyhow::Error> for ApiError {
+    fn from(e: anyhow::Error) -> Self {
+        let backtrace = capture_backtrace();
+        tracing::error!(err = %e, category = "internal", "internal_error");
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error_code: ErrorCode::InternalError,
+            code: "INTERNAL_ERROR".to_string(),
+            message: e.to_string(),
+            details: Some(json!({ "reason": format!("{:#}", e) })),
+            backtrace,
+            category: ErrorCategory::Internal,
+        }
     }
 }
 
