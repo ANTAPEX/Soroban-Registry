@@ -1,8 +1,7 @@
 use crate::types::{HealthStatus, InstanceMetrics, Region};
 use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Represents a single contract instance that can receive routed calls
 #[derive(Debug)]
@@ -11,7 +10,7 @@ pub struct ContractInstance {
     pub contract_id: String,
     pub rpc_endpoint: String,
     pub region: Region,
-    pub weight: u32,                        // for weighted algorithms
+    pub weight: u32, // for weighted algorithms
     pub health: RwLock<HealthStatus>,
     pub active_connections: AtomicU32,
     pub total_requests: AtomicU64,

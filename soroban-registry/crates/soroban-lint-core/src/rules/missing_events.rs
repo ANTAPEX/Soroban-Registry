@@ -42,20 +42,24 @@ impl<'ast> Visit<'ast> for MissingEventsVisitor {
             let fn_name = node.sig.ident.to_string();
 
             // Check if it modifies state but doesn't emit events
-            if (code_str.contains(".set(") || code_str.contains("storage().")) && !code_str.contains("publish") {
-                if !fn_name.starts_with("get") && !fn_name.starts_with("view") {
-                    let diag = Diagnostic::new(
-                        "missing_events",
-                        Severity::Info,
-                        format!("State-changing function `{}` does not emit events", fn_name),
-                        &self.file,
-                        1,
-                        0,
-                    )
-                    .with_suggestion("Consider emitting an event for state changes using env.events().publish()");
+            if (code_str.contains(".set(") || code_str.contains("storage()."))
+                && !code_str.contains("publish")
+                && !fn_name.starts_with("get")
+                && !fn_name.starts_with("view")
+            {
+                let diag = Diagnostic::new(
+                    "missing_events",
+                    Severity::Info,
+                    format!("State-changing function `{}` does not emit events", fn_name),
+                    &self.file,
+                    1,
+                    0,
+                )
+                .with_suggestion(
+                    "Consider emitting an event for state changes using env.events().publish()",
+                );
 
-                    self.diagnostics.push(diag);
-                }
+                self.diagnostics.push(diag);
             }
         }
         syn::visit::visit_item_fn(self, node);

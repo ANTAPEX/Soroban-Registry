@@ -41,15 +41,20 @@ impl<'ast> Visit<'ast> for AccessControlVisitor {
             let fn_name = node.sig.ident.to_string();
 
             // Check for admin functions without admin checks
-            if (fn_name.contains("admin") || fn_name.contains("unpause") || fn_name.contains("withdraw")) 
-                && !code_str.contains("admin") 
+            if (fn_name.contains("admin")
+                || fn_name.contains("unpause")
+                || fn_name.contains("withdraw"))
+                && !code_str.contains("admin")
                 && !code_str.contains("owner")
-                && !code_str.contains("require_auth") {
-                
+                && !code_str.contains("require_auth")
+            {
                 let diag = Diagnostic::new(
                     "missing_access_control",
                     Severity::Error,
-                    format!("Admin-level function `{}` missing access control check", fn_name),
+                    format!(
+                        "Admin-level function `{}` missing access control check",
+                        fn_name
+                    ),
                     &self.file,
                     1,
                     0,

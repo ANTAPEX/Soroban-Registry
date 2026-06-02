@@ -1,14 +1,13 @@
 /// Integration tests for the indexer service
 /// These tests validate core functionality without requiring a real database
-
 #[cfg(test)]
 mod tests {
     use indexer::backoff::ExponentialBackoff;
-    use indexer::detector::{detect_contract_deployments};
-    use indexer::rpc::{Operation, ContractDeployment};
+    use indexer::detector::detect_contract_deployments;
+    use indexer::rpc::Operation;
     use indexer::state::IndexerState;
-    use shared::Network;
     use serde_json::json;
+    use shared::Network;
 
     #[test]
     fn test_exponential_backoff_sequence() {
@@ -67,7 +66,7 @@ mod tests {
             }),
         }];
 
-        let deployments = detect_contract_deployments(&ops, 100);
+        let deployments = detect_contract_deployments(&ops, 100, "2023-10-27T10:00:00Z");
         assert_eq!(deployments.len(), 1);
         assert_eq!(deployments[0].contract_id, contract_id);
         assert_eq!(deployments[0].deployer, deployer);
@@ -93,7 +92,7 @@ mod tests {
             },
         ];
 
-        let deployments = detect_contract_deployments(&ops, 100);
+        let deployments = detect_contract_deployments(&ops, 100, "2023-10-27T10:00:00Z");
         assert_eq!(deployments.len(), 0);
     }
 
@@ -102,6 +101,7 @@ mod tests {
         let state = IndexerState {
             network: Network::Testnet,
             last_indexed_ledger_height: 100,
+            last_indexed_ledger_hash: Some("hash1".to_string()),
             last_checkpoint_ledger_height: 100,
             consecutive_failures: 0,
         };
@@ -114,6 +114,7 @@ mod tests {
         let mut state = IndexerState {
             network: Network::Testnet,
             last_indexed_ledger_height: 100,
+            last_indexed_ledger_hash: Some("hash1".to_string()),
             last_checkpoint_ledger_height: 100,
             consecutive_failures: 0,
         };
@@ -135,6 +136,7 @@ mod tests {
         let mut state = IndexerState {
             network: Network::Testnet,
             last_indexed_ledger_height: 100,
+            last_indexed_ledger_hash: Some("hash1".to_string()),
             last_checkpoint_ledger_height: 50,
             consecutive_failures: 0,
         };
@@ -171,7 +173,7 @@ mod tests {
             },
         ];
 
-        let deployments = detect_contract_deployments(&ops, 100);
+        let deployments = detect_contract_deployments(&ops, 100, "2023-10-27T10:00:00Z");
         assert_eq!(deployments.len(), 2);
         assert_eq!(deployments[0].contract_id, c1);
         assert_eq!(deployments[1].contract_id, c2);
@@ -190,56 +192,78 @@ mod tests {
             }),
         }];
 
-        let deployments = detect_contract_deployments(&ops, 100);
+        let deployments = detect_contract_deployments(&ops, 100, "2023-10-27T10:00:00Z");
         assert_eq!(deployments.len(), 0);
     }
 
     #[tokio::test]
     async fn test_backoff_execute_immediate_success() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
         let backoff = ExponentialBackoff::new(1, 60);
-        let mut call_count = 0;
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let call_count_clone = call_count.clone();
 
-        let result = indexer::backoff::execute_with_backoff(backoff, 5, || async {
-            call_count += 1;
-            Ok::<i32, String>(42)
-        })
-        .await;
-
-        assert_eq!(result, Ok(42));
-        assert_eq!(call_count, 1);
-    }
-
-    #[tokio::test]
-    async fn test_backoff_execute_retry_then_success() {
-        let backoff = ExponentialBackoff::new(1, 60);
-        let mut call_count = 0;
-
-        let result = indexer::backoff::execute_with_backoff(backoff, 5, || async {
-            call_count += 1;
-            if call_count < 3 {
-                Err::<i32, _>("temporary failure".to_string())
-            } else {
-                Ok(42)
+        let result = indexer::backoff::execute_with_backoff(backoff, 5, move || {
+            let count = call_count_clone.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                Ok::<i32, String>(42)
             }
         })
         .await;
 
         assert_eq!(result, Ok(42));
-        assert_eq!(call_count, 3);
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_backoff_execute_retry_then_success() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let backoff = ExponentialBackoff::new(1, 60);
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let call_count_clone = call_count.clone();
+
+        let result = indexer::backoff::execute_with_backoff(backoff, 5, move || {
+            let count = call_count_clone.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                let current = count.load(Ordering::SeqCst);
+                if current < 3 {
+                    Err::<i32, _>("temporary failure".to_string())
+                } else {
+                    Ok(42)
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(result, Ok(42));
+        assert_eq!(call_count.load(Ordering::SeqCst), 3);
     }
 
     #[tokio::test]
     async fn test_backoff_execute_max_attempts_reached() {
-        let backoff = ExponentialBackoff::new(1, 60);
-        let mut call_count = 0;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
 
-        let result = indexer::backoff::execute_with_backoff(backoff, 3, || async {
-            call_count += 1;
-            Err::<i32, _>("persistent failure".to_string())
+        let backoff = ExponentialBackoff::new(1, 60);
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let call_count_clone = call_count.clone();
+
+        let result = indexer::backoff::execute_with_backoff(backoff, 3, move || {
+            let count = call_count_clone.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                Err::<i32, _>("persistent failure".to_string())
+            }
         })
         .await;
 
         assert!(result.is_err());
-        assert_eq!(call_count, 3);
+        assert_eq!(call_count.load(Ordering::SeqCst), 3);
     }
 }

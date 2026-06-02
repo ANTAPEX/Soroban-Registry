@@ -37,9 +37,7 @@ impl PublicFnDocVisitor {
 impl<'ast> Visit<'ast> for PublicFnDocVisitor {
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
         if matches!(node.vis, syn::Visibility::Public(_)) {
-            let has_doc = node.attrs.iter().any(|attr| {
-                attr.path().is_ident("doc")
-            });
+            let has_doc = node.attrs.iter().any(|attr| attr.path().is_ident("doc"));
 
             if !has_doc {
                 let fn_name = node.sig.ident.to_string();
@@ -52,7 +50,9 @@ impl<'ast> Visit<'ast> for PublicFnDocVisitor {
                         1,
                         0,
                     )
-                    .with_suggestion("Add doc comments describing the function's purpose and parameters");
+                    .with_suggestion(
+                        "Add doc comments describing the function's purpose and parameters",
+                    );
 
                     self.diagnostics.push(diag);
                 }

@@ -1,7 +1,7 @@
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::rules::LintRule;
-use syn::visit::Visit;
 use std::collections::HashSet;
+use syn::visit::Visit;
 
 pub struct StorageKeyCollisionRule;
 

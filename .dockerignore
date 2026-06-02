@@ -1,0 +1,38 @@
+# Build artifacts
+**/target/
+**/node_modules/
+**/.next/
+
+# Git
+.git/
+.github/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Documentation (not needed in image)
+docs/
+*.md
+!README.md
+
+# Examples and dev tools
+examples/
+compliance_toolkit/
+scripts/
+observability/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+**/coverage/
+**/__tests__/
+**/tests/
+**/benches/

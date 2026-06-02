@@ -1,6 +1,9 @@
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -69,6 +72,12 @@ pub struct Profiler {
     overhead_total: Duration,
 }
 
+impl Default for Profiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Profiler {
     pub fn new() -> Self {
         Self {
@@ -91,7 +100,7 @@ impl Profiler {
         if let Some(parent) = self.call_stack.get(self.call_stack.len().saturating_sub(2)) {
             self.call_graph
                 .entry(parent.0.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(name.to_string());
         }
     }
@@ -104,7 +113,7 @@ impl Profiler {
         self.call_stack.pop();
         self.function_stats
             .entry(name.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(duration);
     }
 
@@ -218,7 +227,7 @@ pub fn parse_contract_functions(contract_path: &Path) -> Result<Vec<String>> {
     let mut functions = Vec::new();
     let lines: Vec<&str> = content.lines().collect();
 
-    for (i, line) in lines.iter().enumerate() {
+    for line in lines.iter() {
         if line.trim().starts_with("pub fn ") || line.trim().starts_with("fn ") {
             if let Some(name_start) = line.find("fn ") {
                 let after_fn = &line[name_start + 3..];
@@ -272,7 +281,8 @@ pub fn simulate_execution(
     Ok(())
 }
 
-pub fn generate_flame_graph(profile: &ProfileData, output_path: &Path) -> Result<()> {
+// original/formatting-heavy implementation (kept for benchmarking)
+pub fn generate_flame_graph_old(profile: &ProfileData, output_path: &Path) -> Result<()> {
     let mut svg = String::from(
         r#"<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1200" height="800">
 <style>
@@ -299,7 +309,7 @@ pub fn generate_flame_graph(profile: &ProfileData, output_path: &Path) -> Result
     let mut sorted_functions: Vec<_> = profile.functions.values().collect();
     sorted_functions.sort_by(|a, b| b.total_time.cmp(&a.total_time));
 
-    for (idx, func) in sorted_functions.iter().take(30).enumerate() {
+    for func in sorted_functions.iter().take(30) {
         let time_ratio = func.total_time.as_nanos() as f64 / max_time;
         let bar_width = width * time_ratio.min(1.0);
 
@@ -312,12 +322,7 @@ pub fn generate_flame_graph(profile: &ProfileData, output_path: &Path) -> Result
         };
 
         svg.push_str(&format!(
-            r#"<g class="frame">
-<rect x="0" y="{}" width="{}" height="{}" class="{}"/>
-<text x="5" y="{}" fill="white">{}</text>
-<text x="{}" y="{}" fill="white" text-anchor="end">{:.2}ms</text>
-</g>
-"#,
+            "<g class=\"frame\">\n<rect x=\"0\" y=\"{}\" width=\"{}\" height=\"{}\" class=\"{}\"/>\n<text x=\"5\" y=\"{}\" fill=\"white\">{}</text>\n<text x=\"{}\" y=\"{}\" fill=\"white\" text-anchor=\"end\">{:.2}ms</text>\n</g>\n",
             y,
             bar_width,
             bar_height,
@@ -338,6 +343,91 @@ pub fn generate_flame_graph(profile: &ProfileData, output_path: &Path) -> Result
         .with_context(|| format!("Failed to write flame graph: {}", output_path.display()))?;
 
     Ok(())
+}
+
+// new builder/template implementation (efficient string building)
+pub fn generate_flame_graph(profile: &ProfileData, output_path: &Path) -> Result<()> {
+    let mut svg = String::with_capacity(16 * 1024);
+
+    svg.push_str("<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" width=\"1200\" height=\"800\">\n");
+    svg.push_str("<style>\n");
+    svg.push_str(".frame { font-family: monospace; font-size: 12px; }\n");
+    svg.push_str(".frame rect { stroke: #000; stroke-width: 1px; }\n");
+    svg.push_str(".hot { fill: #ff6b6b; }\n");
+    svg.push_str(".warm { fill: #ffa500; }\n");
+    svg.push_str(".cool { fill: #4ecdc4; }\n");
+    svg.push_str("</style>\n");
+
+    let max_time = profile
+        .functions
+        .values()
+        .map(|f| f.total_time.as_nanos())
+        .max()
+        .unwrap_or(1) as f64;
+
+    let mut y = 20.0f64;
+    let bar_height = 20.0f64;
+    let width = 1200.0f64;
+
+    let mut sorted_functions: Vec<_> = profile.functions.values().collect();
+    sorted_functions.sort_by(|a, b| b.total_time.cmp(&a.total_time));
+
+    for func in sorted_functions.iter().take(30) {
+        let time_ratio = func.total_time.as_nanos() as f64 / max_time;
+        let bar_width = width * time_ratio.min(1.0);
+
+        let color_class = if time_ratio > 0.7 {
+            "hot"
+        } else if time_ratio > 0.3 {
+            "warm"
+        } else {
+            "cool"
+        };
+
+        svg.push_str("<g class=\"frame\">\n");
+        svg.push_str("<rect x=\"0\" y=\"");
+        svg.push_str(&format_float(y));
+        svg.push_str("\" width=\"");
+        svg.push_str(&format_float(bar_width));
+        svg.push_str("\" height=\"");
+        svg.push_str(&format_float(bar_height));
+        svg.push_str("\" class=\"");
+        svg.push_str(color_class);
+        svg.push_str("\"/>\n");
+
+        svg.push_str("<text x=\"5\" y=\"");
+        svg.push_str(&format_float(y + 15.0));
+        svg.push_str("\" fill=\"white\">");
+        svg.push_str(&func.name);
+        svg.push_str("</text>\n");
+
+        svg.push_str("<text x=\"");
+        svg.push_str(&format_float(bar_width - 5.0));
+        svg.push_str("\" y=\"");
+        svg.push_str(&format_float(y + 15.0));
+        svg.push_str("\" fill=\"white\" text-anchor=\"end\">");
+        svg.push_str(&format_float(func.total_time.as_secs_f64() * 1000.0));
+        svg.push_str("ms</text>\n");
+
+        svg.push_str("</g>\n");
+
+        y += bar_height + 2.0;
+    }
+
+    svg.push_str("</svg>");
+
+    fs::write(output_path, svg)
+        .with_context(|| format!("Failed to write flame graph: {}", output_path.display()))?;
+
+    Ok(())
+}
+
+// helper used by builder impl
+fn format_float(v: f64) -> String {
+    let mut s = String::new();
+    s.reserve(16);
+    let _ = write!(&mut s, "{:.2}", v);
+    s
 }
 
 pub fn compare_profiles(profile1: &ProfileData, profile2: &ProfileData) -> Vec<ComparisonResult> {

@@ -41,7 +41,7 @@ impl<'ast> Visit<'ast> for UnusedVariablesVisitor {
             let name = pat_ident.ident.to_string();
             if !name.starts_with('_') && name != "this" && name != "self" {
                 // This is a simplified check - full implementation would track usage
-                if let Some(init) = &node.init {
+                if let Some(_init) = &node.init {
                     // Check if the variable is used in the scope - simplified
                     // In production, would need proper scope tracking
                     if name.starts_with("unused") {
@@ -53,11 +53,9 @@ impl<'ast> Visit<'ast> for UnusedVariablesVisitor {
                             1,
                             0,
                         );
-                        self.diagnostics.push(
-                            diag.with_suggestion(format!(
-                                "Prefix the variable with `_` if intentionally unused"
-                            )),
-                        );
+                        self.diagnostics.push(diag.with_suggestion(
+                            "Prefix the variable with `_` if intentionally unused".to_string(),
+                        ));
                     }
                 }
             }

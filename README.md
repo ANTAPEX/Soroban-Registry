@@ -1,160 +1,188 @@
 # Soroban Registry
 
-> **A comprehensive platform for discovering, publishing, and verifying Soroban smart contracts on the Stellar network.**
+A contract registry and package manager for the Soroban smart‑contract ecosystem on Stellar.
 
-Soroban Registry is the trusted package manager and contract registry for the Stellar ecosystem, similar to npm for JavaScript or crates.io for Rust. It provides developers with a centralized platform to share, discover, and verify smart contracts.
+Soroban Registry lets developers publish, discover, and verify Soroban contracts across Stellar networks, similar to how npm and crates.io serve JavaScript and Rust communities.[cite:352]
+
+> Production: https://soroban-registry.vercel.app/
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)
 ![TypeScript](https://img.shields.io/badge/typescript-5.0%2B-blue.svg)
 
-## ✨ Features
+---
 
-- 🔍 **Contract Discovery** - Search and browse verified Soroban contracts
-- ✅ **Source Verification** - Verify contract source code matches on-chain bytecode
-- 📦 **Package Management** - Publish and manage contract versions
-- 🌐 **Multi-Network Support** - Mainnet, Testnet, and Futurenet
-- 🔐 **Publisher Profiles** - Track contract publishers and their deployments
-- 📊 **Analytics** - Contract usage statistics and metrics
-- 🎨 **Modern UI** - Beautiful, responsive web interface
-- 🛠️ **CLI Tool** - Command-line interface for developers
+## Features
 
-## 🏗️ Architecture
+- **Registry & Discovery** – Search and browse contracts by network, tags, category, and publisher.
+- **Source Verification** – Verify that on‑chain bytecode matches published source.
+- **Versioning & Changelogs** – Track versions, semver compatibility, and breaking changes.
+- **Multi‑Network Support** – Mainnet, Testnet, and Futurenet in a single registry.[cite:352]
+- **Publisher Profiles** – Attach contracts to publishers and their deployment history.
+- **Analytics** – Usage statistics and interaction metrics for contracts.
+- **Web App + CLI** – Next.js frontend for browsing; Rust CLI for developer workflows.
 
-```
+---
+
+## Project Layout
+
+```text
 soroban-registry/
-├── backend/              # Rust backend services
-│   ├── api/             # REST API server (Axum)
-│   ├── indexer/         # Blockchain indexer
-│   ├── verifier/        # Contract verification engine
-│   └── shared/          # Shared types and utilities
-├── frontend/            # Next.js web application
-├── cli/                 # Rust CLI tool
-├── database/            # PostgreSQL migrations
-└── examples/            # Example contracts
+├── backend/        # Rust backend services (Axum API, indexer, verifier)
+├── frontend/       # Next.js web application
+├── cli/            # Rust CLI tool
+├── database/       # PostgreSQL migrations
+└── examples/       # Example contracts
 ```
 
-## 🚀 Quick Start
+---
 
-### Prerequisites
+## Prerequisites
 
-- **Rust** 1.75+ ([Install](https://rustup.rs/))
-- **Node.js** 20+ ([Install](https://nodejs.org/))
-- **PostgreSQL** 16+ ([Install](https://www.postgresql.org/download/))
-- **Docker** (optional, for containerized setup)
+- **Rust** 1.75+ – https://rustup.rs/
+- **Node.js** 20+ – https://nodejs.org/
+- **PostgreSQL** 16+ – https://www.postgresql.org/download/
+- **Docker** (optional, recommended for local all‑in‑one setup)[cite:352]
 
-### Database Seeding
+---
 
-Populate your development database with realistic test data:
+## Quick Start
+
+### 1. Clone and configure
 
 ```bash
-# Seed with 50 contracts (default)
-cargo run --bin seeder -- --count=50
+git clone https://github.com/ALIPHATICHYD/Soroban-Registry.git
+cd Soroban-Registry
 
-# Seed with 100 contracts
-cargo run --bin seeder -- --count=100
-
-# Use a specific seed for reproducible data
-cargo run --bin seeder -- --count=50 --seed=12345
-
-# Use custom data file
-cargo run --bin seeder -- --count=50 --data-file=./custom-data.json
-
-# Specify database URL
-cargo run --bin seeder -- --count=50 --database-url=postgresql://user:pass@localhost/dbname
-```
-
-**Features:**
-- creates realistic contracts with names, descriptions, tags, and categories
-- generates publishers with Stellar addresses
-- creates contract versions and verification records
-- Distributes contracts across all networks (mainnet, testnet, futurenet)
-- safe to run multiple times
-- fast - creates 100 contracts in <5 seconds
-- reproducible with `--seed` flag
-
-**Custom Data Format:**
-```json
-{
-  "contract_names": ["CustomContract1", "CustomContract2"],
-  "publisher_names": ["CustomPublisher1", "CustomPublisher2"]
-}
-```
-
-### Option 1: Docker Compose (Recommended)
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/soroban-registry.git
-cd soroban-registry
-
-# Copy environment file
 cp .env.example .env
+```
 
-# Start all services
+### 2. Run everything with Docker (recommended)
+
+```bash
 docker-compose up -d
 
-# The API will be available at http://localhost:3001
-# The frontend will be available at http://localhost:3000
+# API:      http://localhost:3001
+# Frontend: http://localhost:3000
 ```
 
-### Option 2: Manual Setup
+This starts the PostgreSQL HA pair behind `pgpool`, the backend API, and the Next.js frontend with sensible defaults.[cite:352]
 
-#### 1. Database Setup
+The Docker stack now uses a primary/replica PostgreSQL pair behind `pgpool`, so the API and other database-backed services get read balancing plus automatic failover. If you want the operator runbook, see [docs/database-high-availability.md](docs/database-high-availability.md).
+
+---
+
+## Running From Source
+
+### Database
+
+The backend uses SQLx's compile-time-checked query macros (`sqlx::query!`,
+`sqlx::query_as!`, `sqlx::query_scalar!`). They require **either** a live
+database reachable at `DATABASE_URL` **or** prepared offline query data under
+`backend/.sqlx/` (`SQLX_OFFLINE=true`). Without one of these, `cargo build`
+fails with errors like *"set `DATABASE_URL` to use query macros online, or run
+`cargo sqlx prepare` to update the query cache"*.
 
 ```bash
-# Create database
+# 1. Create the database
 createdb soroban_registry
 
-# Set database URL
+# 2. Export DATABASE_URL — needed at compile time AND at runtime
 export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/soroban_registry"
+
+# 3. Install the SQLx CLI (one-time)
+cargo install sqlx-cli --version 0.8.6 --no-default-features --features rustls,postgres --locked
+
+# 4. Apply migrations so the schema matches what the query macros expect
+sqlx migrate run --source database/migrations
+
+# 5. (Optional) Verify the environment is ready to build
+./scripts/check-sqlx-env.sh
 ```
 
-#### 2. Backend Setup
+#### Building without a live database (offline mode)
+
+If your build environment cannot reach a Postgres instance (e.g. some CI
+runners, contributor laptops), generate offline query metadata once from a
+machine that can:
+
+```bash
+# From the backend workspace, with DATABASE_URL pointing at a fully
+# migrated database
+cd backend
+cargo sqlx prepare --workspace -- --all-targets
+git add .sqlx
+```
+
+Then anyone (or any CI job) can build without a database by setting:
+
+```bash
+export SQLX_OFFLINE=true
+```
+
+Re-run `cargo sqlx prepare` whenever a query macro or migration changes.
+
+### Persistent PostgreSQL
+
+The repository's `docker-compose.yml` defines named volumes for the primary and replica PostgreSQL nodes. That means each database survives container restarts and `docker-compose down`; your data is only removed if you explicitly delete the volumes.
+
+```bash
+# Start or reattach to the HA database stack
+docker-compose up -d postgres-primary postgres-replica pgpool
+
+# Apply migrations against the persistent database
+docker-compose exec postgres-primary psql -U postgres -d soroban_registry -c "SELECT 1"
+sqlx migrate run --source database/migrations
+
+# Stop services without deleting data
+docker-compose down
+
+# Remove the database data only if you want a clean slate
+docker-compose down -v
+```
+
+Use the same `DATABASE_URL` on future runs so the backend, SQLx checks, and any local tools all connect through `pgpool` to the same replicated database cluster.
+
+### Backend API
 
 ```bash
 cd backend
-
-# Install dependencies and build
 cargo build --release
-
-# Run migrations
-sqlx migrate run --source ../database/migrations
-
-# Start API server
 cargo run --bin api
 ```
 
-#### 3. Frontend Setup
+The API server will listen on the address configured in your `.env` (commonly `http://localhost:3001`).[cite:352]
+
+### Frontend
 
 ```bash
 cd frontend
-
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
+pnpm install
+pnpm dev
 ```
 
-## 📖 Usage
+Visit `http://localhost:3000` to browse the registry UI.
 
-### Web Interface
+---
 
-Visit `http://localhost:3000` to:
-- Browse and search contracts
-- View contract details and source code
-- Publish new contracts
-- Verify contract deployments
+## Installing and Using the CLI
 
-### CLI Tool
+The CLI lets you interact with the registry directly from your terminal.[cite:352]
+
+### Install from source
 
 ```bash
-# Install CLI
+# From the repo root
 cargo install --path cli
+```
 
+This installs a `soroban-registry` binary into your Cargo bin directory.
+
+### Common commands
+
+```bash
 # Search for contracts
-soroban-registry search "token"
+soroban-registry search "token" --category defi --verified-only --network testnet,futurenet
 
 # Get contract details
 soroban-registry info <contract-id>
@@ -162,145 +190,72 @@ soroban-registry info <contract-id>
 # Publish a contract
 soroban-registry publish --contract-path ./my-contract
 
-# Verify a contract
+# Verify a contract against source
 soroban-registry verify <contract-id> --source ./src
 
-# Preview a state migration (dry-run)
-soroban-registry migrate preview <old-id> <new-id>
+# View registry analytics for contracts
+soroban-registry contract stats --network testnet --top-n 5 --format table
 
-# Analyze schema differences
-soroban-registry migrate analyze <old-id> <new-id>
-
-# Generate migration template (Rust or JS)
-soroban-registry migrate generate <old-id> <new-id> --language rust
-soroban-registry migrate generate <old-id> <new-id> --language js
-
-# Validate, apply, rollback, and audit history
-soroban-registry migrate validate <old-id> <new-id>
-soroban-registry migrate apply <old-id> <new-id>
-soroban-registry migrate rollback <migration-id>
-soroban-registry migrate history --limit 20
+# Export contract registry data for backup or migration
+soroban-registry contract export contracts.jsonl --format jsonl --network testnet --compress
 ```
 
-Migration commands read snapshots from `.soroban-registry/contracts/<contract-id>.json`
-and record all migration activity to `.soroban-registry/migration_history.jsonl`.
-
-## 🔧 API Endpoints
-
-### Contracts
-
-- `GET /api/contracts` - List and search contracts
-- `GET /api/contracts/:id` - Get contract details
-- `POST /api/contracts` - Publish a new contract
-- `GET /api/contracts/:id/versions` - Get contract versions
-- `POST /api/contracts/verify` - Verify contract source
-
-### Publishers
-
-- `GET /api/publishers/:id` - Get publisher details
-- `GET /api/publishers/:id/contracts` - Get publisher's contracts
-- `POST /api/publishers` - Create publisher profile
-
-### Statistics
-
-- `GET /api/stats` - Get registry statistics
-- `GET /health` - Health check
-
-## 🗄️ Database Schema
-
-The registry uses PostgreSQL with the following main tables:
-
-- `contracts` - Contract metadata and deployment info
-- `contract_versions` - Version history
-- `verifications` - Verification records
-- `publishers` - Publisher accounts
-- `contract_interactions` - Usage statistics
-
-See [`database/migrations/001_initial.sql`](database/migrations/001_initial.sql) for the complete schema.
-
-## 🛠️ Development
-
-### Running Tests
-
-```bash
-# Backend tests
-cd backend
-cargo test --all
-
-# Frontend tests
-cd frontend
-npm test
-```
-
-### Code Formatting
-
-```bash
-# Rust
-cargo fmt --all
-
-# TypeScript
-npm run lint
-```
-
-## 🌟 Example Contract
-
-Here's how to publish a simple contract:
-
-```rust
-// examples/hello-world/src/lib.rs
-#![no_std]
-use soroban_sdk::{contract, contractimpl, symbol_short, Env, Symbol};
-
-#[contract]
-pub struct HelloContract;
-
-#[contractimpl]
-impl HelloContract {
-    pub fn hello(env: Env, to: Symbol) -> Symbol {
-        symbol_short!("Hello")
-    }
-}
-```
-
-```bash
-# Build the contract
-cd examples/hello-world
-soroban contract build
-
-# Publish to registry
-soroban-registry publish \
-  --name "Hello World" \
-  --description "A simple greeting contract" \
-  --category "examples" \
-  --network testnet
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- Built with [Soroban SDK](https://github.com/stellar/rs-soroban-sdk)
-- Inspired by [Hintents](https://github.com/dotandev/hintents) debugging tool
-- Powered by the Stellar ecosystem
-
-## 📞 Support
-
-- **Documentation**: [Coming soon]
-- **Issues**: [GitHub Issues](https://github.com/yourusername/soroban-registry/issues)
-- **Discord**: [Stellar Discord](https://discord.gg/stellar)
+Configuration is stored at `~/.soroban-registry/config.toml`. A legacy `~/.soroban-registry.toml` file is migrated automatically if present.[cite:352]
 
 ---
 
-**Built with ❤️ for the Stellar ecosystem**
+## API Overview
+
+The backend exposes a REST API suitable for integration with dashboards, bots, and CI:
+
+- `GET /api/contracts` – List and search contracts
+- `GET /api/contracts/:id` – Contract details
+- `POST /api/contracts` – Publish a new contract
+- `GET /api/contracts/:id/versions` – Version history
+- `GET /api/contracts/:id/changelog` – Changelog with breaking‑change markers
+- `GET /api/publishers/:id` – Publisher details
+- `GET /api/publishers/:id/contracts` – Contracts by publisher
+- `GET /api/stats` – Registry‑level stats
+- `GET /health` – Health check endpoint[cite:352]
+
+See the OpenAPI spec (coming soon) or the `backend/api` handlers for full details.
+
+---
+
+## Contributing
+
+Contributions from the Stellar/Soroban community are welcome.
+
+1. **Fork** the repository.
+2. **Create a branch**: `git checkout -b feature/short-description`
+3. **Make changes** and add tests where appropriate.
+4. **Run checks**:
+   ```bash
+   # Rust
+   cargo fmt --all
+   cargo test --all
+
+   # TypeScript
+   cd frontend
+   pnpm lint
+   pnpm test
+   ```
+5. **Commit**: `git commit -m "feat: add <short description>"`
+6. **Push and open a PR** against `main`.
+
+Bug reports and feature requests can be filed as GitHub Issues:
+https://github.com/ALIPHATICHYD/Soroban-Registry/issues
+
+---
+
+## Community & Support
+
+- Soroban SDK – https://github.com/stellar/rs-soroban-sdk
+- Stellar Docs – https://developers.stellar.org/
+- Stellar Community Discord – https://discord.gg/stellar[cite:352]
+
+---
+
+## License
+
+Soroban Registry is licensed under the MIT License. See [LICENSE](LICENSE) for details.[cite:352]

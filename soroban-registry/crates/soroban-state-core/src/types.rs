@@ -12,15 +12,15 @@ pub enum DecodedValue {
     Uint64(u64),
     Int128(i128),
     Uint128(u128),
-    Bytes(String),        // hex-encoded
+    Bytes(String), // hex-encoded
     String(String),
     Symbol(String),
-    Address(String),      // Stellar strkey format
+    Address(String), // Stellar strkey format
     Map(Vec<(Box<DecodedValue>, Box<DecodedValue>)>),
     Vec(Vec<DecodedValue>),
     Void,
     Error(String),
-    Unknown(String),      // fallback with raw XDR hex
+    Unknown(String), // fallback with raw XDR hex
 }
 
 impl std::fmt::Display for DecodedValue {
@@ -139,13 +139,16 @@ pub struct ContractEvent {
 #[derive(Debug, Deserialize)]
 pub struct LedgerEntriesResponse {
     pub ledger_entries: Option<Vec<LedgerEntry>>,
-    pub latestLedger: u32,
-    pub latestLedgerCloseTime: u64,
+    #[serde(rename = "latestLedger")]
+    pub latest_ledger: u32,
+    #[serde(rename = "latestLedgerCloseTime")]
+    pub latest_ledger_close_time: u64,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct LedgerEntry {
     pub key: String,
     pub xdr: String,
-    pub lastModifiedLedgerSeq: u32,
+    #[serde(rename = "lastModifiedLedgerSeq")]
+    pub last_modified_ledger_seq: u32,
 }

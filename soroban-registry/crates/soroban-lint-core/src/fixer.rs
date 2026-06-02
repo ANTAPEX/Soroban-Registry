@@ -1,7 +1,7 @@
+use crate::diagnostic::Diagnostic;
+use anyhow::Result;
 use std::fs;
 use std::path::Path;
-use anyhow::Result;
-use crate::diagnostic::Diagnostic;
 
 /// Auto-fixer for applying fixes from diagnostics
 pub struct AutoFixer;
@@ -10,7 +10,7 @@ impl AutoFixer {
     /// Apply fixes from diagnostics to files
     pub fn apply_fixes(diagnostics: &[Diagnostic]) -> Result<usize> {
         let mut files_modified = 0;
-        let mut file_fixes: std::collections::HashMap<String, Vec<&Diagnostic>> = 
+        let mut file_fixes: std::collections::HashMap<String, Vec<&Diagnostic>> =
             std::collections::HashMap::new();
 
         // Group diagnostics by file
@@ -18,7 +18,7 @@ impl AutoFixer {
             if diag.fix.is_some() {
                 file_fixes
                     .entry(diag.span.file.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(diag);
             }
         }
@@ -26,7 +26,7 @@ impl AutoFixer {
         // Apply fixes per file
         for (file_path, fixes) in file_fixes {
             if Path::new(&file_path).exists() {
-                let mut content = fs::read_to_string(&file_path)?;
+                let content = fs::read_to_string(&file_path)?;
                 let mut applied = 0;
 
                 // Apply fixes in reverse order to maintain line numbers

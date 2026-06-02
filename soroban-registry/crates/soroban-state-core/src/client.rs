@@ -103,15 +103,9 @@ impl StellarRpcClient {
     }
 
     /// Simulate a contract function call
-    pub async fn simulate_transaction(
-        &self,
-        tx_envelope: &str,
-    ) -> Result<serde_json::Value> {
-        self.jsonrpc_call(
-            "simulateTransaction",
-            json!({ "transaction": tx_envelope }),
-        )
-        .await
+    pub async fn simulate_transaction(&self, tx_envelope: &str) -> Result<serde_json::Value> {
+        self.jsonrpc_call("simulateTransaction", json!({ "transaction": tx_envelope }))
+            .await
     }
 
     /// Internal JSON-RPC 2.0 call with retry logic
@@ -151,7 +145,7 @@ impl StellarRpcClient {
                         .cloned()
                         .ok_or_else(|| anyhow!("No result in RPC response"));
                 }
-                Err(e) if retries < max_retries => {
+                Err(_e) if retries < max_retries => {
                     retries += 1;
                     let backoff = Duration::from_millis(100 * 2_u64.pow(retries - 1));
                     tokio::time::sleep(backoff).await;

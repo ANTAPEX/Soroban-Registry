@@ -1,3 +1,4 @@
+use crate::validation::extractors::ValidatedJson;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -16,7 +17,7 @@ use crate::state::AppState;
 /// Create a new migration
 pub async fn create_migration(
     State(state): State<AppState>,
-    Json(payload): Json<CreateMigrationRequest>,
+    ValidatedJson(payload): ValidatedJson<CreateMigrationRequest>,
 ) -> Result<Json<Migration>, ApiError> {
     let migration: Migration = sqlx::query_as(
         "INSERT INTO migrations (contract_id, wasm_hash, status)
@@ -36,7 +37,7 @@ pub async fn create_migration(
 pub async fn update_migration(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-    Json(payload): Json<UpdateMigrationStatusRequest>,
+    ValidatedJson(payload): ValidatedJson<UpdateMigrationStatusRequest>,
 ) -> Result<Json<Migration>, ApiError> {
     let migration: Migration = sqlx::query_as(
         "UPDATE migrations

@@ -1,17 +1,16 @@
 /// RPC client for polling Stellar network ledgers
 /// Handles HTTP requests to Stellar RPC endpoints and deserializes ledger/operation data
-
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use thiserror::Error;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, instrument, warn};
 
 #[derive(Error, Debug)]
 pub enum RpcError {
     #[error("HTTP request failed: {0}")]
     RequestFailed(String),
     #[error("RPC returned error: {0}")]
-    RpcError(String),
+    Remote(String),
     #[error("Invalid response format: {0}")]
     InvalidResponse(String),
     #[error("Network timeout")]
@@ -55,6 +54,7 @@ pub struct ContractDeployment {
     pub op_id: String,
     pub tx_id: String,
     pub ledger_sequence: u64,
+    pub deployed_at: String,
 }
 
 /// RPC response for ledgers
@@ -77,6 +77,29 @@ struct LedgerResponse {
 #[derive(Debug, Clone, Deserialize)]
 struct OperationsResponse {
     records: Vec<OperationRecord>,
+}
+
+/// Typed response structures for the latest-ledger endpoint.
+/// Using concrete types (instead of serde_json::Value) avoids retaining the
+/// entire JSON tree in memory while only a handful of fields are needed.
+#[derive(Debug, Deserialize)]
+struct LatestLedgerResponse {
+    #[serde(rename = "_embedded")]
+    embedded: LatestLedgerEmbedded,
+}
+
+#[derive(Debug, Deserialize)]
+struct LatestLedgerEmbedded {
+    records: Vec<LedgerSummary>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LedgerSummary {
+    sequence: u64,
+    id: Option<String>,
+    hash: String,
+    prev_hash: Option<String>,
+    closed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -105,14 +128,19 @@ impl StellarRpcClient {
     }
 
     /// Fetch ledger by sequence number
+    #[instrument(skip(self), fields(rpc.endpoint = %self.endpoint, ledger.sequence = sequence))]
     pub async fn get_ledger(&self, sequence: u64) -> Result<Ledger, RpcError> {
         let url = format!("{}/ledgers/{}", self.endpoint, sequence);
         debug!("Fetching ledger from {}", url);
+
+        let mut headers = reqwest::header::HeaderMap::new();
+        crate::telemetry::inject_current_trace_context(&mut headers);
 
         let response = self
             .client
             .get(&url)
             .timeout(self.request_timeout)
+            .headers(headers)
             .send()
             .await
             .map_err(|e| {
@@ -124,7 +152,7 @@ impl StellarRpcClient {
             })?;
 
         if !response.status().is_success() {
-            return Err(RpcError::RpcError(format!(
+            return Err(RpcError::Remote(format!(
                 "HTTP {}: {}",
                 response.status(),
                 response.text().await.unwrap_or_default()
@@ -145,6 +173,7 @@ impl StellarRpcClient {
     }
 
     /// Fetch operations for a ledger
+    #[instrument(skip(self), fields(rpc.endpoint = %self.endpoint, ledger.sequence = sequence))]
     pub async fn get_ledger_operations(&self, sequence: u64) -> Result<Vec<Operation>, RpcError> {
         let url = format!(
             "{}/ledgers/{}/operations?order=asc&limit=200",
@@ -152,10 +181,14 @@ impl StellarRpcClient {
         );
         debug!("Fetching operations for ledger {} from {}", sequence, url);
 
+        let mut headers = reqwest::header::HeaderMap::new();
+        crate::telemetry::inject_current_trace_context(&mut headers);
+
         let response = self
             .client
             .get(&url)
             .timeout(self.request_timeout)
+            .headers(headers)
             .send()
             .await
             .map_err(|e| {
@@ -167,7 +200,7 @@ impl StellarRpcClient {
             })?;
 
         if !response.status().is_success() {
-            return Err(RpcError::RpcError(format!(
+            return Err(RpcError::Remote(format!(
                 "HTTP {}: {}",
                 response.status(),
                 response.text().await.unwrap_or_default()
@@ -192,14 +225,19 @@ impl StellarRpcClient {
     }
 
     /// Get the latest ledger
+    #[instrument(skip(self), fields(rpc.endpoint = %self.endpoint))]
     pub async fn get_latest_ledger(&self) -> Result<Ledger, RpcError> {
         let url = format!("{}/ledgers?order=desc&limit=1", self.endpoint);
         debug!("Fetching latest ledger from {}", url);
+
+        let mut headers = reqwest::header::HeaderMap::new();
+        crate::telemetry::inject_current_trace_context(&mut headers);
 
         let response = self
             .client
             .get(&url)
             .timeout(self.request_timeout)
+            .headers(headers)
             .send()
             .await
             .map_err(|e| {
@@ -211,80 +249,31 @@ impl StellarRpcClient {
             })?;
 
         if !response.status().is_success() {
-            return Err(RpcError::RpcError(format!(
+            return Err(RpcError::Remote(format!(
                 "HTTP {}: {}",
                 response.status(),
                 response.text().await.unwrap_or_default()
             )));
         }
 
-        // Parse the response - it returns an array
-        let response_text = response.text().await.map_err(|e| {
-            RpcError::InvalidResponse(format!("Failed to read response: {}", e))
+        // Deserialize directly into typed structs — avoids holding the full
+        // serde_json::Value tree in memory while extracting a handful of fields.
+        let data: LatestLedgerResponse = response.json().await.map_err(|e| {
+            error!("Invalid JSON in latest-ledger response: {}", e);
+            RpcError::InvalidResponse(format!("Failed to parse latest ledger response: {}", e))
         })?;
 
-        let data: serde_json::Value = serde_json::from_str(&response_text)
-            .map_err(|e| {
-                error!("Invalid JSON in ledger response: {}", e);
-                RpcError::InvalidResponse(format!("Invalid JSON: {}", e))
-            })?;
-
-        // Extract first ledger from _embedded records
-        let ledgers = data
-            .get("_embedded")
-            .and_then(|e| e.get("records"))
-            .and_then(|r| r.as_array())
-            .ok_or_else(|| {
-                error!("No records found in latest ledger response");
-                RpcError::InvalidResponse("No records in response".to_string())
-            })?;
-
-        let ledger = ledgers.first().ok_or_else(|| {
+        let ledger = data.embedded.records.into_iter().next().ok_or_else(|| {
             error!("Empty records array in latest ledger response");
             RpcError::InvalidResponse("Empty records array".to_string())
         })?;
 
-        let sequence = ledger
-            .get("sequence")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| {
-                error!("Missing or invalid sequence in ledger: {:?}", ledger);
-                RpcError::InvalidResponse("Missing sequence".to_string())
-            })?;
-
-        let hash = ledger
-            .get("hash")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .ok_or_else(|| {
-                error!("Missing hash in ledger");
-                RpcError::InvalidResponse("Missing hash".to_string())
-            })?;
-
-        let prev_hash = ledger
-            .get("prev_hash")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-
-        let id = ledger
-            .get("id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| hash.clone());
-
-        let timestamp = ledger
-            .get("closed_at")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-
         Ok(Ledger {
-            sequence,
-            id,
-            hash,
-            prev_hash,
-            timestamp,
+            sequence: ledger.sequence,
+            id: ledger.id.unwrap_or_else(|| ledger.hash.clone()),
+            hash: ledger.hash.clone(),
+            prev_hash: ledger.prev_hash.unwrap_or_default(),
+            timestamp: ledger.closed_at.unwrap_or_default(),
         })
     }
 
@@ -311,7 +300,7 @@ impl StellarRpcClient {
         if response.status().is_success() {
             Ok(())
         } else {
-            Err(RpcError::RpcError(format!(
+            Err(RpcError::Remote(format!(
                 "Health check failed with status {}",
                 response.status()
             )))

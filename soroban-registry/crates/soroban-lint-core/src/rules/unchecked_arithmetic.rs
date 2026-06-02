@@ -38,7 +38,10 @@ impl<'ast> Visit<'ast> for UncheckedArithmeticVisitor {
     fn visit_expr(&mut self, node: &'ast syn::Expr) {
         if let syn::Expr::Binary(bin_expr) = node {
             match bin_expr.op {
-                syn::BinOp::Add(_) | syn::BinOp::Sub(_) | syn::BinOp::Mul(_) | syn::BinOp::Div(_) => {
+                syn::BinOp::Add(_)
+                | syn::BinOp::Sub(_)
+                | syn::BinOp::Mul(_)
+                | syn::BinOp::Div(_) => {
                     let code_str = quote::quote!(#node).to_string();
                     // Only flag if not using checked variant
                     if !code_str.contains("checked_") && !code_str.contains("saturating_") {
@@ -50,7 +53,9 @@ impl<'ast> Visit<'ast> for UncheckedArithmeticVisitor {
                             1,
                             0,
                         )
-                        .with_suggestion("Use checked_add, checked_sub, checked_mul, or saturating_* variants");
+                        .with_suggestion(
+                            "Use checked_add, checked_sub, checked_mul, or saturating_* variants",
+                        );
 
                         self.diagnostics.push(diag);
                     }

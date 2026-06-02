@@ -4,6 +4,8 @@ members = [
     "crates/soroban-lint-cli",
     "crates/soroban-state-core",
     "crates/soroban-load-balancer",
+    "crates/soroban-batch",
+    "crates/soroban-security-patch",
 ]
 resolver = "2"
 
@@ -33,3 +35,10 @@ dashmap = "6"
 arc-swap = "1"
 parking_lot = "0.12"
 rand = "0.8"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

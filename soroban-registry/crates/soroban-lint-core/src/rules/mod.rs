@@ -40,7 +40,7 @@ pub trait LintRule: Send + Sync {
 
 /// Trait to visit AST nodes - helper for rule implementation
 pub trait AstVisitor {
-    fn visit_item_fn(&mut self, node: &syn::ItemFn) {}
-    fn visit_expr(&mut self, node: &syn::Expr) {}
-    fn visit_local(&mut self, node: &syn::Local) {}
+    fn visit_item_fn(&mut self, _node: &syn::ItemFn) {}
+    fn visit_expr(&mut self, _node: &syn::Expr) {}
+    fn visit_local(&mut self, _node: &syn::Local) {}
 }

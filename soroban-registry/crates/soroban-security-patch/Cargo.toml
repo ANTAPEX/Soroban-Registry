@@ -1,0 +1,29 @@
+[package]
+name = "soroban-security-patch"
+version = "0.1.0"
+edition = "2021"
+description = "Framework for distributing and applying security patches to Soroban contracts"
+
+[dependencies]
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Time handling
+chrono = { workspace = true }
+
+# Hashing for patch integrity
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+# Colored CLI output
+colored = { workspace = true }
+
+# UUID generation for patch IDs
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]

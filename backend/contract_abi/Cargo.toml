@@ -1,0 +1,16 @@
+[package]
+name = "contract_abi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Parse Soroban contract ABI and generate OpenAPI 3.0 specs"
+
+[lib]
+name = "contract_abi"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"

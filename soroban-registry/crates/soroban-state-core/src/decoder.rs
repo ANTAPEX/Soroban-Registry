@@ -101,23 +101,19 @@ pub fn decode_scval_native(scval: &ScVal) -> Result<DecodedValue> {
 fn format_address(addr: &stellar_xdr::curr::ScAddress) -> StdString {
     use stellar_xdr::curr::ScAddress::*;
     match addr {
-        Account(a) => {
-            match &a.0 {
-                stellar_xdr::curr::PublicKey::PublicKeyTypeEd25519(key) => {
-                    format!("Account({})", hex::encode(key.0))
-                }
+        Account(a) => match &a.0 {
+            stellar_xdr::curr::PublicKey::PublicKeyTypeEd25519(key) => {
+                format!("Account({})", hex::encode(key.0))
             }
-        }
+        },
         // FIX: clone() the inner Hash value since it does not implement Copy
         Contract(c) => format!("Contract({})", hex::encode(c.0.clone())),
         MuxedAccount(m) => format!("MuxedAccount({})", hex::encode(m.ed25519.0)),
-        ClaimableBalance(b) => {
-            match b {
-                stellar_xdr::curr::ClaimableBalanceId::ClaimableBalanceIdTypeV0(hash) => {
-                    format!("ClaimableBalance({})", hex::encode(hash.0))
-                }
+        ClaimableBalance(b) => match b {
+            stellar_xdr::curr::ClaimableBalanceId::ClaimableBalanceIdTypeV0(hash) => {
+                format!("ClaimableBalance({})", hex::encode(hash.0))
             }
-        }
+        },
         // FIX: clone() the inner Hash value since it does not implement Copy
         LiquidityPool(p) => format!("LiquidityPool({})", hex::encode(p.0.clone())),
     }
@@ -169,10 +165,7 @@ mod tests {
 
     #[test]
     fn test_format_decoded_vec() {
-        let val = DecodedValue::Vec(vec![
-            DecodedValue::Uint32(1),
-            DecodedValue::Uint32(2),
-        ]);
+        let val = DecodedValue::Vec(vec![DecodedValue::Uint32(1), DecodedValue::Uint32(2)]);
         let formatted = format_decoded(&val, 0);
         assert!(formatted.contains("["));
         assert!(formatted.contains("]"));

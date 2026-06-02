@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Configuration for soroban-lint
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,14 +55,14 @@ impl LintConfig {
 
     /// Get the minimum severity level from config
     pub fn min_severity(&self) -> Severity {
-        Severity::from_str(&self.lint.level).unwrap_or(Severity::Warning)
+        Severity::parse(&self.lint.level).unwrap_or(Severity::Warning)
     }
 
     /// Get rule-specific severity override
     pub fn rule_severity(&self, rule_id: &str) -> Option<Severity> {
-        self.rules.as_ref().and_then(|rules| {
-            rules.get(rule_id).and_then(|s| Severity::from_str(s))
-        })
+        self.rules
+            .as_ref()
+            .and_then(|rules| rules.get(rule_id).and_then(|s| Severity::parse(s)))
     }
 
     /// Check if a path should be ignored
@@ -70,8 +70,7 @@ impl LintConfig {
         if let Some(ignore) = &self.ignore {
             if let Some(paths) = &ignore.paths {
                 return paths.iter().any(|p| {
-                    path.contains(p.replace("\\", "/").as_str())
-                        || path.contains(p.as_str())
+                    path.contains(p.replace("\\", "/").as_str()) || path.contains(p.as_str())
                 });
             }
         }
@@ -109,18 +108,20 @@ mod tests {
 
     #[test]
     fn test_severity_from_str() {
-        assert_eq!(Severity::from_str("error"), Some(Severity::Error));
-        assert_eq!(Severity::from_str("warning"), Some(Severity::Warning));
-        assert_eq!(Severity::from_str("info"), Some(Severity::Info));
-        assert_eq!(Severity::from_str("invalid"), None);
+        assert_eq!(Severity::parse("error"), Some(Severity::Error));
+        assert_eq!(Severity::parse("warning"), Some(Severity::Warning));
+        assert_eq!(Severity::parse("info"), Some(Severity::Info));
+        assert_eq!(Severity::parse("invalid"), None);
     }
 
     #[test]
     fn test_ignore_paths() {
-        let mut config = LintConfig::default();
-        config.ignore = Some(IgnoreOptions {
-            paths: Some(vec!["tests/".to_string(), "examples/".to_string()]),
-        });
+        let config = LintConfig {
+            ignore: Some(IgnoreOptions {
+                paths: Some(vec!["tests/".to_string(), "examples/".to_string()]),
+            }),
+            ..LintConfig::default()
+        };
         assert!(config.should_ignore("tests/file.rs"));
         assert!(config.should_ignore("examples/demo.rs"));
         assert!(!config.should_ignore("src/main.rs"));

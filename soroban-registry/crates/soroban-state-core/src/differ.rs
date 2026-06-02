@@ -66,7 +66,10 @@ impl StateDiffer {
             "Contract State Diff: {}\n",
             &diff.contract_id[..std::cmp::min(12, diff.contract_id.len())]
         ));
-        output.push_str(&format!("Ledger {} → {}\n", diff.from_ledger, diff.to_ledger));
+        output.push_str(&format!(
+            "Ledger {} → {}\n",
+            diff.from_ledger, diff.to_ledger
+        ));
         output.push_str("────────────────────────────────────────────────────────────\n\n");
 
         // Added entries

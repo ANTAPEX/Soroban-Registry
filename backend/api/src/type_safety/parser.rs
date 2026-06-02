@@ -86,6 +86,7 @@ impl ParseError {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_context(mut self, context: impl Into<String>) -> Self {
         self.context = Some(context.into());
         self
@@ -126,7 +127,7 @@ pub fn parse_contract_abi(
                 // Error enums are also types
                 let enum_type = parse_error_enum(spec)?;
                 abi.types.insert(spec.name.clone(), enum_type.clone());
-                
+
                 // Also add to errors list
                 if let SorobanType::Enum { variants, .. } = enum_type {
                     for variant in variants {
@@ -319,45 +320,42 @@ fn parse_type_value(value: &RawTypeValue) -> SorobanType {
 pub fn parse_json_spec(json: &str, contract_name: &str) -> Result<ContractABI, ParseError> {
     let specs: Vec<RawContractSpec> = serde_json::from_str(json)
         .map_err(|e| ParseError::new(format!("Failed to parse JSON: {}", e)))?;
-    
+
     parse_contract_abi(&specs, contract_name)
 }
 
 /// Parse value string into ParsedValue based on expected type
-pub fn parse_value_string(value: &str, expected_type: &SorobanType) -> Result<ParsedValue, ParseError> {
+#[allow(dead_code)]
+pub fn parse_value_string(
+    value: &str,
+    expected_type: &SorobanType,
+) -> Result<ParsedValue, ParseError> {
     let trimmed = value.trim();
 
     match expected_type {
-        SorobanType::Bool => {
-            match trimmed.to_lowercase().as_str() {
-                "true" | "1" => Ok(ParsedValue::Bool(true)),
-                "false" | "0" => Ok(ParsedValue::Bool(false)),
-                _ => Err(ParseError::new(format!(
-                    "Invalid boolean value: '{}'. Expected 'true' or 'false'",
-                    trimmed
-                ))),
-            }
-        }
-        SorobanType::I32 | SorobanType::I64 | SorobanType::I128 | SorobanType::I256 => {
-            trimmed
-                .parse::<i128>()
-                .map(ParsedValue::Integer)
-                .map_err(|_| ParseError::new(format!("Invalid integer value: '{}'", trimmed)))
-        }
-        SorobanType::U32 | SorobanType::U64 | SorobanType::U128 | SorobanType::U256 => {
-            trimmed
-                .parse::<u128>()
-                .map(ParsedValue::UnsignedInteger)
-                .map_err(|_| ParseError::new(format!(
-                    "Invalid unsigned integer value: '{}'",
-                    trimmed
-                )))
-        }
+        SorobanType::Bool => match trimmed.to_lowercase().as_str() {
+            "true" | "1" => Ok(ParsedValue::Bool(true)),
+            "false" | "0" => Ok(ParsedValue::Bool(false)),
+            _ => Err(ParseError::new(format!(
+                "Invalid boolean value: '{}'. Expected 'true' or 'false'",
+                trimmed
+            ))),
+        },
+        SorobanType::I32 | SorobanType::I64 | SorobanType::I128 | SorobanType::I256 => trimmed
+            .parse::<i128>()
+            .map(ParsedValue::Integer)
+            .map_err(|_| ParseError::new(format!("Invalid integer value: '{}'", trimmed))),
+        SorobanType::U32 | SorobanType::U64 | SorobanType::U128 | SorobanType::U256 => trimmed
+            .parse::<u128>()
+            .map(ParsedValue::UnsignedInteger)
+            .map_err(|_| ParseError::new(format!("Invalid unsigned integer value: '{}'", trimmed))),
         SorobanType::String => Ok(ParsedValue::String(trimmed.to_string())),
         SorobanType::Symbol => {
             // Symbols have restrictions: alphanumeric and underscore, max 32 chars
             if trimmed.len() > 32 {
-                return Err(ParseError::new("Symbol exceeds maximum length of 32 characters"));
+                return Err(ParseError::new(
+                    "Symbol exceeds maximum length of 32 characters",
+                ));
             }
             if !trimmed.chars().all(|c| c.is_alphanumeric() || c == '_') {
                 return Err(ParseError::new(
@@ -369,9 +367,7 @@ pub fn parse_value_string(value: &str, expected_type: &SorobanType) -> Result<Pa
         SorobanType::Address => {
             // Validate Stellar address format (starts with G or C, 56 chars)
             if trimmed.len() != 56 {
-                return Err(ParseError::new(
-                    "Address must be exactly 56 characters",
-                ));
+                return Err(ParseError::new("Address must be exactly 56 characters"));
             }
             if !trimmed.starts_with('G') && !trimmed.starts_with('C') {
                 return Err(ParseError::new(
@@ -397,8 +393,8 @@ pub fn parse_value_string(value: &str, expected_type: &SorobanType) -> Result<Pa
             } else {
                 hex::decode(trimmed)
             };
-            let bytes = bytes
-                .map_err(|_| ParseError::new(format!("Invalid hex bytes: '{}'", trimmed)))?;
+            let bytes =
+                bytes.map_err(|_| ParseError::new(format!("Invalid hex bytes: '{}'", trimmed)))?;
             if bytes.len() != *n as usize {
                 return Err(ParseError::new(format!(
                     "Expected {} bytes, got {}",

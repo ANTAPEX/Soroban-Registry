@@ -1,3 +1,31 @@
+#[cfg(feature = "openapi")]
+use crate::openapi;
+use crate::{
+    ab_test_handlers, abi_versioning_handlers,
+    ai::handlers as ai_handlers,
+    analytics_handlers, archival, auth, auth_handlers, batch_verify_handlers, breaking_changes,
+    bulk_operations_handlers, canary_handlers, category_handlers, client_observability_handlers,
+    clone_federation_handlers, collaborative_reviews, compatibility_testing_handlers,
+    contract_events, contract_stats_handlers, contributor_handlers, custom_metrics_handlers,
+    db_pool, dependency_handlers, deprecated_contracts_handlers, deprecation_handlers,
+    elasticsearch_handlers, error_logging, feature_flags, formal_verification_handlers,
+    formal_verification_integration, gas_estimation_handlers, governance_handlers,
+    graph_analysis_handlers, handlers, integrity, interoperability_handlers,
+    marketplace::{
+        license_handlers as mp_license, metering as mp_metering, pricing_handlers as mp_pricing,
+        stripe_handlers as mp_stripe, usdc_handlers as mp_usdc,
+    },
+    metrics_handler, migration_handlers, mutation_testing_handlers, org_handlers,
+    partition_manager, patch_handlers, performance_handlers, plugin_marketplace_handlers,
+    publisher_verification_handlers, query_analysis, query_monitor, recommendation_handlers,
+    report_handlers, resource_handlers, search_postgres, security_scan_handlers,
+    signature_verification, similarity_handlers, simulation_handlers,
+    state::AppState,
+    state_monitor::handlers as state_monitor_handlers,
+    stats, subscription_handlers, v1_contract_handlers, v1_search_handlers, v1_similar_handlers,
+    v1_trending_handlers, verification_handlers, websocket, zk_proof_handlers,
+};
+
 use axum::{
     middleware,
     routing::{get, post},
@@ -13,8 +41,48 @@ use crate::{
     webhooks,
 };
 
-pub fn observability_routes() -> Router<AppState> {
-    Router::new().route("/metrics", get(metrics_handler::metrics_endpoint))
+// ── Issue #888: contract signature verification system ───────────────────────
+
+pub fn signature_verification_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/api/signatures/keys",
+            post(signature_verification::register_key),
+        )
+        .route(
+            "/api/signatures/keys/:key_id",
+            get(signature_verification::get_key),
+        )
+        .route(
+            "/api/signatures/keys/:key_id/rotate",
+            post(signature_verification::rotate_key),
+        )
+        .route(
+            "/api/signatures/keys/:key_id/revoke",
+            post(signature_verification::revoke_key),
+        )
+        .route(
+            "/api/signatures/keys/:key_id/verify-chain",
+            post(signature_verification::verify_chain),
+        )
+        .route(
+            "/api/signatures/revocations",
+            get(signature_verification::list_revocations),
+        )
+        .route(
+            "/api/signatures",
+            post(signature_verification::store_signature),
+        )
+        .route(
+            "/api/signatures/verify",
+            post(signature_verification::verify),
+        )
+        .route(
+            "/api/contracts/:id/signatures",
+            get(signature_verification::list_contract_signatures),
+        )
+        // Application-side query logging & analysis (issue #887)
+        .merge(query_analysis_routes())
 }
 
 pub fn health_routes() -> Router<AppState> {
@@ -140,8 +208,77 @@ fn webhook_routes() -> Router<AppState> {
         .route("/webhooks/:id", get(webhooks::get_webhook))
 }
 
-pub fn migration_routes() -> Router<AppState> {
+pub fn plugin_routes() -> Router<AppState> {
     Router::new()
+        .route(
+            "/api/plugins/marketplace",
+            get(plugin_marketplace_handlers::get_marketplace),
+        )
+        .route(
+            "/api/plugins/:name/:version",
+            get(plugin_marketplace_handlers::get_plugin_manifest),
+        )
+}
+
+/// Marketplace Phase 1 — paid contract pricing + Ed25519 license issuance,
+/// validation, revocation, and usage metering. Payment-provider integration
+/// (Stripe, USDC) lives in later phases and will hang off the same routes.
+pub fn marketplace_routes() -> Router<AppState> {
+    Router::new()
+        // Pricing plans per contract
+        .route(
+            "/api/contracts/:contract_id/pricing-plans",
+            get(mp_pricing::list_plans).post(mp_pricing::create_plan),
+        )
+        .route(
+            "/api/contracts/:contract_id/pricing-plans/:plan_id",
+            patch(mp_pricing::update_plan),
+        )
+        // License issuance + lifecycle
+        .route(
+            "/api/contracts/:contract_id/licenses",
+            post(mp_license::issue_license),
+        )
+        .route(
+            "/api/marketplace/licenses",
+            get(mp_license::list_my_licenses),
+        )
+        .route(
+            "/api/marketplace/licenses/validate",
+            post(mp_license::validate_license),
+        )
+        .route(
+            "/api/marketplace/licenses/:jti/revoke",
+            post(mp_license::revoke_license),
+        )
+        .route(
+            "/api/marketplace/license-pubkey",
+            get(mp_license::license_pubkey),
+        )
+        // Usage metering
+        .route(
+            "/api/marketplace/licenses/:jti/usage",
+            get(mp_metering::get_usage).post(mp_metering::record_usage),
+        )
+        // Phase 2 — Stripe checkout + webhook (idempotent by event id)
+        .route(
+            "/api/contracts/:contract_id/checkout",
+            post(mp_stripe::create_checkout),
+        )
+        .route("/api/marketplace/stripe/webhook", post(mp_stripe::webhook))
+        // Phase 3 — USDC on Stellar: payment intents + confirm
+        .route(
+            "/api/contracts/:contract_id/usdc-intents",
+            post(mp_usdc::create_intent),
+        )
+        .route(
+            "/api/marketplace/usdc/confirm",
+            post(mp_usdc::confirm_intent),
+        )
+        .route(
+            "/api/marketplace/usdc-payments/:payment_id",
+            get(mp_usdc::get_intent),
+        )
 }
 
 pub fn canary_routes() -> Router<AppState> {

@@ -43,17 +43,17 @@ impl StateInspector {
 
         let response = self.client.get_ledger_entries(vec![key], ledger).await?;
 
-        let current_ledger = response.latestLedger;
-        let timestamp = format_timestamp(response.latestLedgerCloseTime);
+        let current_ledger = response.latest_ledger;
+        let timestamp = format_timestamp(response.latest_ledger_close_time);
 
         let mut entries = Vec::new();
 
         if let Some(ledger_entries) = response.ledger_entries {
             for entry in ledger_entries {
-                let decoded_key = decode_scval(&entry.key)
-                    .unwrap_or(DecodedValue::Bytes(entry.key.clone()));
-                let decoded_value = decode_scval(&entry.xdr)
-                    .unwrap_or(DecodedValue::Bytes(entry.xdr.clone()));
+                let decoded_key =
+                    decode_scval(&entry.key).unwrap_or(DecodedValue::Bytes(entry.key.clone()));
+                let decoded_value =
+                    decode_scval(&entry.xdr).unwrap_or(DecodedValue::Bytes(entry.xdr.clone()));
 
                 // FIX: clone key_raw before moving entry.key into the struct,
                 // so determine_entry_type can still borrow it afterwards

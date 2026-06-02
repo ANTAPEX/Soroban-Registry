@@ -44,9 +44,10 @@ impl UnsafeUnwrapVisitor {
 
 impl<'ast> Visit<'ast> for UnsafeUnwrapVisitor {
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
-        let is_test = node.attrs.iter().any(|attr| {
-            attr.path().is_ident("test") || attr.path().is_ident("tokio::test")
-        });
+        let is_test = node
+            .attrs
+            .iter()
+            .any(|attr| attr.path().is_ident("test") || attr.path().is_ident("tokio::test"));
 
         let is_public = matches!(node.vis, syn::Visibility::Public(_));
 

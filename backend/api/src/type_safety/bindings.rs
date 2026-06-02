@@ -7,6 +7,7 @@ use super::types::*;
 use std::collections::HashSet;
 
 /// TypeScript binding generator
+#[allow(dead_code)]
 pub struct TypeScriptGenerator {
     indent: String,
 }
@@ -29,7 +30,9 @@ impl TypeScriptGenerator {
         output.push_str("// DO NOT EDIT - Regenerate with `soroban-registry validate-call --generate-bindings`\n\n");
 
         // Imports
-        output.push_str("import { Address, i128, u128, u64, u32, i64, i32 } from '@stellar/stellar-sdk';\n\n");
+        output.push_str(
+            "import { Address, i128, u128, u64, u32, i64, i32 } from '@stellar/stellar-sdk';\n\n",
+        );
 
         // Generate custom types
         let custom_types = self.collect_custom_types(abi);
@@ -52,17 +55,18 @@ impl TypeScriptGenerator {
     /// Collect all custom types referenced in the ABI
     fn collect_custom_types(&self, abi: &ContractABI) -> HashSet<String> {
         let mut types = HashSet::new();
-        
+
         for func in &abi.functions {
             for param in &func.params {
                 self.collect_types_recursive(&param.param_type, &mut types);
             }
             self.collect_types_recursive(&func.return_type, &mut types);
         }
-        
+
         types
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn collect_types_recursive(&self, soroban_type: &SorobanType, types: &mut HashSet<String>) {
         match soroban_type {
             SorobanType::Custom { name } => {
@@ -90,7 +94,10 @@ impl TypeScriptGenerator {
             SorobanType::Vec { element_type } => {
                 self.collect_types_recursive(element_type, types);
             }
-            SorobanType::Map { key_type, value_type } => {
+            SorobanType::Map {
+                key_type,
+                value_type,
+            } => {
                 self.collect_types_recursive(key_type, types);
                 self.collect_types_recursive(value_type, types);
             }
@@ -142,14 +149,21 @@ impl TypeScriptGenerator {
                         ));
                         for field in fields {
                             let ts_type = self.soroban_to_ts_type(&field.field_type);
-                            output.push_str(&format!("{}{}: {};\n", self.indent, field.name, ts_type));
+                            output.push_str(&format!(
+                                "{}{}: {};\n",
+                                self.indent, field.name, ts_type
+                            ));
                         }
                         output.push_str("}\n");
                     }
                 }
                 output
             }
-            _ => format!("export type {} = {};\n", name, self.soroban_to_ts_type(soroban_type)),
+            _ => format!(
+                "export type {} = {};\n",
+                name,
+                self.soroban_to_ts_type(soroban_type)
+            ),
         }
     }
 
@@ -207,14 +221,8 @@ impl TypeScriptGenerator {
         );
 
         // Constructor
-        output.push_str(&format!(
-            "{}private contractId: string;\n",
-            self.indent
-        ));
-        output.push_str(&format!(
-            "{}private rpcUrl: string;\n\n",
-            self.indent
-        ));
+        output.push_str(&format!("{}private contractId: string;\n", self.indent));
+        output.push_str(&format!("{}private rpcUrl: string;\n\n", self.indent));
         output.push_str(&format!(
             "{}constructor(contractId: string, rpcUrl: string) {{\n",
             self.indent
@@ -268,6 +276,7 @@ impl TypeScriptGenerator {
     }
 
     /// Convert Soroban type to TypeScript type
+    #[allow(clippy::only_used_in_recursion)]
     fn soroban_to_ts_type(&self, soroban_type: &SorobanType) -> String {
         match soroban_type {
             SorobanType::Bool => "boolean".to_string(),
@@ -300,7 +309,10 @@ impl TypeScriptGenerator {
             SorobanType::Vec { element_type } => {
                 format!("Array<{}>", self.soroban_to_ts_type(element_type))
             }
-            SorobanType::Map { key_type, value_type } => {
+            SorobanType::Map {
+                key_type,
+                value_type,
+            } => {
                 format!(
                     "Map<{}, {}>",
                     self.soroban_to_ts_type(key_type),
@@ -308,7 +320,10 @@ impl TypeScriptGenerator {
                 )
             }
             SorobanType::Tuple { elements } => {
-                let types: Vec<String> = elements.iter().map(|e| self.soroban_to_ts_type(e)).collect();
+                let types: Vec<String> = elements
+                    .iter()
+                    .map(|e| self.soroban_to_ts_type(e))
+                    .collect();
                 format!("[{}]", types.join(", "))
             }
             SorobanType::Struct { name, .. } => name.clone(),
@@ -325,6 +340,7 @@ impl Default for TypeScriptGenerator {
 }
 
 /// Rust binding generator
+#[allow(dead_code)]
 pub struct RustGenerator {
     indent: String,
 }
@@ -377,7 +393,10 @@ impl RustGenerator {
                     if let Some(doc) = &field.doc {
                         output.push_str(&format!("{}/// {}\n", self.indent, doc));
                     }
-                    output.push_str(&format!("{}pub {}: {},\n", self.indent, field.name, rust_type));
+                    output.push_str(&format!(
+                        "{}pub {}: {},\n",
+                        self.indent, field.name, rust_type
+                    ));
                 }
                 output.push_str("}\n");
                 output
@@ -458,10 +477,7 @@ impl RustGenerator {
 
     /// Generate contract client
     fn generate_contract_client(&self, abi: &ContractABI) -> String {
-        let mut output = format!(
-            "/// Client for interacting with {} contract\n",
-            abi.name
-        );
+        let mut output = format!("/// Client for interacting with {} contract\n", abi.name);
         output.push_str(&format!("pub struct {}Client {{\n", abi.name));
         output.push_str(&format!("{}contract_id: Address,\n", self.indent));
         output.push_str("}\n\n");
@@ -550,6 +566,7 @@ impl RustGenerator {
     }
 
     /// Convert Soroban type to Rust type
+    #[allow(clippy::only_used_in_recursion)]
     fn soroban_to_rust_type(&self, soroban_type: &SorobanType) -> String {
         match soroban_type {
             SorobanType::Bool => "bool".to_string(),
@@ -582,7 +599,10 @@ impl RustGenerator {
             SorobanType::Vec { element_type } => {
                 format!("Vec<{}>", self.soroban_to_rust_type(element_type))
             }
-            SorobanType::Map { key_type, value_type } => {
+            SorobanType::Map {
+                key_type,
+                value_type,
+            } => {
                 format!(
                     "Map<{}, {}>",
                     self.soroban_to_rust_type(key_type),
@@ -590,7 +610,10 @@ impl RustGenerator {
                 )
             }
             SorobanType::Tuple { elements } => {
-                let types: Vec<String> = elements.iter().map(|e| self.soroban_to_rust_type(e)).collect();
+                let types: Vec<String> = elements
+                    .iter()
+                    .map(|e| self.soroban_to_rust_type(e))
+                    .collect();
                 format!("({})", types.join(", "))
             }
             SorobanType::Struct { name, .. } => name.clone(),
@@ -607,6 +630,7 @@ impl Default for RustGenerator {
 }
 
 /// Generate bindings in the specified language
+#[allow(dead_code)]
 pub fn generate_bindings(abi: &ContractABI, language: BindingLanguage) -> String {
     match language {
         BindingLanguage::TypeScript => TypeScriptGenerator::new().generate(abi),
@@ -616,6 +640,7 @@ pub fn generate_bindings(abi: &ContractABI, language: BindingLanguage) -> String
 
 /// Supported binding languages
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum BindingLanguage {
     TypeScript,
     Rust,
@@ -628,7 +653,10 @@ impl std::str::FromStr for BindingLanguage {
         match s.to_lowercase().as_str() {
             "typescript" | "ts" => Ok(BindingLanguage::TypeScript),
             "rust" | "rs" => Ok(BindingLanguage::Rust),
-            _ => Err(format!("Unknown language: {}. Use 'typescript' or 'rust'", s)),
+            _ => Err(format!(
+                "Unknown language: {}. Use 'typescript' or 'rust'",
+                s
+            )),
         }
     }
 }

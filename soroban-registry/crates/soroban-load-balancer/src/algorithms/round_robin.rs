@@ -1,8 +1,8 @@
 use super::RoutingAlgorithm;
 use crate::instance::ContractInstance;
 use crate::types::LoadBalancerError;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 /// Distributes requests evenly across all healthy instances in order
 pub struct RoundRobinAlgorithm {

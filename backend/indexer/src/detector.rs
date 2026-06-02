@@ -1,6 +1,5 @@
 /// Contract detection module
 /// Identifies createContract operations and extracts contract metadata
-
 use crate::rpc::{ContractDeployment, Operation};
 use tracing::{debug, error};
 
@@ -8,6 +7,7 @@ use tracing::{debug, error};
 pub fn detect_contract_deployments(
     operations: &[Operation],
     ledger_sequence: u64,
+    deployed_at: &str,
 ) -> Vec<ContractDeployment> {
     let mut deployments = Vec::new();
 
@@ -22,7 +22,7 @@ pub fn detect_contract_deployments(
             ledger_sequence, op.id, op.tx_id
         );
 
-        match extract_contract_deployment(op, ledger_sequence) {
+        match extract_contract_deployment(op, ledger_sequence, deployed_at) {
             Ok(deployment) => {
                 debug!(
                     "Extracted contract deployment: contract_id={}, deployer={}",
@@ -46,6 +46,7 @@ pub fn detect_contract_deployments(
 fn extract_contract_deployment(
     op: &Operation,
     ledger_sequence: u64,
+    deployed_at: &str,
 ) -> Result<ContractDeployment, String> {
     let body = &op.body;
 
@@ -77,6 +78,7 @@ fn extract_contract_deployment(
         op_id: op.id.clone(),
         tx_id: op.tx_id.clone(),
         ledger_sequence,
+        deployed_at: deployed_at.to_string(),
     })
 }
 
@@ -108,7 +110,7 @@ mod tests {
             body: serde_json::json!({}),
         }];
 
-        let deployments = detect_contract_deployments(&ops, 100);
+        let deployments = detect_contract_deployments(&ops, 100, "2023-10-27T10:00:00Z");
         assert_eq!(deployments.len(), 0);
     }
 
@@ -128,7 +130,7 @@ mod tests {
             }),
         }];
 
-        let deployments = detect_contract_deployments(&ops, 100);
+        let deployments = detect_contract_deployments(&ops, 100, "2023-10-27T10:00:00Z");
         assert_eq!(deployments.len(), 1);
         assert_eq!(deployments[0].contract_id, contract_id);
         assert_eq!(deployments[0].deployer, deployer);
@@ -148,7 +150,7 @@ mod tests {
             }),
         }];
 
-        let deployments = detect_contract_deployments(&ops, 100);
+        let deployments = detect_contract_deployments(&ops, 100, "2023-10-27T10:00:00Z");
         assert_eq!(deployments.len(), 0);
     }
 
@@ -164,7 +166,7 @@ mod tests {
             }),
         }];
 
-        let deployments = detect_contract_deployments(&ops, 100);
+        let deployments = detect_contract_deployments(&ops, 100, "2023-10-27T10:00:00Z");
         assert_eq!(deployments.len(), 0);
     }
 

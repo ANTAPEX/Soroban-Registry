@@ -2,7 +2,7 @@
 //!
 //! Validates contract function calls for type safety before submission.
 
-use super::parser::{parse_value_string, ParseError};
+use super::parser::parse_value_string;
 use super::types::*;
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +19,11 @@ pub struct ValidationResult {
 
 impl ValidationResult {
     /// Create a successful validation result
-    pub fn success(function_name: String, params: Vec<ParsedParam>, return_type: &SorobanType) -> Self {
+    pub fn success(
+        function_name: String,
+        params: Vec<ParsedParam>,
+        return_type: &SorobanType,
+    ) -> Self {
         Self {
             valid: true,
             function_name,
@@ -250,11 +254,7 @@ impl CallValidator {
     }
 
     /// Validate a function call
-    pub fn validate_call(
-        &self,
-        method_name: &str,
-        params: &[String],
-    ) -> ValidationResult {
+    pub fn validate_call(&self, method_name: &str, params: &[String]) -> ValidationResult {
         // 1. Check if function exists
         let function = match self.abi.find_function(method_name) {
             Some(f) => f,
@@ -290,7 +290,8 @@ impl CallValidator {
         let mut warnings = Vec::new();
         let mut parsed_params = Vec::new();
 
-        for (i, (param_value, param_spec)) in params.iter().zip(function.params.iter()).enumerate() {
+        for (i, (param_value, param_spec)) in params.iter().zip(function.params.iter()).enumerate()
+        {
             match self.validate_param(param_value, param_spec, i) {
                 Ok((parsed, param_warnings)) => {
                     parsed_params.push(parsed);
@@ -339,7 +340,7 @@ impl CallValidator {
 
         // Type checking
         let inferred_type = parsed.infer_type();
-        
+
         if !self.types_compatible(&inferred_type, &spec.param_type) {
             if self.strict_mode {
                 return Err(ValidationError::type_mismatch(
@@ -385,16 +386,17 @@ impl CallValidator {
     }
 
     /// Check if two types are compatible
+    #[allow(clippy::only_used_in_recursion)]
     fn types_compatible(&self, actual: &SorobanType, expected: &SorobanType) -> bool {
         match (actual, expected) {
             // Exact match
             (a, b) if a == b => true,
-            
+
             // Integer types: allow same signedness with smaller size
             (SorobanType::I32, SorobanType::I64 | SorobanType::I128 | SorobanType::I256) => true,
             (SorobanType::I64, SorobanType::I128 | SorobanType::I256) => true,
             (SorobanType::I128, SorobanType::I256) => true,
-            
+
             (SorobanType::U32, SorobanType::U64 | SorobanType::U128 | SorobanType::U256) => true,
             (SorobanType::U64, SorobanType::U128 | SorobanType::U256) => true,
             (SorobanType::U128, SorobanType::U256) => true,
@@ -428,10 +430,9 @@ impl CallValidator {
             (SorobanType::I64, SorobanType::I128) => true,
             (SorobanType::U32, SorobanType::U64 | SorobanType::U128) => true,
             (SorobanType::U64, SorobanType::U128) => true,
-            
+
             // Allow signed to larger unsigned if value is positive (checked at runtime)
             // This is implicit conversion, actual value check happens elsewhere
-            
             _ => false,
         }
     }
@@ -445,9 +446,9 @@ impl CallValidator {
     ) -> Option<ValidationWarning> {
         match (value, expected_type) {
             (ParsedValue::Integer(n), SorobanType::I32) => {
-                if *n > i32::MAX as i128 || *n < i32::MIN as i128 {
-                    Some(ValidationWarning::potential_overflow(param_name))
-                } else if *n > (i32::MAX as i128 * 9 / 10) || *n < (i32::MIN as i128 * 9 / 10) {
+                let limit = i32::MAX as i128;
+                let min_limit = i32::MIN as i128;
+                if *n > (limit * 9 / 10) || *n < (min_limit * 9 / 10) {
                     Some(ValidationWarning::potential_overflow(param_name))
                 } else {
                     None
@@ -548,7 +549,7 @@ mod tests {
 
     fn create_test_abi() -> ContractABI {
         let mut abi = ContractABI::new("TestToken".to_string());
-        
+
         abi.functions.push(ContractFunction {
             name: "transfer".to_string(),
             visibility: FunctionVisibility::Public,
@@ -689,7 +690,10 @@ mod tests {
         );
 
         assert!(result.valid);
-        assert!(result.warnings.iter().any(|w| w.code == WarningCode::MutableCall));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.code == WarningCode::MutableCall));
     }
 
     #[test]

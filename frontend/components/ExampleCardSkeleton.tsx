@@ -1,19 +1,27 @@
-import LoadingSkeleton from './LoadingSkeleton';
+import LoadingSkeleton from "./LoadingSkeleton";
 
 export default function ExampleCardSkeleton() {
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+    <div className="bg-card rounded-2xl border border-border overflow-hidden">
       {/* Header */}
-      <div className="p-6 border-b border-gray-200 dark:border-gray-800">
+      <div className="p-6 border-b border-border">
         <div className="flex items-start justify-between mb-4">
           <div className="flex-1">
             <LoadingSkeleton width="60%" height="1.5rem" className="mb-2" />
             <LoadingSkeleton width="5rem" height="1.5rem" className="rounded" />
           </div>
-          
+
           <div className="flex items-center gap-2">
-            <LoadingSkeleton width="4rem" height="2.5rem" className="rounded-lg" />
-            <LoadingSkeleton width="4rem" height="2.5rem" className="rounded-lg" />
+            <LoadingSkeleton
+              width="4rem"
+              height="2.5rem"
+              className="rounded-lg"
+            />
+            <LoadingSkeleton
+              width="4rem"
+              height="2.5rem"
+              className="rounded-lg"
+            />
           </div>
         </div>
 
@@ -26,7 +34,7 @@ export default function ExampleCardSkeleton() {
       {/* Code Section */}
       <div className="p-6">
         {/* Tabs */}
-        <div className="flex items-center gap-4 mb-4 border-b border-gray-200 dark:border-gray-800 pb-2">
+        <div className="flex items-center gap-4 mb-4 border-b border-border pb-2">
           <LoadingSkeleton width="10rem" height="1.25rem" />
           <LoadingSkeleton width="6rem" height="1.25rem" />
         </div>

@@ -9,10 +9,10 @@ use regex::Regex;
 lazy_static! {
     /// Pattern to match HTML tags
     static ref HTML_TAG_PATTERN: Regex = Regex::new(r"<[^>]*>").unwrap();
-    
+
     /// Pattern to match multiple whitespace characters
     static ref MULTI_WHITESPACE: Regex = Regex::new(r"\s+").unwrap();
-    
+
     /// Pattern to match control characters (except newline and tab)
     static ref CONTROL_CHARS: Regex = Regex::new(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]").unwrap();
 }
@@ -175,14 +175,19 @@ mod tests {
     #[test]
     fn test_normalize_whitespace() {
         assert_eq!(normalize_whitespace("hello   world"), "hello world");
-        assert_eq!(normalize_whitespace("  multiple   spaces  "), "multiple spaces");
+        assert_eq!(
+            normalize_whitespace("  multiple   spaces  "),
+            "multiple spaces"
+        );
         assert_eq!(normalize_whitespace("line\n\nbreaks"), "line breaks");
     }
 
     #[test]
     fn test_normalize_stellar_address() {
         assert_eq!(
-            normalize_stellar_address("  gdlzfc3syjydzt7k67vz75hpjvieuvnixf47zg2fb2rmqqvu2hhgcysc  "),
+            normalize_stellar_address(
+                "  gdlzfc3syjydzt7k67vz75hpjvieuvnixf47zg2fb2rmqqvu2hhgcysc  "
+            ),
             "GDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
         );
     }
@@ -224,7 +229,7 @@ mod tests {
     fn test_remove_control_chars() {
         let with_null = "hello\x00world";
         assert_eq!(remove_control_chars(with_null), "helloworld");
-        
+
         // Newlines and tabs should be preserved by the main sanitize functions
         let with_newline = "hello\nworld";
         assert_eq!(remove_control_chars(with_newline), "hello\nworld");

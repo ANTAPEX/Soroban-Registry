@@ -2,10 +2,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use colored::*;
 use serde_json::json;
+use soroban_batch::execute_batch;
 use soroban_lint_core::{Analyzer, AutoFixer, Diagnostic, LintConfig, Severity};
-use soroban_load_balancer::{
-    BalancingAlgorithm, LoadBalancer, LoadBalancerConfig, Region,
-};
+use soroban_load_balancer::{BalancingAlgorithm, LoadBalancer, LoadBalancerConfig, Region};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -63,6 +62,29 @@ enum Commands {
     Balancer {
         #[command(subcommand)]
         action: BalancerCommands,
+    },
+
+    /// Execute batch operations on multiple contracts atomically
+    Batch {
+        #[command(subcommand)]
+        action: BatchCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum BatchCommands {
+    /// Execute a batch operations manifest
+    Execute {
+        /// Path to the JSON or YAML manifest file
+        file: String,
+
+        /// Output format for execution report
+        #[arg(long, default_value = "human")]
+        format: String,
+
+        /// Dry run - validate manifest without executing
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -154,8 +176,54 @@ fn main() -> Result<()> {
         Commands::Balancer { action } => {
             balancer_command(action)?;
         }
+        Commands::Batch { action } => {
+            batch_command(action)?;
+        }
     }
 
+    Ok(())
+}
+
+fn batch_command(action: BatchCommands) -> Result<()> {
+    match action {
+        BatchCommands::Execute {
+            file,
+            format,
+            dry_run,
+        } => {
+            let path = PathBuf::from(&file);
+
+            // Validate file exists and has correct extension
+            if !path.exists() {
+                anyhow::bail!("Manifest file '{}' does not exist", file);
+            }
+
+            let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+
+            if !matches!(extension, "json" | "yaml" | "yml") {
+                anyhow::bail!("Manifest file must have .json, .yaml, or .yml extension");
+            }
+
+            println!("📋 Loading batch manifest: {}", file.cyan());
+
+            if dry_run {
+                println!(
+                    "{}",
+                    "🔍 DRY RUN MODE - No operations will be executed"
+                        .yellow()
+                        .bold()
+                );
+            }
+
+            // Use the soroban_batch crate function
+            let report = execute_batch(&file, dry_run, &format)?;
+
+            // Exit with error code if any operations failed
+            if report.iter().any(|r| r.status == "failed") {
+                std::process::exit(1);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -189,7 +257,7 @@ fn lint_command(
     let path_obj = PathBuf::from(&path);
 
     if path_obj.is_file() {
-        if path_obj.extension().map_or(false, |ext| ext == "rs") {
+        if path_obj.extension().is_some_and(|ext| ext == "rs") {
             let content = fs::read_to_string(&path)?;
             let file_diags = if rule_ids.is_empty() {
                 analyzer.analyze_file(&path, &content)?
@@ -202,7 +270,7 @@ fn lint_command(
         for entry in WalkDir::new(&path)
             .into_iter()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
         {
             let file_path = entry.path();
             let file_path_str = file_path.to_string_lossy().to_string();
@@ -211,7 +279,7 @@ fn lint_command(
                 continue;
             }
 
-            let content = fs::read_to_string(&file_path)?;
+            let content = fs::read_to_string(file_path)?;
             let file_diags = if rule_ids.is_empty() {
                 analyzer.analyze_file(&file_path_str, &content)?
             } else {
@@ -237,16 +305,37 @@ fn lint_command(
     diagnostics = Analyzer::filter_by_severity(diagnostics, min_severity);
     Analyzer::sort_diagnostics(&mut diagnostics);
 
-    let error_count = diagnostics.iter().filter(|d| d.severity == Severity::Error).count();
-    let warning_count = diagnostics.iter().filter(|d| d.severity == Severity::Warning).count();
-    let info_count = diagnostics.iter().filter(|d| d.severity == Severity::Info).count();
+    let error_count = diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .count();
+    let warning_count = diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Warning)
+        .count();
+    let info_count = diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Info)
+        .count();
 
     let duration = start_time.elapsed();
 
     if format == "json" {
-        output_json(&diagnostics, error_count, warning_count, info_count, duration)?;
+        output_json(
+            &diagnostics,
+            error_count,
+            warning_count,
+            info_count,
+            duration,
+        )?;
     } else {
-        output_human(&diagnostics, error_count, warning_count, info_count, duration);
+        output_human(
+            &diagnostics,
+            error_count,
+            warning_count,
+            info_count,
+            duration,
+        );
     }
 
     if error_count > 0 || (warning_count > 0 && min_severity <= Severity::Warning) {
@@ -285,19 +374,30 @@ fn rules_command(format: String) -> Result<()> {
 
 fn balancer_command(action: BalancerCommands) -> Result<()> {
     match action {
-        BalancerCommands::Start { algorithm, config: _config } => {
+        BalancerCommands::Start {
+            algorithm,
+            config: _config,
+        } => {
             let algo = match algorithm.as_str() {
                 "least-loaded" => BalancingAlgorithm::LeastLoaded,
-                "geographic"   => BalancingAlgorithm::Geographic,
-                _              => BalancingAlgorithm::RoundRobin,
+                "geographic" => BalancingAlgorithm::Geographic,
+                _ => BalancingAlgorithm::RoundRobin,
             };
-            let cfg = LoadBalancerConfig { algorithm: algo, ..Default::default() };
+            let cfg = LoadBalancerConfig {
+                algorithm: algo,
+                ..Default::default()
+            };
             let lb = LoadBalancer::new(cfg);
-            println!("✅ Load balancer started ({} instances registered)", lb.total_count());
+            println!(
+                "✅ Load balancer started ({} instances registered)",
+                lb.total_count()
+            );
         }
 
-        // FIX: destructure all fields — config field was missing, causing pattern mismatch
-        BalancerCommands::Status { format, config: _config } => {
+        BalancerCommands::Status {
+            format,
+            config: _config,
+        } => {
             let lb = LoadBalancer::new(LoadBalancerConfig::default());
             let metrics = lb.metrics();
             if format == "json" {
@@ -309,14 +409,20 @@ fn balancer_command(action: BalancerCommands) -> Result<()> {
             }
         }
 
-        BalancerCommands::Register { id, contract_id, rpc, region, weight } => {
+        BalancerCommands::Register {
+            id,
+            contract_id,
+            rpc,
+            region,
+            weight,
+        } => {
             let r = match region.as_str() {
-                "us-west"      => Region::UsWest,
-                "eu-west"      => Region::EuWest,
-                "eu-central"   => Region::EuCentral,
+                "us-west" => Region::UsWest,
+                "eu-west" => Region::EuWest,
+                "eu-central" => Region::EuCentral,
                 "ap-southeast" => Region::ApSoutheast,
                 "ap-northeast" => Region::ApNortheast,
-                _              => Region::UsEast,
+                _ => Region::UsEast,
             };
             let lb = LoadBalancer::new(LoadBalancerConfig::default());
             lb.register_instance(&id, &contract_id, &rpc, r, weight);
@@ -329,8 +435,11 @@ fn balancer_command(action: BalancerCommands) -> Result<()> {
             println!("✅ Removed instance '{}'", id);
         }
 
-        // FIX: destructure all fields — config field was missing, causing pattern mismatch
-        BalancerCommands::Route { session, format, config: _config } => {
+        BalancerCommands::Route {
+            session,
+            format,
+            config: _config,
+        } => {
             let lb = LoadBalancer::new(LoadBalancerConfig::default());
             match lb.route(session.as_deref()) {
                 Ok(result) => {
@@ -381,7 +490,11 @@ fn output_human(
             error_count,
             if error_count == 1 { "error" } else { "errors" },
             warning_count,
-            if warning_count == 1 { "warning" } else { "warnings" },
+            if warning_count == 1 {
+                "warning"
+            } else {
+                "warnings"
+            },
             info_count,
             if info_count == 1 { "info" } else { "infos" }
         )
@@ -391,7 +504,11 @@ fn output_human(
         format!(
             "Found {} {}, {} {}",
             warning_count,
-            if warning_count == 1 { "warning" } else { "warnings" },
+            if warning_count == 1 {
+                "warning"
+            } else {
+                "warnings"
+            },
             info_count,
             if info_count == 1 { "info" } else { "infos" }
         )

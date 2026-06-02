@@ -21,7 +21,7 @@ impl fmt::Display for Severity {
 }
 
 impl Severity {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "info" => Some(Severity::Info),
             "warning" => Some(Severity::Warning),

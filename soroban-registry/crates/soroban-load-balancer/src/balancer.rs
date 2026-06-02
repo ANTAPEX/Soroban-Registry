@@ -1,15 +1,13 @@
 use crate::algorithms::{
-    geographic::GeographicAlgorithm,
-    least_loaded::LeastLoadedAlgorithm,
-    round_robin::RoundRobinAlgorithm,
-    RoutingAlgorithm,
+    geographic::GeographicAlgorithm, least_loaded::LeastLoadedAlgorithm,
+    round_robin::RoundRobinAlgorithm, RoutingAlgorithm,
 };
 use crate::health::HealthChecker;
 use crate::instance::ContractInstance;
 use crate::session::SessionManager;
 use crate::types::{
-    BalancingAlgorithm, HealthStatus, InstanceMetrics, LoadBalancerConfig,
-    LoadBalancerError, Region, RouteResult,
+    BalancingAlgorithm, HealthStatus, InstanceMetrics, LoadBalancerConfig, LoadBalancerError,
+    Region, RouteResult,
 };
 use anyhow::Result;
 use arc_swap::ArcSwap;
@@ -72,10 +70,7 @@ impl LoadBalancer {
     }
 
     /// Route a request — respects session affinity, then falls back to algorithm
-    pub fn route(
-        &self,
-        session_key: Option<&str>,
-    ) -> Result<RouteResult, LoadBalancerError> {
+    pub fn route(&self, session_key: Option<&str>) -> Result<RouteResult, LoadBalancerError> {
         // Check session affinity first
         if let Some(key) = session_key {
             if let Some(pinned_id) = self.sessions.get(key) {
@@ -134,7 +129,8 @@ impl LoadBalancer {
             } else {
                 instance.record_failure();
                 // Auto-mark unhealthy after threshold
-                let failures = instance.consecutive_failures
+                let failures = instance
+                    .consecutive_failures
                     .load(std::sync::atomic::Ordering::Relaxed);
                 if failures >= self.config.unhealthy_threshold {
                     *instance.health.write() = HealthStatus::Unhealthy;

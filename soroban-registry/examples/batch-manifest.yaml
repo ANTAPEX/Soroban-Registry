@@ -1,0 +1,30 @@
+name: "Deploy v2 contracts"
+description: "Publish, verify, and configure the v2 contract suite"
+
+operations:
+  - operation: publish
+    contract_id: "CABC123"
+    wasm_path: "./target/wasm32-unknown-unknown/release/token.wasm"
+    network: "testnet"
+
+  - operation: verify
+    contract_id: "CABC123"
+    expected_hash: "a1b2c3d4e5f6"
+
+  - operation: update-metadata
+    contract_id: "CABC123"
+    metadata:
+      version: "2.0.0"
+      author: "stellar-team"
+
+  - operation: set-network
+    contract_id: "CABC123"
+    network: "mainnet"
+
+  - operation: publish
+    contract_id: "CXYZ789"
+    wasm_path: "./target/wasm32-unknown-unknown/release/swap.wasm"
+
+  - operation: retire
+    contract_id: "COLD456"
+    reason: "Replaced by CABC123 v2"

@@ -1,6 +1,5 @@
 use crate::instance::ContractInstance;
 use crate::types::{HealthStatus, LoadBalancerConfig};
-use anyhow::Result;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -36,9 +35,12 @@ impl HealthChecker {
 
         match result {
             Ok(resp) if resp.status().is_success() => {
-                let consecutive_ok = instance.consecutive_successes
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                instance.consecutive_failures
+                let consecutive_ok = instance
+                    .consecutive_successes
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    + 1;
+                instance
+                    .consecutive_failures
                     .store(0, std::sync::atomic::Ordering::Relaxed);
 
                 // Update moving average response time
@@ -60,9 +62,12 @@ impl HealthChecker {
                 new_status
             }
             _ => {
-                let consecutive_failures = instance.consecutive_failures
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                instance.consecutive_successes
+                let consecutive_failures = instance
+                    .consecutive_failures
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    + 1;
+                instance
+                    .consecutive_successes
                     .store(0, std::sync::atomic::Ordering::Relaxed);
 
                 let new_status = if consecutive_failures >= self.config.unhealthy_threshold {
@@ -79,10 +84,7 @@ impl HealthChecker {
 
     /// Run health checks on all instances concurrently
     pub async fn check_all(&self, instances: &[Arc<ContractInstance>]) {
-        let futures: Vec<_> = instances
-            .iter()
-            .map(|i| self.check_instance(i))
-            .collect();
+        let futures: Vec<_> = instances.iter().map(|i| self.check_instance(i)).collect();
 
         futures::future::join_all(futures).await;
     }

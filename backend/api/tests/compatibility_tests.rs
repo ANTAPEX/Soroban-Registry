@@ -178,11 +178,8 @@ fn test_csv_row_format() {
 
 #[test]
 fn test_csv_row_with_no_stellar_version() {
-    let stellar_version: Option<&str> = None;
-    let csv_row = format!(
-        "1.0.0,GDEF,my-contract,1.0.0,{},false",
-        stellar_version.unwrap_or("")
-    );
+    let stellar_version = "";
+    let csv_row = format!("1.0.0,GDEF,my-contract,1.0.0,{},false", stellar_version);
     assert_eq!(csv_row, "1.0.0,GDEF,my-contract,1.0.0,,false");
 }
 

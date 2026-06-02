@@ -40,13 +40,12 @@ impl<'ast> Visit<'ast> for TokenHandlingVisitor {
         let fn_name = node.sig.ident.to_string();
 
         // Check for token transfer functions without proper validation
-        if (fn_name.contains("transfer") || fn_name.contains("send")) 
-            && code_str.contains("invoke") {
-            
-            let missing_validations = !code_str.contains("require_auth") 
-                && !code_str.contains("assert") 
-                && !code_str.contains("check");            
-            
+        if (fn_name.contains("transfer") || fn_name.contains("send")) && code_str.contains("invoke")
+        {
+            let missing_validations = !code_str.contains("require_auth")
+                && !code_str.contains("assert")
+                && !code_str.contains("check");
+
             if missing_validations {
                 let diag = Diagnostic::new(
                     "improper_token_handling",
@@ -56,7 +55,9 @@ impl<'ast> Visit<'ast> for TokenHandlingVisitor {
                     1,
                     0,
                 )
-                .with_suggestion("Validate sender authorization and receiver validity before transfer");
+                .with_suggestion(
+                    "Validate sender authorization and receiver validity before transfer",
+                );
 
                 self.diagnostics.push(diag);
             }

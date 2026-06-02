@@ -1,6 +1,5 @@
 /// Exponential backoff handler for RPC failures
 /// Manages retry logic with exponential backoff and configurable maximum intervals
-
 use std::time::Duration;
 use tracing::{error, info, warn};
 
@@ -51,8 +50,7 @@ impl ExponentialBackoff {
         if self.current_attempt > 0 {
             info!(
                 attempts = self.current_attempt,
-                "RPC recovered after {} attempts, resetting backoff",
-                self.current_attempt
+                "RPC recovered after {} attempts, resetting backoff", self.current_attempt
             );
         }
         self.current_attempt = 0;
@@ -103,7 +101,11 @@ where
                         "Giving up after {} attempts",
                         backoff.attempts()
                     );
-                    return Err(format!("Failed after {} attempts: {}", backoff.attempts(), err));
+                    return Err(format!(
+                        "Failed after {} attempts: {}",
+                        backoff.attempts(),
+                        err
+                    ));
                 }
 
                 warn!(
@@ -192,10 +194,7 @@ mod tests {
     async fn test_execute_with_backoff_success() {
         let backoff = ExponentialBackoff::new(1, 60);
 
-        let result = execute_with_backoff(backoff, 5, || async {
-            Ok::<i32, String>(42)
-        })
-        .await;
+        let result = execute_with_backoff(backoff, 5, || async { Ok::<i32, String>(42) }).await;
 
         assert_eq!(result, Ok(42));
     }

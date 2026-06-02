@@ -1,8 +1,11 @@
+#![allow(dead_code, unused)]
+
 mod data;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use colored::Colorize;
+use shared::logging::{init_logging, LogConfig};
 use sqlx::postgres::PgPoolOptions;
 use std::collections::HashMap;
 use std::fs;
@@ -27,7 +30,20 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    // Load environment variables from .env if present
+    dotenv::dotenv().ok();
+
+    // Initialize structured logging
+    init_logging(LogConfig::from_env_with_service("soroban-registry-seeder"));
+
+    let mut args = Args::parse();
+
+    // Prioritize DATABASE_URL from environment if not provided via CLI
+    if args.database_url == "postgresql://localhost/soroban_registry" {
+        if let Ok(env_url) = std::env::var("DATABASE_URL") {
+            args.database_url = env_url;
+        }
+    }
 
     println!("{}", "=".repeat(80).cyan());
     println!("{}", "Soroban Registry Database Seeder".bold().cyan());
@@ -40,10 +56,18 @@ async fn main() -> Result<()> {
         .await
         .context("Failed to connect to database")?;
 
-    sqlx::migrate!("../../database/migrations")
-        .run(&pool)
-        .await
-        .context("Failed to run migrations")?;
+    let skip_migrations = std::env::var("SKIP_MIGRATIONS")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
+    if !skip_migrations {
+        sqlx::migrate!("../../database/migrations")
+            .run(&pool)
+            .await
+            .context("Failed to run migrations")?;
+    } else {
+        println!("{} Skipping migrations (SKIP_MIGRATIONS=true)", "ℹ".blue());
+    }
 
     let mut rng: rand::rngs::StdRng = if let Some(seed) = args.seed {
         println!("{} Using seed: {}", "ℹ".blue(), seed);

@@ -49,7 +49,9 @@ impl<'ast> Visit<'ast> for HardcodedAddressVisitor {
                         1,
                         0,
                     )
-                    .with_suggestion("Move hardcoded address to environment variable or config file");
+                    .with_suggestion(
+                        "Move hardcoded address to environment variable or config file",
+                    );
 
                     self.diagnostics.push(diag);
                 }

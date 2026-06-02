@@ -46,15 +46,10 @@ impl Analyzer {
     }
 
     /// Analyze a rust file and return diagnostics
-    pub fn analyze_file(
-        &self,
-        file_path: &str,
-        content: &str,
-    ) -> Result<Vec<Diagnostic>> {
+    pub fn analyze_file(&self, file_path: &str, content: &str) -> Result<Vec<Diagnostic>> {
         // Validate the file parses correctly before going parallel
-        let _ = syn::parse_file(content).map_err(|e| {
-            anyhow::anyhow!("Failed to parse {}: {}", file_path, e)
-        })?;
+        let _ = syn::parse_file(content)
+            .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", file_path, e))?;
 
         // IMPORTANT: syn::File is NOT Send+Sync (proc_macro2 uses Rc internally),
         // so we cannot parse once and share &syntax across rayon threads.
@@ -64,11 +59,9 @@ impl Analyzer {
         let diagnostics = self
             .rules
             .par_iter()
-            .flat_map(|rule| {
-                match syn::parse_file(content) {
-                    Ok(syntax) => rule.check(file_path, &syntax),
-                    Err(_) => vec![],
-                }
+            .flat_map(|rule| match syn::parse_file(content) {
+                Ok(syntax) => rule.check(file_path, &syntax),
+                Err(_) => vec![],
             })
             .collect();
 
@@ -83,20 +76,17 @@ impl Analyzer {
         rule_ids: &[&str],
     ) -> Result<Vec<Diagnostic>> {
         // Validate parse before going parallel
-        let _ = syn::parse_file(content).map_err(|e| {
-            anyhow::anyhow!("Failed to parse {}: {}", file_path, e)
-        })?;
+        let _ = syn::parse_file(content)
+            .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", file_path, e))?;
 
         use rayon::prelude::*;
         let diagnostics = self
             .rules
             .par_iter()
             .filter(|rule| rule_ids.contains(&rule.rule_id()))
-            .flat_map(|rule| {
-                match syn::parse_file(content) {
-                    Ok(syntax) => rule.check(file_path, &syntax),
-                    Err(_) => vec![],
-                }
+            .flat_map(|rule| match syn::parse_file(content) {
+                Ok(syntax) => rule.check(file_path, &syntax),
+                Err(_) => vec![],
             })
             .collect();
 
@@ -115,7 +105,7 @@ impl Analyzer {
     }
 
     /// Sort diagnostics by file and line number
-    pub fn sort_diagnostics(diagnostics: &mut Vec<Diagnostic>) {
+    pub fn sort_diagnostics(diagnostics: &mut [Diagnostic]) {
         diagnostics.sort_by(|a, b| {
             let file_cmp = a.span.file.cmp(&b.span.file);
             if file_cmp != std::cmp::Ordering::Equal {

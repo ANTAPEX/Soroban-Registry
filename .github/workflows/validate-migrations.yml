@@ -1,0 +1,37 @@
+name: Validate Database Migrations
+
+on:
+  pull_request:
+    paths:
+      - "database/migrations/**"
+      - ".github/scripts/validate-migrations.sh"
+      - ".github/workflows/validate-migrations.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "database/migrations/**"
+
+jobs:
+  validate:
+    name: Check Migration File Naming
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate migration files
+        run: bash .github/scripts/validate-migrations.sh
+
+      - name: Comment on PR (on failure)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '❌ **Migration Validation Failed**\n\nPlease check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.\n\nCommon issues:\n- Duplicate migration prefixes\n- Invalid filename format\n- Missing zero-padding in prefix\n\nSee [docs/MIGRATIONS.md](../blob/main/docs/MIGRATIONS.md) for naming conventions.'
+            })

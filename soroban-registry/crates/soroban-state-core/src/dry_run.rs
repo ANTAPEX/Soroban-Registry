@@ -5,6 +5,7 @@ use anyhow::Result;
 
 /// Engine for simulating contract function calls
 pub struct DryRunner {
+    #[allow(dead_code)]
     client: StellarRpcClient,
 }
 

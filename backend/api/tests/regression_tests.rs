@@ -3,7 +3,6 @@
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
     use serde_json::json;
     use uuid::Uuid;
 
@@ -99,7 +98,7 @@ mod tests {
 
         // Meets acceptance criteria
         assert!(accuracy >= 95.0);
-        assert!(fpr < 2.0 || fpr == 2.0); // Allow exactly 2%
+        assert!(fpr <= 2.0); // Allow exactly 2%
     }
 
     #[test]

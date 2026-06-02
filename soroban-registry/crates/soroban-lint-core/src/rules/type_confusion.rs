@@ -36,7 +36,7 @@ impl TypeConfusionVisitor {
 
 impl<'ast> Visit<'ast> for TypeConfusionVisitor {
     fn visit_expr(&mut self, node: &'ast syn::Expr) {
-        if let syn::Expr::Cast(cast) = node {
+        if let syn::Expr::Cast(_cast) = node {
             let code_str = quote::quote!(#node).to_string();
             // Check for unsafe casts between types like Val
             if code_str.contains("as") && (code_str.contains("Val") || code_str.contains("u64")) {

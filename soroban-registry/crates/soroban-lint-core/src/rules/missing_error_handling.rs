@@ -39,18 +39,25 @@ impl ErrorHandlingVisitor {
 impl<'ast> Visit<'ast> for ErrorHandlingVisitor {
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
         // Check if in test function
-        let is_test = node.attrs.iter().any(|attr| {
-            attr.path().is_ident("test") || attr.path().is_ident("tokio::test")
-        });
-        
+        let is_test = node
+            .attrs
+            .iter()
+            .any(|attr| attr.path().is_ident("test") || attr.path().is_ident("tokio::test"));
+
         let prev_test = self.in_test;
         self.in_test = is_test || self.in_test;
-
-        // Visit the function body for unwrap/expect calls
-        self.visit_block(&node.block);
+        // Delegate to the default visitor so it walks the block and calls
+        // `visit_expr` for each expression.
+        //
+        // i intentionally do NOT call `visit_block` manually here.
+        // `syn::visit::visit_item_fn` already handles that internally, and
+        // calling both would cause every expression to be visited twice.
+        // That would break the `in_test` flag on the second pass.
+        //
+        // Restore the previous test context after leaving this function.
+        syn::visit::visit_item_fn(self, node);
 
         self.in_test = prev_test;
-        syn::visit::visit_item_fn(self, node);
     }
 
     fn visit_expr(&mut self, node: &'ast syn::Expr) {
@@ -69,12 +76,10 @@ impl<'ast> Visit<'ast> for ErrorHandlingVisitor {
                     1,
                     0,
                 );
-                self.diagnostics.push(
-                    diag.with_suggestion(format!(
-                        "Use `?` operator or match statement instead of .{}()",
-                        method_name
-                    )),
-                );
+                self.diagnostics.push(diag.with_suggestion(format!(
+                    "Use `?` operator or match statement instead of .{}()",
+                    method_name
+                )));
             }
         }
         syn::visit::visit_expr(self, node);

@@ -1,34 +1,24 @@
 use serde::{Deserialize, Serialize};
 
 /// Supported load balancing algorithms
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum BalancingAlgorithm {
+    #[default]
     RoundRobin,
     LeastLoaded,
     Geographic,
 }
 
-impl Default for BalancingAlgorithm {
-    fn default() -> Self {
-        Self::RoundRobin
-    }
-}
-
 /// Health status of a contract instance
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum HealthStatus {
     Healthy,
-    Degraded,   // responding but slow
-    Unhealthy,  // failing health checks
-    Unknown,    // not yet checked
-}
-
-impl Default for HealthStatus {
-    fn default() -> Self {
-        Self::Unknown
-    }
+    Degraded,  // responding but slow
+    Unhealthy, // failing health checks
+    #[default]
+    Unknown, // not yet checked
 }
 
 /// Geographic region of a contract instance
@@ -50,7 +40,7 @@ pub struct InstanceMetrics {
     pub total_requests: u64,
     pub failed_requests: u64,
     pub avg_response_ms: f64,
-    pub last_checked: Option<String>,   // ISO 8601 timestamp
+    pub last_checked: Option<String>, // ISO 8601 timestamp
 }
 
 impl Default for InstanceMetrics {
@@ -82,8 +72,8 @@ pub struct LoadBalancerConfig {
     pub health_check_interval_secs: u64,
     pub session_ttl_secs: u64,
     pub max_retries: u32,
-    pub unhealthy_threshold: u32,   // consecutive failures before marking unhealthy
-    pub healthy_threshold: u32,     // consecutive successes before marking healthy again
+    pub unhealthy_threshold: u32, // consecutive failures before marking unhealthy
+    pub healthy_threshold: u32,   // consecutive successes before marking healthy again
 }
 
 impl Default for LoadBalancerConfig {

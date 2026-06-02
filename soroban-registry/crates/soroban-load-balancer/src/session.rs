@@ -1,5 +1,4 @@
 use dashmap::DashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Entry in the session store

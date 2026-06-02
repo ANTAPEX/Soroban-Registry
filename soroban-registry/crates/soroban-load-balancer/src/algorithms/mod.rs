@@ -1,6 +1,6 @@
-pub mod round_robin;
-pub mod least_loaded;
 pub mod geographic;
+pub mod least_loaded;
+pub mod round_robin;
 
 use crate::instance::ContractInstance;
 use crate::types::LoadBalancerError;

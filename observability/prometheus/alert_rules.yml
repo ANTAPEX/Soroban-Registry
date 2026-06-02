@@ -1,54 +1,21 @@
 groups:
-  - name: soroban-registry
-    interval: 30s
+  - name: database-high-availability
     rules:
-      - alert: HighP99Latency
-        expr: |
-          histogram_quantile(0.99,
-            rate(soroban_http_request_duration_seconds_bucket[5m])
-          ) > 0.5
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: "p99 latency {{ $value | humanizeDuration }} exceeds 500ms"
-
-      - alert: HighErrorRate
-        expr: |
-          rate(soroban_http_requests_total{status=~"5.."}[5m])
-          /
-          rate(soroban_http_requests_total[5m]) > 0.05
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Error rate {{ $value | humanizePercentage }} exceeds 5%"
-
-      - alert: AnomalousPublishSpike
-        expr: |
-          rate(soroban_contracts_published_total[5m])
-          > 3 * avg_over_time(rate(soroban_contracts_published_total[5m])[1h:5m])
-        for: 2m
+      - alert: DatabaseReplicationLagHigh
+        expr: db_replication_lag_ms > 100
+        for: 1m
         labels:
           severity: warning
         annotations:
-          summary: "Unusual contract publish spike detected ({{ $value | humanize }}/s)"
+          summary: Database replication lag is above target
+          description: Replica lag is {{ $value }} ms, which is above the 100 ms target.
 
-      - alert: APIDown
-        expr: up{job="soroban-api"} == 0
+      - alert: DatabaseReplicationHealthDegraded
+        expr: db_replication_health == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "Soroban Registry API is down"
+          summary: Database replication health is degraded
+          description: The replica monitor reports an unhealthy replication state.
 
-      - alert: HighP95Latency
-        expr: |
-          histogram_quantile(0.95,
-            rate(soroban_http_request_duration_seconds_bucket[5m])
-          ) > 0.2
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "p95 latency {{ $value | humanizeDuration }} exceeds SLO 200ms"

@@ -49,7 +49,9 @@ impl<'ast> Visit<'ast> for LargeDataVisitor {
                         1,
                         0,
                     )
-                    .with_suggestion("Consider adding size bounds or pagination for large datasets");
+                    .with_suggestion(
+                        "Consider adding size bounds or pagination for large datasets",
+                    );
 
                     self.diagnostics.push(diag);
                 }

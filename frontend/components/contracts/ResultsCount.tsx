@@ -5,8 +5,11 @@ interface ResultsCountProps {
 
 export function ResultsCount({ visibleCount, totalCount }: ResultsCountProps) {
   return (
-    <div className="text-sm text-gray-600 dark:text-gray-400">
-      Showing {visibleCount} of {totalCount} contracts
+    <div className="text-sm text-muted-foreground">
+      Showing{" "}
+      <span className="font-medium text-foreground">{visibleCount}</span> of{" "}
+      <span className="font-medium text-foreground">{totalCount}</span>{" "}
+      contracts
     </div>
   );
 }

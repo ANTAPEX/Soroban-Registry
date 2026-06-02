@@ -1,46 +1,13 @@
-global:
-  resolve_timeout: 5m
-  slack_api_url: "${SLACK_WEBHOOK_URL}"
+global: {}
 
 route:
-  group_by: [alertname, severity]
+  receiver: default
+  group_by: ["alertname", "cluster", "service"]
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
-  receiver: slack-warnings
-  routes:
-    - match:
-        severity: critical
-      receiver: pagerduty-critical
-      continue: true
-    - match:
-        severity: critical
-      receiver: slack-critical
 
 receivers:
-  - name: slack-warnings
-    slack_configs:
-      - channel: "#soroban-alerts"
-        title: "⚠️ {{ .GroupLabels.alertname }}"
-        text: "{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}"
-        send_resolved: true
+  - name: default
 
-  - name: slack-critical
-    slack_configs:
-      - channel: "#soroban-incidents"
-        title: "🔴 CRITICAL: {{ .GroupLabels.alertname }}"
-        text: "{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}"
-        send_resolved: true
-
-  - name: pagerduty-critical
-    pagerduty_configs:
-      - service_key: "${PAGERDUTY_SERVICE_KEY}"
-        description: "{{ .GroupLabels.alertname }}: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}"
-        severity: critical
-
-inhibit_rules:
-  - source_match:
-      severity: critical
-    target_match:
-      severity: warning
-    equal: [alertname]
+templates: []

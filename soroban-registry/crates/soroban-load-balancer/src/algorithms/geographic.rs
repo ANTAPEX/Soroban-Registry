@@ -1,8 +1,8 @@
 use super::RoutingAlgorithm;
 use crate::instance::ContractInstance;
 use crate::types::{LoadBalancerError, Region};
-use std::sync::Arc;
 use parking_lot::RwLock;
+use std::sync::Arc;
 
 /// Routes to the nearest geographic region, falling back to round-robin
 pub struct GeographicAlgorithm {
