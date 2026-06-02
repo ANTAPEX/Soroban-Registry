@@ -134,6 +134,110 @@ impl WebSecurityConfig {
     }
 }
 
+/// HTTPS/TLS enforcement settings (#895).
+///
+/// The API is typically deployed behind a TLS-terminating load balancer or
+/// reverse proxy that forwards the original scheme in `X-Forwarded-Proto`. This
+/// layer adds HSTS to responses and (optionally) redirects plaintext requests to
+/// HTTPS so all client communication is encrypted in transit.
+#[derive(Debug, Clone)]
+pub struct HttpsConfig {
+    hsts_enabled: bool,
+    hsts_max_age_secs: u64,
+    hsts_include_subdomains: bool,
+    redirect_to_https: bool,
+}
+
+impl Default for HttpsConfig {
+    fn default() -> Self {
+        Self {
+            hsts_enabled: true,
+            hsts_max_age_secs: 63_072_000, // 2 years (HSTS preload minimum is 1 year)
+            hsts_include_subdomains: true,
+            redirect_to_https: false,
+        }
+    }
+}
+
+impl HttpsConfig {
+    pub fn from_env() -> Self {
+        let defaults = Self::default();
+        let bool_env = |key: &str, default: bool| {
+            std::env::var(key)
+                .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no"))
+                .unwrap_or(default)
+        };
+
+        Self {
+            hsts_enabled: bool_env("HSTS_ENABLED", defaults.hsts_enabled),
+            hsts_max_age_secs: std::env::var("HSTS_MAX_AGE_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(defaults.hsts_max_age_secs),
+            hsts_include_subdomains: bool_env(
+                "HSTS_INCLUDE_SUBDOMAINS",
+                defaults.hsts_include_subdomains,
+            ),
+            redirect_to_https: bool_env("FORCE_HTTPS", defaults.redirect_to_https),
+        }
+    }
+
+    fn hsts_header_value(&self) -> String {
+        if self.hsts_include_subdomains {
+            format!("max-age={}; includeSubDomains", self.hsts_max_age_secs)
+        } else {
+            format!("max-age={}", self.hsts_max_age_secs)
+        }
+    }
+}
+
+/// True when the request reached us over plaintext HTTP, per the proxy's
+/// `X-Forwarded-Proto` header. Absent the header we assume HTTPS (the common
+/// case for direct TLS) and do not redirect.
+fn is_insecure_request(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .map(|proto| proto.split(',').next().unwrap_or("").trim().eq_ignore_ascii_case("http"))
+        .unwrap_or(false)
+}
+
+/// Enforce HTTPS in transit: optionally redirect plaintext requests and attach
+/// an HSTS header to every response (#895).
+pub async fn https_enforcement_middleware(
+    State(config): State<HttpsConfig>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    if config.redirect_to_https && is_insecure_request(request.headers()) {
+        if let Some(location) = https_redirect_location(request.headers(), request.uri()) {
+            if let Ok(value) = HeaderValue::from_str(&location) {
+                let mut response = StatusCode::PERMANENT_REDIRECT.into_response();
+                response.headers_mut().insert(header::LOCATION, value);
+                return response;
+            }
+        }
+    }
+
+    let mut response = next.run(request).await;
+
+    if config.hsts_enabled {
+        if let Ok(value) = HeaderValue::from_str(&config.hsts_header_value()) {
+            response
+                .headers_mut()
+                .insert(header::STRICT_TRANSPORT_SECURITY, value);
+        }
+    }
+
+    response
+}
+
+fn https_redirect_location(headers: &HeaderMap, uri: &axum::http::Uri) -> Option<String> {
+    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok())?;
+    let path_and_query = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
+    Some(format!("https://{host}{path_and_query}"))
+}
+
 fn parse_allowed_origins(raw: &str) -> HashSet<String> {
     raw.split(',')
         .map(str::trim)
@@ -301,6 +405,68 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(accepted.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn hsts_header_is_added_to_responses() {
+        let config = HttpsConfig::default();
+        let app = Router::new()
+            .route("/health", axum::routing::get(|| async { "ok" }))
+            .layer(middleware::from_fn_with_state(
+                config,
+                https_enforcement_middleware,
+            ));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response
+            .headers()
+            .get(header::STRICT_TRANSPORT_SECURITY)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("max-age="));
+    }
+
+    #[tokio::test]
+    async fn insecure_request_is_redirected_when_forced() {
+        let config = HttpsConfig {
+            redirect_to_https: true,
+            ..HttpsConfig::default()
+        };
+        let app = Router::new()
+            .route("/data", axum::routing::get(|| async { "ok" }))
+            .layer(middleware::from_fn_with_state(
+                config,
+                https_enforcement_middleware,
+            ));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/data?x=1")
+                    .header(header::HOST, "api.example.com")
+                    .header("x-forwarded-proto", "http")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(
+            response.headers().get(header::LOCATION).unwrap(),
+            "https://api.example.com/data?x=1"
+        );
     }
 
     #[tokio::test]
