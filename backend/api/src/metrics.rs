@@ -164,6 +164,22 @@ pub static DB_POOL_UTILIZATION: Lazy<GaugeVec> = gauge_f64_vec!(
     "DB pool utilization ratio",
     &["pool"]
 );
+pub static DB_REPLICATION_LAG_MS: Lazy<IntGauge> =
+    gauge!("db_replication_lag_ms", "Replica replay lag in milliseconds");
+pub static DB_REPLICATION_WAL_LAG_BYTES: Lazy<IntGauge> = gauge!(
+    "db_replication_wal_lag_bytes",
+    "Estimated WAL lag between the primary and replica in bytes"
+);
+pub static DB_REPLICATION_HEALTH: Lazy<IntGauge> = gauge!(
+    "db_replication_health",
+    "Replication health state (1=healthy, 0=unhealthy)"
+);
+pub static DB_REPLICATION_CHECKS_TOTAL: Lazy<IntCounter> =
+    counter!("db_replication_checks_total", "Replication health checks performed");
+pub static DB_REPLICATION_CHECK_FAILURES_TOTAL: Lazy<IntCounter> = counter!(
+    "db_replication_check_failures_total",
+    "Replication health checks that failed"
+);
 pub static SEARCH_QUERY_DURATION: Lazy<HistogramVec> = histogram_vec!(
     "search_query_duration_seconds",
     "Search query latency",
@@ -364,6 +380,11 @@ pub fn register_all(r: &Registry) -> prometheus::Result<()> {
     r.register(Box::new(DB_CONNECTION_WAIT_MS.clone()))?;
     r.register(Box::new(DB_POOL_TIMEOUTS.clone()))?;
     r.register(Box::new(DB_POOL_UTILIZATION.clone()))?;
+    r.register(Box::new(DB_REPLICATION_LAG_MS.clone()))?;
+    r.register(Box::new(DB_REPLICATION_WAL_LAG_BYTES.clone()))?;
+    r.register(Box::new(DB_REPLICATION_HEALTH.clone()))?;
+    r.register(Box::new(DB_REPLICATION_CHECKS_TOTAL.clone()))?;
+    r.register(Box::new(DB_REPLICATION_CHECK_FAILURES_TOTAL.clone()))?;
     r.register(Box::new(SEARCH_QUERY_DURATION.clone()))?;
     r.register(Box::new(SEARCH_SLOW_QUERIES.clone()))?;
 

@@ -1,63 +1,13 @@
-# Alertmanager routing for Soroban Registry alerts.
-#
-# Alertmanager does not expand environment variables in this file, so the
-# Slack webhook and PagerDuty routing key below are placeholders. Replace them
-# directly, or template this file at deploy time (e.g. envsubst) using the
-# SLACK_WEBHOOK_URL / PAGERDUTY_SERVICE_KEY values passed in docker-compose.yml.
-global:
-  resolve_timeout: 5m
-  slack_api_url: "https://hooks.slack.com/services/REPLACE/WITH/WEBHOOK"
+global: {}
 
 route:
   receiver: default
-  group_by: ["alertname", "severity"]
+  group_by: ["alertname", "cluster", "service"]
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
-  routes:
-    - matchers:
-        - severity = "critical"
-      receiver: pagerduty
-      continue: true
-    - matchers:
-        - severity = "critical"
-      receiver: slack-critical
-    - matchers:
-        - severity = "warning"
-      receiver: slack-warnings
 
 receivers:
   - name: default
-    slack_configs:
-      - channel: "#alerts"
-        send_resolved: true
-        title: '{{ .CommonLabels.alertname }} ({{ .CommonLabels.severity }})'
-        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ "\n" }}{{ end }}'
 
-  - name: slack-warnings
-    slack_configs:
-      - channel: "#alerts-warning"
-        send_resolved: true
-        title: '[WARNING] {{ .CommonLabels.alertname }}'
-        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ "\n" }}{{ end }}'
-
-  - name: slack-critical
-    slack_configs:
-      - channel: "#alerts-critical"
-        send_resolved: true
-        title: '[CRITICAL] {{ .CommonLabels.alertname }}'
-        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ "\n" }}{{ end }}'
-
-  - name: pagerduty
-    pagerduty_configs:
-      - routing_key: "REPLACE_WITH_PAGERDUTY_ROUTING_KEY"
-        send_resolved: true
-        description: '{{ .CommonLabels.alertname }}: {{ .CommonAnnotations.summary }}'
-
-inhibit_rules:
-  # A critical alert suppresses a warning alert with the same name.
-  - source_matchers:
-      - severity = "critical"
-    target_matchers:
-      - severity = "warning"
-    equal: ["alertname"]
+templates: []

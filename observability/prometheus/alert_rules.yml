@@ -1,121 +1,21 @@
-# Threshold-based alerting rules for the Soroban Registry.
-# Evaluated by Prometheus and routed to Alertmanager.
 groups:
-  - name: availability
+  - name: database-high-availability
     rules:
-      - alert: ApiDown
-        expr: up{job="soroban-api"} == 0
+      - alert: DatabaseReplicationLagHigh
+        expr: db_replication_lag_ms > 100
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Database replication lag is above target
+          description: Replica lag is {{ $value }} ms, which is above the 100 ms target.
+
+      - alert: DatabaseReplicationHealthDegraded
+        expr: db_replication_health == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "API target is down"
-          description: "Prometheus cannot scrape the soroban-api target ({{ $labels.instance }}) for over 1 minute."
+          summary: Database replication health is degraded
+          description: The replica monitor reports an unhealthy replication state.
 
-      - alert: NodeExporterDown
-        expr: up{job="node-exporter"} == 0
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "node-exporter is down"
-          description: "Host system metrics are unavailable; CPU/memory/disk alerts are blind."
-
-  - name: http
-    rules:
-      - alert: HighHttpErrorRate
-        expr: |
-          sum(rate(http_requests_total{status=~"5.."}[5m]))
-            / clamp_min(sum(rate(http_requests_total[5m])), 1e-9) > 0.05
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "High HTTP 5xx error rate"
-          description: "More than 5% of requests are returning 5xx over the last 5 minutes."
-
-      - alert: HighRequestLatencyP99
-        expr: |
-          histogram_quantile(
-            0.99,
-            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
-          ) > 1
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High P99 request latency"
-          description: "P99 HTTP request latency has exceeded 1s for 5 minutes."
-
-  - name: database
-    rules:
-      - alert: HighDbPoolUtilization
-        expr: db_pool_utilization > 0.9
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Database connection pool nearly exhausted"
-          description: "DB pool utilization ({{ $labels.pool }}) has been above 90% for 5 minutes."
-
-      - alert: DbQueryErrors
-        expr: rate(db_query_errors_total[5m]) > 0.1
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Database query errors observed"
-          description: "The API is reporting database query errors over the last 5 minutes."
-
-      - alert: DbPoolTimeouts
-        expr: rate(db_pool_timeouts_total[5m]) > 0
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Database pool acquisition timeouts"
-          description: "Requests are timing out while waiting for a database connection."
-
-  - name: business
-    rules:
-      - alert: VerificationFailureSpike
-        expr: rate(verification_failure_total[10m]) > rate(verification_success_total[10m])
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Contract verification failures outpacing successes"
-          description: "Verification failures have exceeded successes for 10 minutes; investigate the verifier."
-
-  - name: system
-    rules:
-      - alert: HighHostCpu
-        expr: |
-          100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High host CPU usage"
-          description: "Host CPU usage on {{ $labels.instance }} has been above 85% for 10 minutes."
-
-      - alert: HighHostMemory
-        expr: |
-          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High host memory usage"
-          description: "Host memory usage on {{ $labels.instance }} has been above 90% for 10 minutes."
-
-      - alert: HighHostDiskUsage
-        expr: |
-          (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}
-            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) * 100 > 85
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High host disk usage"
-          description: "Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} is above 85% full."
