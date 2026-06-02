@@ -106,3 +106,4 @@ mod tests {
         assert!(text.contains("# TYPE"));
     }
 }
+// TODO: resource tracking metrics
