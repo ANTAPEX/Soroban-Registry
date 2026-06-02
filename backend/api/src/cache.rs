@@ -21,6 +21,12 @@ pub struct CacheConfig {
     pub search_ttl_secs: u64,
     /// TTL for stats/analytics in Redis (seconds). Default: 300 (5 minutes)
     pub stats_ttl_secs: u64,
+    /// Optional override for the verification cache max capacity (weighted bytes).
+    /// When unset, defaults to `max_capacity`, preserving prior behavior.
+    pub verification_max_capacity: Option<u64>,
+    /// Optional override for the verification cache time-to-live, in seconds.
+    /// When unset, defaults to 7 days (604800), preserving prior behavior.
+    pub verification_ttl_secs: Option<u64>,
 }
 
 impl Default for CacheConfig {
@@ -35,6 +41,8 @@ impl Default for CacheConfig {
             abi_ttl_secs: 86400,
             search_ttl_secs: 300,
             stats_ttl_secs: 300,
+            verification_max_capacity: None,
+            verification_ttl_secs: None,
         }
     }
 }
@@ -82,6 +90,18 @@ impl CacheConfig {
             }
         }
 
+        if let Ok(cap_str) = std::env::var("VERIFICATION_CACHE_MAX_CAPACITY") {
+            if let Ok(cap) = cap_str.parse::<u64>() {
+                config.verification_max_capacity = Some(cap);
+            }
+        }
+
+        if let Ok(ttl_str) = std::env::var("VERIFICATION_CACHE_TTL") {
+            if let Ok(ttl) = ttl_str.parse::<u64>() {
+                config.verification_ttl_secs = Some(ttl);
+            }
+        }
+
         config.redis_url = std::env::var("REDIS_URL").ok();
 
         tracing::info!(
@@ -114,11 +134,18 @@ impl CacheLayer {
             .time_to_live(Duration::from_secs(24 * 3600))
             .build();
 
-        // 7-day TTL for verification result cache, keyed by bytecode_hash
+        // Verification result cache, keyed by bytecode_hash.
+        // Capacity and TTL are operationally configurable (VERIFICATION_CACHE_MAX_CAPACITY,
+        // VERIFICATION_CACHE_TTL); the defaults preserve prior behavior — capacity follows
+        // `max_capacity` and the TTL stays at 7 days.
+        let verification_max_capacity = config
+            .verification_max_capacity
+            .unwrap_or(config.max_capacity);
+        let verification_ttl_secs = config.verification_ttl_secs.unwrap_or(7 * 24 * 3600);
         let verification_cache = MokaCache::builder()
-            .max_capacity(config.max_capacity)
+            .max_capacity(verification_max_capacity)
             .weigher(|_k, v: &String| -> u32 { v.len().try_into().unwrap_or(u32::MAX) })
-            .time_to_live(Duration::from_secs(7 * 24 * 3600))
+            .time_to_live(Duration::from_secs(verification_ttl_secs))
             .build();
 
         // Generic cache for namespace-keyed entries (e.g., contract graphs)
@@ -201,7 +228,9 @@ impl CacheLayer {
                     crate::metrics::REDIS_CACHE_HITS.inc();
                     crate::metrics::ABI_CACHE_HITS.inc();
                     // Backfill L1
-                    self.abi_cache.insert(contract_id.to_string(), val.clone()).await;
+                    self.abi_cache
+                        .insert(contract_id.to_string(), val.clone())
+                        .await;
                     return Some(val);
                 }
                 Ok(None) => {
@@ -223,14 +252,16 @@ impl CacheLayer {
         }
 
         // L1
-        self.abi_cache.insert(contract_id.to_string(), abi.clone()).await;
+        self.abi_cache
+            .insert(contract_id.to_string(), abi.clone())
+            .await;
 
         // L2: Redis with 24h TTL
         if let Some(cm) = &self.redis_cm {
             let key = format!("abi:{}", contract_id);
             let mut conn = cm.clone();
             if let Err(e) = conn
-                .set_ex::<_, _, ()>(&key, &abi, self.config.abi_ttl_secs as usize)
+                .set_ex::<_, _, ()>(&key, &abi, self.config.abi_ttl_secs as u64)
                 .await
             {
                 tracing::warn!("Redis put_abi error: {}", e);
@@ -358,7 +389,9 @@ impl CacheLayer {
                 Ok(Some(val)) => {
                     crate::metrics::REDIS_CACHE_HITS.inc();
                     crate::metrics::CONTRACTS_CACHE_HITS.inc();
-                    self.contracts_cache.insert(key.to_string(), val.clone()).await;
+                    self.contracts_cache
+                        .insert(key.to_string(), val.clone())
+                        .await;
                     return Some(val);
                 }
                 Ok(None) => {
@@ -380,14 +413,16 @@ impl CacheLayer {
         }
 
         // L1
-        self.contracts_cache.insert(key.clone(), value.clone()).await;
+        self.contracts_cache
+            .insert(key.clone(), value.clone())
+            .await;
 
         // L2: Redis with metadata TTL (1h)
         if let Some(cm) = &self.redis_cm {
             let rkey = format!("contracts:{}", key);
             let mut conn = cm.clone();
             if let Err(e) = conn
-                .set_ex::<_, _, ()>(&rkey, &value, self.config.metadata_ttl_secs as usize)
+                .set_ex::<_, _, ()>(&rkey, &value, self.config.metadata_ttl_secs as u64)
                 .await
             {
                 tracing::warn!("Redis put_contracts error: {}", e);
@@ -402,7 +437,9 @@ impl CacheLayer {
 
         self.contracts_cache.invalidate_all();
         // Also clear per-contract metadata from the generic cache
-        self.generic_cache.invalidate_entries_if(|k, _| k.starts_with("meta:")).ok();
+        self.generic_cache
+            .invalidate_entries_if(|k, _| k.starts_with("meta:"))
+            .ok();
 
         // Flush the contracts:* and meta:* namespaces from Redis
         if let Some(cm) = &self.redis_cm {
@@ -411,10 +448,16 @@ impl CacheLayer {
                 match conn.keys::<_, Vec<String>>(pattern).await {
                     Ok(keys) if !keys.is_empty() => {
                         if let Err(e) = conn.del::<_, ()>(keys).await {
-                            tracing::warn!("Redis invalidate_contracts del error ({}): {}", pattern, e);
+                            tracing::warn!(
+                                "Redis invalidate_contracts del error ({}): {}",
+                                pattern,
+                                e
+                            );
                         }
                     }
-                    Err(e) => tracing::warn!("Redis invalidate_contracts scan error ({}): {}", pattern, e),
+                    Err(e) => {
+                        tracing::warn!("Redis invalidate_contracts scan error ({}): {}", pattern, e)
+                    }
                     _ => {}
                 }
             }
@@ -464,12 +507,14 @@ impl CacheLayer {
         }
 
         let ns_key = format!("meta:{}", contract_id);
-        self.generic_cache.insert(ns_key.clone(), value.clone()).await;
+        self.generic_cache
+            .insert(ns_key.clone(), value.clone())
+            .await;
 
         if let Some(cm) = &self.redis_cm {
             let mut conn = cm.clone();
             if let Err(e) = conn
-                .set_ex::<_, _, ()>(&ns_key, &value, self.config.metadata_ttl_secs as usize)
+                .set_ex::<_, _, ()>(&ns_key, &value, self.config.metadata_ttl_secs as u64)
                 .await
             {
                 tracing::warn!("Redis put_contract_meta error: {}", e);
@@ -489,6 +534,58 @@ impl CacheLayer {
             let mut conn = cm.clone();
             if let Err(e) = conn.del::<_, ()>(&ns_key).await {
                 tracing::warn!("Redis invalidate_contract_meta error: {}", e);
+            }
+        }
+    }
+
+    /// Get a cached vulnerability assessment. These use the 24h ABI cache
+    /// because vulnerability assessments have the same TTL requirement.
+    pub async fn get_vulnerability_assessment(&self, contract_id: &str) -> Option<String> {
+        if !self.config.enabled {
+            return None;
+        }
+
+        let ns_key = format!("vulnerability_assessment:{}", contract_id);
+
+        if let Some(val) = self.abi_cache.get(&ns_key).await {
+            crate::metrics::CACHE_HITS.inc();
+            return Some(val);
+        }
+
+        if let Some(cm) = &self.redis_cm {
+            let mut conn = cm.clone();
+            match conn.get::<_, Option<String>>(&ns_key).await {
+                Ok(Some(val)) => {
+                    crate::metrics::REDIS_CACHE_HITS.inc();
+                    crate::metrics::CACHE_HITS.inc();
+                    self.abi_cache.insert(ns_key, val.clone()).await;
+                    return Some(val);
+                }
+                Ok(None) => {
+                    crate::metrics::REDIS_CACHE_MISSES.inc();
+                }
+                Err(e) => {
+                    tracing::warn!("Redis get_vulnerability_assessment error: {}", e);
+                }
+            }
+        }
+
+        crate::metrics::CACHE_MISSES.inc();
+        None
+    }
+
+    pub async fn put_vulnerability_assessment(&self, contract_id: &str, value: String) {
+        if !self.config.enabled {
+            return;
+        }
+
+        let ns_key = format!("vulnerability_assessment:{}", contract_id);
+        self.abi_cache.insert(ns_key.clone(), value.clone()).await;
+
+        if let Some(cm) = &self.redis_cm {
+            let mut conn = cm.clone();
+            if let Err(e) = conn.set_ex::<_, _, ()>(&ns_key, &value, 24 * 3600).await {
+                tracing::warn!("Redis put_vulnerability_assessment error: {}", e);
             }
         }
     }
@@ -534,12 +631,14 @@ impl CacheLayer {
         }
 
         let ns_key = format!("search:{}", fingerprint);
-        self.generic_cache.insert(ns_key.clone(), value.clone()).await;
+        self.generic_cache
+            .insert(ns_key.clone(), value.clone())
+            .await;
 
         if let Some(cm) = &self.redis_cm {
             let mut conn = cm.clone();
             if let Err(e) = conn
-                .set_ex::<_, _, ()>(&ns_key, &value, self.config.search_ttl_secs as usize)
+                .set_ex::<_, _, ()>(&ns_key, &value, self.config.search_ttl_secs as u64)
                 .await
             {
                 tracing::warn!("Redis put_search error: {}", e);
@@ -588,12 +687,14 @@ impl CacheLayer {
         }
 
         let ns_key = format!("stats:{}", key);
-        self.generic_cache.insert(ns_key.clone(), value.clone()).await;
+        self.generic_cache
+            .insert(ns_key.clone(), value.clone())
+            .await;
 
         if let Some(cm) = &self.redis_cm {
             let mut conn = cm.clone();
             if let Err(e) = conn
-                .set_ex::<_, _, ()>(&ns_key, &value, self.config.stats_ttl_secs as usize)
+                .set_ex::<_, _, ()>(&ns_key, &value, self.config.stats_ttl_secs as u64)
                 .await
             {
                 tracing::warn!("Redis put_stats error: {}", e);
@@ -646,14 +747,16 @@ impl CacheLayer {
 
                 // Warm contract metadata cache (1h TTL)
                 if let Ok(Some(contract_json)) = sqlx::query_scalar::<_, serde_json::Value>(
-                    "SELECT row_to_json(c) FROM contracts c WHERE id = $1"
+                    "SELECT row_to_json(c) FROM contracts c WHERE id = $1",
                 )
                 .bind(id)
                 .fetch_optional(&pool)
                 .await
                 {
-                    self.put_contract_meta(&contract_id, contract_json.to_string()).await;
-                    self.put_contract_meta(&id.to_string(), contract_json.to_string()).await;
+                    self.put_contract_meta(&contract_id, contract_json.to_string())
+                        .await;
+                    self.put_contract_meta(&id.to_string(), contract_json.to_string())
+                        .await;
                 }
 
                 if let Some(w_hash) = wasm_hash {
@@ -718,6 +821,75 @@ mod tests {
 
         let val2 = cache.get_verification("hash_1").await;
         assert!(val2.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_verification_cache_honors_configured_capacity_and_ttl() {
+        // Explicit overrides are reflected in the resolved config, and the
+        // cache serves hits within the configured TTL window.
+        let config = CacheConfig {
+            enabled: true,
+            max_capacity: 100,
+            verification_max_capacity: Some(42),
+            verification_ttl_secs: Some(3600),
+            ..Default::default()
+        };
+        assert_eq!(config.verification_max_capacity, Some(42));
+        assert_eq!(config.verification_ttl_secs, Some(3600));
+
+        let cache = CacheLayer::new(config).await;
+        cache
+            .put_verification("hash_hit", "result_hit".to_string())
+            .await;
+        assert_eq!(
+            cache.get_verification("hash_hit").await,
+            Some("result_hit".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verification_cache_defaults_preserve_previous_behavior() {
+        // With no overrides the verification cache keeps the historical
+        // defaults (capacity follows `max_capacity`, 7-day TTL).
+        let config = CacheConfig {
+            enabled: true,
+            max_capacity: 100,
+            ..Default::default()
+        };
+        assert_eq!(config.verification_max_capacity, None);
+        assert_eq!(config.verification_ttl_secs, None);
+
+        let cache = CacheLayer::new(config).await;
+        cache
+            .put_verification("hash_default", "result_default".to_string())
+            .await;
+        assert_eq!(
+            cache.get_verification("hash_default").await,
+            Some("result_default".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verification_cache_evicts_after_configured_ttl() {
+        // A short configured TTL causes entries to expire.
+        let config = CacheConfig {
+            enabled: true,
+            max_capacity: 100,
+            verification_ttl_secs: Some(1),
+            ..Default::default()
+        };
+        let cache = CacheLayer::new(config).await;
+        cache
+            .put_verification("hash_expire", "result_expire".to_string())
+            .await;
+        assert_eq!(
+            cache.get_verification("hash_expire").await,
+            Some("result_expire".to_string())
+        );
+
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        cache.verification_cache.run_pending_tasks().await;
+        assert!(cache.get_verification("hash_expire").await.is_none());
     }
 
     #[tokio::test]

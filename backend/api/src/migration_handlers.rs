@@ -94,33 +94,8 @@ pub struct RegisterMigrationRequest {
     pub down_sql: Option<String>,
 }
 
-impl Validatable for RegisterMigrationRequest {
-    fn sanitize(&mut self) {
-        self.description = self.description.trim().to_string();
-        self.filename = self.filename.trim().to_string();
-    }
-
-    fn validate(&self) -> Result<(), Vec<FieldError>> {
-        let mut errors = Vec::new();
-        if self.version <= 0 {
-            errors.push(FieldError::new("version", "must be a positive integer"));
-        }
-        if self.description.trim().is_empty() {
-            errors.push(FieldError::new("description", "must not be empty"));
-        }
-        if self.filename.trim().is_empty() {
-            errors.push(FieldError::new("filename", "must not be empty"));
-        }
-        if self.sql_content.trim().is_empty() {
-            errors.push(FieldError::new("sql_content", "must not be empty"));
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
-    }
-}
+// `impl Validatable for RegisterMigrationRequest` lives in
+// validation::handler_requests (the centralized location, issue #893).
 
 #[derive(Debug, Deserialize)]
 pub struct ApplyMigrationRequest {

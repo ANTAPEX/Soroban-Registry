@@ -1,6 +1,7 @@
 use crate::ai::service::AIService;
 use crate::auth::AuthManager;
 use crate::cache::{CacheConfig, CacheLayer};
+use crate::crypto::EncryptionService;
 use crate::contract_events::ContractEventHub;
 use crate::feature_flags::FeatureFlagManager;
 use crate::health_monitor::HealthMonitorStatus;
@@ -98,6 +99,8 @@ pub struct AppState {
     pub db_breaker: Arc<crate::db_resilience::CircuitBreaker>,
     pub db_queue: Arc<crate::db_resilience::DbQueue>,
     pub feature_flags: Arc<FeatureFlagManager>,
+    /// At-rest field encryption service (#895).
+    pub encryption: Arc<EncryptionService>,
 }
 
 impl AppState {
@@ -171,6 +174,7 @@ impl AppState {
             db_breaker,
             db_queue,
             feature_flags,
+            encryption: Arc::new(EncryptionService::from_env()),
         })
     }
 }

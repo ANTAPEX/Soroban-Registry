@@ -69,7 +69,7 @@ pub struct CategoryRow {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CategoryResponse {
     pub id: String,
     pub name: String,
@@ -182,16 +182,22 @@ fn parse_optional_parent_id(raw: &Option<String>) -> ApiResult<Option<Uuid>> {
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CategoriesResponse {
     pub categories: Vec<CategoryResponse>,
     pub recommendations: Vec<CategoryRecommendation>,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CategoryRecommendation {
     pub name: String,
     pub reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CategoryQuery {
+    pub network: Option<String>,
+    pub sort_by: Option<String>,
 }
 
 #[utoipa::path(
@@ -206,12 +212,6 @@ pub async fn list_categories(
     State(state): State<AppState>,
     Query(params): Query<CategoryQuery>,
 ) -> ApiResult<Json<CategoriesResponse>> {
-    #[derive(Debug, Deserialize)]
-    struct CategoryQuery {
-        network: Option<String>,
-        sort_by: Option<String>,
-    }
-
     // Build cache key based on parameters
     let cache_key = format!("categories:{:?}:{:?}", params.network, params.sort_by);
     let (cached_opt, hit) = state.cache.get("category", &cache_key).await;
@@ -266,19 +266,6 @@ pub async fn list_categories(
     let mut categories: Vec<CategoryResponse> =
         rows.into_iter().map(CategoryResponse::from).collect();
 
-    // Return categories with recommendations
-    #[derive(Debug, Serialize, utoipa::ToSchema)]
-    pub struct CategoriesResponse {
-        pub categories: Vec<CategoryResponse>,
-        pub recommendations: Vec<CategoryRecommendation>,
-    }
-
-    #[derive(Debug, Serialize, utoipa::ToSchema)]
-    pub struct CategoryRecommendation {
-        pub name: String,
-        pub reason: String,
-    }
-
     if let Some(sort) = params.sort_by {
         match sort.as_str() {
             "name" => categories.sort_by(|a, b| a.name.cmp(&b.name)),
@@ -302,9 +289,10 @@ pub async fn list_categories(
     }
 
     // Compute recommendations (top 3 trending)
-    let mut recommendations: Vec<CategoryRecommendation> = categories
-        .iter()
-        .sorted_by_key(|c| -c.trending)
+    let mut by_trending: Vec<&CategoryResponse> = categories.iter().collect();
+    by_trending.sort_by_key(|c| std::cmp::Reverse(c.trending));
+    let recommendations: Vec<CategoryRecommendation> = by_trending
+        .into_iter()
         .take(3)
         .map(|c| CategoryRecommendation {
             name: c.name.clone(),

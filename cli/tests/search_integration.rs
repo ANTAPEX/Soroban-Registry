@@ -90,3 +90,122 @@ fn test_search_with_all_flags_parses_correctly() {
     assert!(stderr.contains("Failed to search contracts"));
     assert!(!stderr.contains("unexpected argument"));
 }
+
+#[test]
+fn test_search_with_multiple_networks() {
+    let output = Command::new(get_binary_path())
+        .arg("--api-url")
+        .arg("http://127.0.0.1:9999")
+        .arg("search")
+        .arg("swap")
+        .arg("--network")
+        .arg("testnet,mainnet,futurenet")
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Failed to search contracts"));
+    assert!(!stderr.contains("unexpected argument"));
+}
+
+#[test]
+fn test_search_with_verified_and_category_filter() {
+    let output = Command::new(get_binary_path())
+        .arg("--api-url")
+        .arg("http://127.0.0.1:9999")
+        .arg("search")
+        .arg("lending")
+        .arg("--verified-only")
+        .arg("--category")
+        .arg("lending")
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Failed to search contracts"));
+    assert!(!stderr.contains("unexpected argument"));
+}
+
+#[test]
+fn test_search_with_all_combined_filters() {
+    let output = Command::new(get_binary_path())
+        .arg("--api-url")
+        .arg("http://127.0.0.1:9999")
+        .arg("search")
+        .arg("pool")
+        .arg("--network")
+        .arg("mainnet,testnet")
+        .arg("--verified-only")
+        .arg("--category")
+        .arg("dex")
+        .arg("--sort")
+        .arg("updated")
+        .arg("--limit")
+        .arg("10")
+        .arg("--json")
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Failed to search contracts"));
+    assert!(!stderr.contains("unexpected argument"));
+}
+
+#[test]
+fn test_search_json_format_parses_correctly() {
+    let output = Command::new(get_binary_path())
+        .arg("--api-url")
+        .arg("http://127.0.0.1:9999")
+        .arg("search")
+        .arg("token")
+        .arg("--json")
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Failed to search contracts"));
+}
+
+#[test]
+fn test_search_with_pagination_parameters() {
+    let output = Command::new(get_binary_path())
+        .arg("--api-url")
+        .arg("http://127.0.0.1:9999")
+        .arg("search")
+        .arg("contract")
+        .arg("--limit")
+        .arg("50")
+        .arg("--offset")
+        .arg("100")
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Failed to search contracts"));
+    assert!(!stderr.contains("unexpected argument"));
+}
+
+#[test]
+fn test_search_sort_by_options() {
+    for sort_option in &["name", "created", "updated", "relevance"] {
+        let output = Command::new(get_binary_path())
+            .arg("--api-url")
+            .arg("http://127.0.0.1:9999")
+            .arg("search")
+            .arg("test")
+            .arg("--sort")
+            .arg(sort_option)
+            .output()
+            .expect("Failed to execute command");
+
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("Failed to search contracts"));
+        assert!(!stderr.contains("unexpected argument"), "Failed for sort option: {}", sort_option);
+    }
+}

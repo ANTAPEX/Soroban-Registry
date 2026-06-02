@@ -4231,6 +4231,48 @@ pub struct SecurityScanHistoryResponse {
     pub total_count: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
+#[sqlx(type_name = "audit_status", rename_all = "snake_case")]
+pub enum AuditScanStatus {
+    Passed,
+    Issues,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
+#[sqlx(type_name = "audit_type", rename_all = "snake_case")]
+pub enum AuditType {
+    Formal,
+    Informal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ContractAuditFinding {
+    pub severity: String,
+    pub count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ContractAuditResponse {
+    pub id: Uuid,
+    pub contract_id: Uuid,
+    pub audit_type: AuditType,
+    pub status: AuditScanStatus,
+    pub auditor: Option<String>,
+    pub audit_date: DateTime<Utc>,
+    pub findings_summary: Vec<ContractAuditFinding>,
+    pub total_issues: i32,
+    pub report_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PaginatedAuditsResponse {
+    pub audits: Vec<ContractAuditResponse>,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // NOTIFICATION/SUBSCRIPTION TYPES (#493)
 // ═══════════════════════════════════════════════════════════════════════════

@@ -299,17 +299,51 @@ fn is_sensitive_key(key: &str) -> bool {
 }
 
 fn emit_error_signal(severity: &str, category: &str, message: &str, request_id: Option<&str>) {
+    let backtrace = ::std::backtrace::Backtrace::capture();
+    let backtrace_str = if backtrace.status() == ::std::backtrace::BacktraceStatus::Captured {
+        Some(format!("{:#}", backtrace))
+    } else {
+        None
+    };
+
     match severity {
+        "fatal" => {
+            tracing::error!(
+                severity,
+                category,
+                request_id,
+                message,
+                backtrace = %backtrace_str.as_deref().unwrap_or("none"),
+                alert = true,
+                fatal = true,
+                "fatal_error_reported"
+            );
+            std::process::abort();
+        }
         "critical" => tracing::error!(
             severity,
             category,
             request_id,
             message,
+            backtrace = %backtrace_str.as_deref().unwrap_or("none"),
             alert = true,
             "critical_error_reported"
         ),
-        "error" => tracing::error!(severity, category, request_id, message, "error_reported"),
-        "warning" => tracing::warn!(severity, category, request_id, message, "error_reported"),
+        "error" => tracing::error!(
+            severity,
+            category,
+            request_id,
+            message,
+            backtrace = %backtrace_str.as_deref().unwrap_or("none"),
+            "error_reported"
+        ),
+        "warning" => tracing::warn!(
+            severity,
+            category,
+            request_id,
+            message,
+            "error_reported"
+        ),
         _ => tracing::info!(severity, category, request_id, message, "error_reported"),
     }
 }

@@ -6,7 +6,7 @@ use std::time::Instant;
 pub async fn run(
     query: &str,
     verified_only: bool,
-    network: Option<&String>,
+    networks: Option<&String>,
     category: Option<&String>,
     sort: Option<&String>,
     limit: usize,
@@ -20,7 +20,6 @@ pub async fn run(
     let client = crate::net::client();
     let mut all_contracts: Vec<Contract> = client.get(&url).send_with_retry().await?.json().await?;
 
-    // Full-text search match against query string
     let q = query.to_lowercase();
     all_contracts.retain(|c| {
         c.name.to_lowercase().contains(&q)
@@ -31,13 +30,14 @@ pub async fn run(
                 .contains(&q)
     });
 
-    // Network Filter execution
-    if let Some(network_filter) = network {
-        all_contracts
-            .retain(|c| format!("{:?}", c.network).to_lowercase() == network_filter.to_lowercase());
+    if let Some(nets) = networks {
+        let network_list: Vec<&str> = nets.split(',').map(|s| s.trim()).collect();
+        all_contracts.retain(|c| {
+            let net_str = format!("{:?}", c.network).to_lowercase();
+            network_list.iter().any(|n| n.to_lowercase() == net_str)
+        });
     }
 
-    // Category Filter execution
     if let Some(category_filter) = category {
         all_contracts.retain(|c| {
             c.category
@@ -47,12 +47,10 @@ pub async fn run(
         });
     }
 
-    // Verification filtering matching the backend model boolean field (is_verified)
     if verified_only {
         all_contracts.retain(|c| c.is_verified);
     }
 
-    // Sorting options matching choices
     let sort_mode = sort.map(|s| s.as_str()).unwrap_or("relevance");
     match sort_mode {
         "updated" => all_contracts.sort_by(|a, b| b.updated_at.cmp(&a.updated_at)),
@@ -68,7 +66,6 @@ pub async fn run(
         }
     }
 
-    // Applying Offset and Limit layout constraints safely
     if offset < all_contracts.len() {
         all_contracts = all_contracts.split_off(offset);
     } else {
@@ -77,7 +74,6 @@ pub async fn run(
     all_contracts.truncate(limit);
     let elapsed = start.elapsed();
 
-    // Handle JSON format request option
     if output_json {
         let contracts: Vec<serde_json::Value> = all_contracts
             .iter()
@@ -117,6 +113,20 @@ pub async fn run(
         all_contracts.len().to_string().green().bold(),
         elapsed.as_millis()
     );
+
+    let mut filters: Vec<String> = Vec::new();
+    if let Some(nets) = networks {
+        filters.push(format!("networks: {}", nets));
+    }
+    if let Some(cat) = category {
+        filters.push(format!("category: {}", cat));
+    }
+    if verified_only {
+        filters.push("verified".to_string());
+    }
+    if !filters.is_empty() {
+        println!("  {}\n", filters.join(" | ").bright_blue());
+    }
 
     for contract in &all_contracts {
         let highlighted_name = highlight_match(&contract.name, query);
@@ -165,4 +175,35 @@ fn highlight_match(text: &str, query: &str) -> String {
     }
     result.push_str(&text[last..]);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn parse_multiple_networks_comma_separated() {
+        let input = "testnet,mainnet,futurenet";
+        let networks: Vec<&str> = input.split(',').map(|s| s.trim()).collect();
+        assert_eq!(networks.len(), 3);
+        assert!(networks.contains(&"testnet"));
+        assert!(networks.contains(&"mainnet"));
+        assert!(networks.contains(&"futurenet"));
+    }
+
+    #[test]
+    fn parse_single_network() {
+        let input = "testnet";
+        let networks: Vec<&str> = input.split(',').map(|s| s.trim()).collect();
+        assert_eq!(networks.len(), 1);
+        assert_eq!(networks[0], "testnet");
+    }
+
+    #[test]
+    fn parse_networks_with_spaces() {
+        let input = "testnet, mainnet , futurenet";
+        let networks: Vec<&str> = input.split(',').map(|s| s.trim()).collect();
+        assert_eq!(networks.len(), 3);
+        assert_eq!(networks[0], "testnet");
+        assert_eq!(networks[1], "mainnet");
+        assert_eq!(networks[2], "futurenet");
+    }
 }

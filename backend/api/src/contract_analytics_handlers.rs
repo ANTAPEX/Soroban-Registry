@@ -22,7 +22,7 @@ pub struct ContractAnalyticsQuery {
     pub until: Option<NaiveDate>,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ContractAnalyticsResponse {
     pub since: NaiveDate,
     pub until: NaiveDate,
@@ -41,7 +41,7 @@ pub struct ContractAnalyticsResponse {
     pub cached: bool,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct GrowthMetrics {
     pub current_period_contracts: i64,
     pub previous_period_contracts: i64,
@@ -53,7 +53,7 @@ pub struct GrowthMetrics {
     pub deployment_growth_rate: f64,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NetworkBreakdownEntry {
     pub network: String,
     pub contract_count: i64,
@@ -63,7 +63,7 @@ pub struct NetworkBreakdownEntry {
     pub contract_growth_rate: f64,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NetworkStatsEntry {
     pub network: String,
     pub active_contracts: i64,
@@ -71,7 +71,7 @@ pub struct NetworkStatsEntry {
     pub total_interactions: i64,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CategoryBreakdownEntry {
     pub category: String,
     pub contract_count: i64,
@@ -81,13 +81,13 @@ pub struct CategoryBreakdownEntry {
     pub contract_growth_rate: f64,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NewContractSeriesPoint {
     pub date: NaiveDate,
     pub count: i64,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct PopularContractEntry {
     pub id: Uuid,
     pub contract_id: String,
@@ -265,8 +265,8 @@ pub async fn get_contract_analytics(
         previous_period_contracts: previous_contracts,
         contract_growth: current_contracts - previous_contracts,
         contract_growth_rate: growth_rate(current_contracts, previous_contracts),
-        current_period_deployments,
-        previous_period_deployments,
+        current_period_deployments: current_deployments,
+        previous_period_deployments: previous_deployments,
         deployment_growth: current_deployments - previous_deployments,
         deployment_growth_rate: growth_rate(current_deployments, previous_deployments),
     };
@@ -309,7 +309,7 @@ pub async fn get_contract_analytics(
 
     let mut previous_network_counts = HashMap::new();
     for row in previous_network_rows {
-        previous_network_counts.insert(row.network, row);
+        previous_network_counts.insert(row.network.clone(), row);
     }
 
     let by_network = current_network_rows

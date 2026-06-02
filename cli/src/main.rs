@@ -2037,7 +2037,7 @@ pub async fn dispatch_command(
             )
             .await?;
         }
-       Commands::Search {
+        Commands::Search {
     query,
     verified_only,
     network,

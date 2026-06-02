@@ -624,3 +624,4 @@ network = "testnet"
         assert_eq!(defaults.network.unwrap(), "futurenet");
     }
 }
+// TODO: migrated auth

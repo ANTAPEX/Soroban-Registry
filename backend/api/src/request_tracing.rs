@@ -513,7 +513,7 @@ pub fn init_json_tracing() {
             .with_trace_config(trace_config)
             .with_exporter(
                 opentelemetry_otlp::new_exporter()
-                    .tonic()
+                    .http()
                     .with_endpoint(endpoint),
             )
             .install_batch(opentelemetry_sdk::runtime::Tokio)

@@ -1,5 +1,6 @@
 pub mod abi;
 pub mod error;
+pub mod logging;
 pub mod models;
 pub mod pagination;
 pub mod semver;

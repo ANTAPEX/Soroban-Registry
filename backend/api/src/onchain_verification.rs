@@ -53,10 +53,16 @@ pub enum OnChainFailureReason {
 impl std::fmt::Display for OnChainFailureReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ContractNotOnChain { contract_id, network, .. } => {
+            Self::ContractNotOnChain {
+                contract_id,
+                network,
+                ..
+            } => {
                 write!(f, "contract {contract_id} not found on {network}")
             }
-            Self::WasmHashMismatch { stored, on_chain, .. } => {
+            Self::WasmHashMismatch {
+                stored, on_chain, ..
+            } => {
                 write!(f, "wasm hash mismatch: stored={stored} on_chain={on_chain}")
             }
             Self::AbiMismatch { detail } => write!(f, "abi mismatch: {detail}"),
@@ -166,7 +172,7 @@ impl OnChainVerifier {
         if let Some(cached) = cache.get_verification(&cache_key).await {
             let mut parsed: OnChainVerificationResult =
                 serde_json::from_str(&cached).map_err(|e| {
-                    RegistryError::Internal(format!(
+                    RegistryError::internal(format!(
                         "Failed to decode cached verification result: {}",
                         e
                     ))
@@ -218,7 +224,7 @@ impl OnChainVerifier {
                     .put_verification(
                         &cache_key,
                         serde_json::to_string(&result).map_err(|e| {
-                            RegistryError::Internal(format!(
+                            RegistryError::internal(format!(
                                 "Failed to encode verification cache entry: {}",
                                 e
                             ))
@@ -360,7 +366,7 @@ impl OnChainVerifier {
             .put_verification(
                 &cache_key,
                 serde_json::to_string(&result).map_err(|e| {
-                    RegistryError::Internal(format!(
+                    RegistryError::internal(format!(
                         "Failed to encode verification cache entry: {}",
                         e
                     ))
@@ -394,24 +400,24 @@ impl OnChainVerifier {
 
         let ledger_entry =
             LedgerEntry::from_xdr_base64(&entry.xdr, Limits::none()).map_err(|e| {
-                RegistryError::StellarRpc(format!("Failed to decode contract ledger entry: {}", e))
+                RegistryError::stellar_rpc(format!("Failed to decode contract ledger entry: {}", e))
             })?;
 
         let LedgerEntryData::ContractData(contract_data) = ledger_entry.data else {
-            return Err(RegistryError::StellarRpc(
+            return Err(RegistryError::stellar_rpc(
                 "Unexpected ledger entry type for contract instance".to_string(),
             ));
         };
 
         let ScVal::ContractInstance(instance) = contract_data.val else {
-            return Err(RegistryError::StellarRpc(
+            return Err(RegistryError::stellar_rpc(
                 "Contract instance ledger entry did not contain a contract instance value"
                     .to_string(),
             ));
         };
 
         let ContractExecutable::Wasm(hash) = instance.executable.clone() else {
-            return Err(RegistryError::StellarRpc(
+            return Err(RegistryError::stellar_rpc(
                 "Contract executable is not a WASM contract".to_string(),
             ));
         };
@@ -442,14 +448,14 @@ impl OnChainVerifier {
 
         let ledger_entry =
             LedgerEntry::from_xdr_base64(&entry.xdr, Limits::none()).map_err(|e| {
-                RegistryError::StellarRpc(format!(
+                RegistryError::stellar_rpc(format!(
                     "Failed to decode contract code ledger entry: {}",
                     e
                 ))
             })?;
         let LedgerEntryData::ContractCode(ContractCodeEntry { code, .. }) = ledger_entry.data
         else {
-            return Err(RegistryError::StellarRpc(
+            return Err(RegistryError::stellar_rpc(
                 "Unexpected ledger entry type for contract code".to_string(),
             ));
         };
@@ -509,7 +515,7 @@ impl OnChainVerifier {
                     })
                     .count();
                 if count == 0 {
-                    return Err(RegistryError::StellarRpc(format!(
+                    return Err(RegistryError::stellar_rpc(format!(
                         "event lookup failed ({}); transaction fallback found no recent calls",
                         events_err
                     )));
@@ -556,7 +562,7 @@ impl OnChainVerifier {
                 Ok(response) => {
                     let status = response.status();
                     let value: RpcEnvelope<T> = response.json().await.map_err(|e| {
-                        RegistryError::StellarRpc(format!(
+                        RegistryError::stellar_rpc(format!(
                             "Failed to parse {} response: {}",
                             method, e
                         ))
@@ -571,7 +577,7 @@ impl OnChainVerifier {
                         .map(|err| err.message)
                         .unwrap_or_else(|| format!("HTTP {} returned an empty error body", status));
                     if attempt + 1 >= config.max_retries {
-                        return Err(RegistryError::StellarRpc(format!(
+                        return Err(RegistryError::stellar_rpc(format!(
                             "{} failed after {} attempts: {}",
                             method,
                             attempt + 1,
@@ -582,7 +588,7 @@ impl OnChainVerifier {
                 }
                 Err(err) => {
                     if attempt + 1 >= config.max_retries {
-                        return Err(RegistryError::StellarRpc(format!(
+                        return Err(RegistryError::stellar_rpc(format!(
                             "{} network request failed after {} attempts: {}",
                             method,
                             attempt + 1,
@@ -596,7 +602,7 @@ impl OnChainVerifier {
             delay_ms = (delay_ms * 2).min(2_000);
         }
 
-        Err(RegistryError::StellarRpc(format!(
+        Err(RegistryError::stellar_rpc(format!(
             "{} failed without returning a result",
             method
         )))
@@ -611,20 +617,20 @@ fn build_contract_instance_ledger_key(contract_id: &str) -> Result<String, Regis
         durability: ContractDataDurability::Persistent,
     });
     key.to_xdr_base64(Limits::none()).map_err(|e| {
-        RegistryError::Internal(format!("Failed to encode contract ledger key: {}", e))
+        RegistryError::internal(format!("Failed to encode contract ledger key: {}", e))
     })
 }
 
 fn build_contract_code_ledger_key(wasm_hash: &str) -> Result<String, RegistryError> {
     let normalized = verifier::normalize_hash(wasm_hash)
-        .ok_or_else(|| RegistryError::InvalidInput("Invalid on-chain wasm hash".to_string()))?;
+        .ok_or_else(|| RegistryError::invalid_input("Invalid on-chain wasm hash".to_string()))?;
     let bytes = hex::decode(normalized)
-        .map_err(|e| RegistryError::InvalidInput(format!("Invalid wasm hash hex: {}", e)))?;
+        .map_err(|e| RegistryError::invalid_input(format!("Invalid wasm hash hex: {}", e)))?;
     let mut hash = [0_u8; 32];
     hash.copy_from_slice(&bytes);
     let key = LedgerKey::ContractCode(LedgerKeyContractCode { hash: Hash(hash) });
     key.to_xdr_base64(Limits::none())
-        .map_err(|e| RegistryError::Internal(format!("Failed to encode contract code key: {}", e)))
+        .map_err(|e| RegistryError::internal(format!("Failed to encode contract code key: {}", e)))
 }
 
 fn extract_function_names_from_wasm(wasm_bytes: &[u8]) -> HashSet<String> {
@@ -637,10 +643,10 @@ fn extract_function_names_from_wasm(wasm_bytes: &[u8]) -> HashSet<String> {
 
 fn parse_contract_strkey(contract_id: &str) -> Result<ContractStrkey, RegistryError> {
     match Strkey::from_string(contract_id)
-        .map_err(|e| RegistryError::InvalidInput(format!("Invalid contract address: {}", e)))?
+        .map_err(|e| RegistryError::invalid_input(format!("Invalid contract address: {}", e)))?
     {
         Strkey::Contract(contract) => Ok(contract),
-        _ => Err(RegistryError::InvalidInput(
+        _ => Err(RegistryError::invalid_input(
             "contract_id must be a Stellar contract address".to_string(),
         )),
     }
@@ -724,7 +730,8 @@ mod tests {
             visibility: shared::VisibilityType::Public,
             current_version: None,
             usage_count: 0,
-        };
+        }
+    }
 
     #[test]
     fn code_key_requires_valid_hash() {

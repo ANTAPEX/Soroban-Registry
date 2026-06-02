@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import { pool } from "./db.js";
+import { logger } from "./logger.js";
 
 const TRENDING_SPIKE_FACTOR = 2;
 
@@ -54,7 +55,7 @@ async function updateTrendingAnalytics(): Promise<void> {
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("trending analytics update failed:", err);
+    logger.error({ err }, "trending analytics update failed");
   } finally {
     client.release();
   }
@@ -62,6 +63,8 @@ async function updateTrendingAnalytics(): Promise<void> {
 
 export function startCronJobs(): void {
   cron.schedule("0 * * * *", () => {
-    updateTrendingAnalytics().catch(console.error);
+    updateTrendingAnalytics().catch((err) => {
+      logger.error({ err }, "cron job updateTrendingAnalytics failed");
+    });
   });
 }

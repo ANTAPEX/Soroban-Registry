@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -191,6 +191,7 @@ async fn fetch_all_contracts(
     filter: Option<&str>,
 ) -> Result<Vec<Value>> {
     let mut contracts = Vec::new();
+    let mut seen = HashSet::new();
     let mut offset = 0;
     let page_size = 50;
 
@@ -211,22 +212,94 @@ async fn fetch_all_contracts(
         let response = client.get(url).send().await?;
         let page: Value = response.error_for_status()?.json().await?;
 
-        let items = page
-            .get("items")
-            .and_then(Value::as_array)
-            .or_else(|| page.get("contracts").and_then(Value::as_array))
-            .cloned()
-            .unwrap_or_default();
+        let items = page_items(&page);
+        let has_more = page_has_more(&page).ok_or_else(|| {
+            anyhow::anyhow!(
+                "batch export response missing pagination continuation flag (expected has_more, hasMore, or pagination.has_more)"
+            )
+        })?;
 
-        if items.is_empty() {
+        if items.is_empty() && has_more {
+            anyhow::bail!(
+                "batch export pagination returned no contracts while indicating more records at offset {}",
+                offset
+            );
+        }
+
+        extend_unique_contracts(&mut contracts, &mut seen, items);
+
+        if !has_more {
             break;
         }
 
-        contracts.extend(items);
-        offset += page_size;
+        offset = page_next_offset(&page).unwrap_or(offset + page_size);
     }
 
     Ok(contracts)
+}
+
+fn page_items(page: &Value) -> Vec<Value> {
+    page.get("items")
+        .and_then(Value::as_array)
+        .or_else(|| page.get("contracts").and_then(Value::as_array))
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn page_has_more(page: &Value) -> Option<bool> {
+    page.get("has_more")
+        .and_then(Value::as_bool)
+        .or_else(|| page.get("hasMore").and_then(Value::as_bool))
+        .or_else(|| {
+            page.get("pagination")
+                .and_then(|p| p.get("has_more"))
+                .and_then(Value::as_bool)
+        })
+        .or_else(|| {
+            page.get("pagination")
+                .and_then(|p| p.get("hasMore"))
+                .and_then(Value::as_bool)
+        })
+}
+
+fn page_next_offset(page: &Value) -> Option<usize> {
+    page.get("next_offset")
+        .and_then(Value::as_u64)
+        .or_else(|| page.get("nextOffset").and_then(Value::as_u64))
+        .or_else(|| {
+            page.get("pagination")
+                .and_then(|p| p.get("next_offset"))
+                .and_then(Value::as_u64)
+        })
+        .or_else(|| {
+            page.get("pagination")
+                .and_then(|p| p.get("nextOffset"))
+                .and_then(Value::as_u64)
+        })
+        .map(|n| n as usize)
+}
+
+fn contract_key(contract: &Value) -> Option<String> {
+    contract
+        .get("id")
+        .and_then(Value::as_str)
+        .or_else(|| contract.get("contract_id").and_then(Value::as_str))
+        .map(str::to_string)
+}
+
+fn extend_unique_contracts(
+    contracts: &mut Vec<Value>,
+    seen: &mut HashSet<String>,
+    items: Vec<Value>,
+) {
+    for item in items {
+        if let Some(key) = contract_key(&item) {
+            if !seen.insert(key) {
+                continue;
+            }
+        }
+        contracts.push(item);
+    }
 }
 
 fn parse_filter(filter: &str) -> Result<Vec<(String, String)>> {
@@ -283,6 +356,53 @@ fn create_archive(output_dir: &str, _results: &[ExportResult], json_out: bool) -
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_final_page_stops_only_on_backend_signal() {
+        let page = serde_json::json!({
+            "items": [{"id": "c1"}, {"id": "c2"}],
+            "has_more": false
+        });
+
+        assert_eq!(page_items(&page).len(), 2);
+        assert_eq!(page_has_more(&page), Some(false));
+    }
+
+    #[test]
+    fn nested_pagination_signal_is_supported() {
+        let page = serde_json::json!({
+            "contracts": [{"contract_id": "c1"}],
+            "pagination": {
+                "has_more": true,
+                "next_offset": 1
+            }
+        });
+
+        assert_eq!(page_has_more(&page), Some(true));
+        assert_eq!(page_next_offset(&page), Some(1));
+    }
+
+    #[test]
+    fn duplicate_contracts_are_added_once() {
+        let mut contracts = Vec::new();
+        let mut seen = HashSet::new();
+        extend_unique_contracts(
+            &mut contracts,
+            &mut seen,
+            vec![
+                serde_json::json!({"id": "c1"}),
+                serde_json::json!({"id": "c1"}),
+                serde_json::json!({"contract_id": "c2"}),
+            ],
+        );
+
+        assert_eq!(contracts.len(), 2);
+    }
 }
 
 fn walk_dir_and_add<W: std::io::Write>(

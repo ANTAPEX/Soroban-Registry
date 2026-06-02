@@ -2204,7 +2204,10 @@ pub async fn list_contracts(
         let categories = params.categories.clone().filter(|c| !c.is_empty());
         let tags = params.tags.clone().filter(|t| !t.is_empty());
         let verified_only = params.verified_only;
-        let verification_status = params.verification_status.as_ref().map(|s| s.to_string());
+        let verification_status = params
+            .verification_status
+            .as_ref()
+            .map(|s| format!("{s:?}").to_lowercase());
 
         let filters = shared::SearchFilterMetadata {
             networks,
@@ -2404,6 +2407,7 @@ fn contract_export_response(
 ) -> Response {
     let content_type = match format {
         ContractExportFormat::Json => "application/json; charset=utf-8",
+        ContractExportFormat::Jsonl => "application/x-ndjson; charset=utf-8",
         ContractExportFormat::Yaml => "application/yaml; charset=utf-8",
         ContractExportFormat::Csv => "text/csv; charset=utf-8",
     };
@@ -3000,7 +3004,10 @@ pub async fn get_contract(
                 state.cache.put_contract_meta(key, serialized.clone()).await;
                 // Also cache by the canonical contract_id string so both UUID and slug lookups hit
                 if key != &contract.contract_id {
-                    state.cache.put_contract_meta(&contract.contract_id, serialized).await;
+                    state
+                        .cache
+                        .put_contract_meta(&contract.contract_id, serialized)
+                        .await;
                 }
             }
         }
@@ -3483,7 +3490,10 @@ pub async fn revert_contract_version(
     state.cache.invalidate_abi(&contract_uuid.to_string()).await;
     state.cache.invalidate_contracts().await;
     state.cache.invalidate_contract_meta(&contract_id).await;
-    state.cache.invalidate_contract_meta(&contract_uuid.to_string()).await;
+    state
+        .cache
+        .invalidate_contract_meta(&contract_uuid.to_string())
+        .await;
 
     Ok(Json(version_row))
 }
@@ -4231,7 +4241,10 @@ pub async fn create_contract_version(
         .invalidate_abi(&format!("{}@{}", contract_id, req.version))
         .await;
     state.cache.invalidate_contract_meta(&contract_id).await;
-    state.cache.invalidate_contract_meta(&contract_uuid.to_string()).await;
+    state
+        .cache
+        .invalidate_contract_meta(&contract_uuid.to_string())
+        .await;
 
     // Store differential patch for the new version (Issue #501).
     let new_snapshot = crate::patch_handlers::VersionSnapshot {
@@ -4512,6 +4525,18 @@ pub async fn publish_contract(
         .fetch_one(&state.db)
         .await
         .map_err(|err| db_internal_error("fetch contract after insert", err))?;
+
+    // Backfill contract metadata cache for immediate reads
+    if let Ok(contract_json) = serde_json::to_string(&contract) {
+        let _ = state
+            .cache
+            .put_contract_meta(&contract.contract_id, contract_json.clone())
+            .await;
+        let _ = state
+            .cache
+            .put_contract_meta(&contract.id.to_string(), contract_json)
+            .await;
+    }
 
     // Save dependencies if provided
     if !req.dependencies.is_empty() {
@@ -5942,8 +5967,14 @@ pub async fn update_contract_metadata(
     }
 
     state.cache.invalidate_contracts().await;
-    state.cache.invalidate_contract_meta(&after.contract_id).await;
-    state.cache.invalidate_contract_meta(&after.id.to_string()).await;
+    state
+        .cache
+        .invalidate_contract_meta(&after.contract_id)
+        .await;
+    state
+        .cache
+        .invalidate_contract_meta(&after.id.to_string())
+        .await;
 
     // Increment usage counter asynchronously (fire-and-forget)
     // Failures are logged but never block the main request
@@ -6759,6 +6790,154 @@ pub async fn get_all_audit_logs(
     .map_err(|err| db_internal_error("fetch all audit logs", err))?;
 
     Ok(Json(logs))
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+pub struct AuditQueryParams {
+    pub page: Option<i64>,
+    pub per_page: Option<i64>,
+    pub since: Option<String>,
+    pub until: Option<String>,
+    pub sort_by: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/contracts/{id}/audits",
+    params(
+        ("id" = String, Path, description = "Contract UUID or Stellar ID"),
+        AuditQueryParams
+    ),
+    responses(
+        (status = 200, description = "Paginated audit results", body = PaginatedAuditsResponse),
+        (status = 404, description = "Contract not found"),
+        (status = 400, description = "Invalid parameters")
+    ),
+    tag = "Contracts"
+)]
+pub async fn get_contract_audits(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(params): Query<AuditQueryParams>,
+) -> ApiResult<Json<shared::PaginatedAuditsResponse>> {
+    let contract_id = resolve_contract_id(&state, &id).await?;
+
+    let page = params.page.unwrap_or(1).max(1);
+    let per_page = params.per_page.unwrap_or(10).clamp(1, 100);
+    let offset = (page - 1) * per_page;
+
+    let since_dt = params.since.as_deref().and_then(parse_datetime);
+    let until_dt = params.until.as_deref().and_then(parse_datetime);
+
+    let rows: Vec<(Uuid, i32, i32, i32, i32, i32, Option<DateTime<Utc>>)> = sqlx::query_as(
+        "SELECT id, total_issues, critical_issues, high_issues, medium_issues, low_issues, completed_at
+         FROM security_scans
+         WHERE contract_id = $1 AND completed_at IS NOT NULL
+         AND (($2::timestamptz IS NULL) OR (completed_at >= $2))
+         AND (($3::timestamptz IS NULL) OR (completed_at <= $3))
+         ORDER BY completed_at DESC LIMIT $4 OFFSET $5"
+    )
+    .bind(contract_id)
+    .bind(since_dt)
+    .bind(until_dt)
+    .bind(per_page)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| db_internal_error("fetch audits", e))?;
+
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM security_scans 
+         WHERE contract_id = $1 AND completed_at IS NOT NULL
+         AND (($2::timestamptz IS NULL) OR (completed_at >= $2))
+         AND (($3::timestamptz IS NULL) OR (completed_at <= $3))",
+    )
+    .bind(contract_id)
+    .bind(since_dt)
+    .bind(until_dt)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    let audits = rows
+        .into_iter()
+        .map(|(scan_id, total, crit, high, med, low, completed_at)| {
+            let status = if crit > 0 {
+                shared::AuditScanStatus::Failed
+            } else if high > 0 || med > 0 {
+                shared::AuditScanStatus::Issues
+            } else {
+                shared::AuditScanStatus::Passed
+            };
+
+            let mut findings = vec![];
+            [
+                (crit, "critical"),
+                (high, "high"),
+                (med, "medium"),
+                (low, "low"),
+            ]
+            .iter()
+            .filter(|(count, _)| *count > 0)
+            .for_each(|(count, sev)| {
+                findings.push(shared::ContractAuditFinding {
+                    severity: sev.to_string(),
+                    count: *count,
+                });
+            });
+
+            shared::ContractAuditResponse {
+                id: scan_id,
+                contract_id,
+                audit_type: shared::AuditType::Informal,
+                status,
+                auditor: Some("Automated Security Scanner".to_string()),
+                audit_date: completed_at.unwrap_or_else(Utc::now),
+                findings_summary: findings,
+                total_issues: total,
+                report_url: Some(format!(
+                    "/api/v1/contracts/{}/audits/{}",
+                    contract_id, scan_id
+                )),
+            }
+        })
+        .collect();
+
+    Ok(Json(shared::PaginatedAuditsResponse {
+        audits,
+        total,
+        page,
+        per_page,
+    }))
+}
+
+fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
+    chrono::DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+async fn resolve_contract_id(state: &AppState, id: &str) -> ApiResult<Uuid> {
+    if let Ok(uuid) = Uuid::parse_str(id) {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM contracts WHERE id = $1)")
+                .bind(uuid)
+                .fetch_one(&state.db)
+                .await
+                .map_err(|e| db_internal_error("check contract", e))?;
+        return if exists {
+            Ok(uuid)
+        } else {
+            Err(ApiError::not_found("contract", "Contract not found"))
+        };
+    }
+
+    sqlx::query_scalar::<_, Uuid>("SELECT id FROM contracts WHERE contract_id = $1 LIMIT 1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| db_internal_error("resolve contract", e))?
+        .ok_or_else(|| ApiError::not_found("contract", "Contract not found"))
 }
 
 #[utoipa::path(
@@ -7809,6 +7988,30 @@ mod tests {
             data_lines.is_empty(),
             "empty csv export should have no data rows, found: {data_lines:?}"
         );
+    }
+
+    #[test]
+    fn parse_datetime_rfc3339_format() {
+        let dt_str = "2024-01-15T10:30:00Z";
+        let parsed = parse_datetime(dt_str);
+        assert!(parsed.is_some());
+        let dt = parsed.unwrap();
+        assert_eq!(dt.year(), 2024);
+        assert_eq!(dt.month(), 1);
+        assert_eq!(dt.day(), 15);
+    }
+
+    #[test]
+    fn parse_datetime_invalid_format_returns_none() {
+        let dt_str = "2024-01-15 invalid";
+        let parsed = parse_datetime(dt_str);
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn parse_datetime_empty_string_returns_none() {
+        let parsed = parse_datetime("");
+        assert!(parsed.is_none());
     }
 }
 

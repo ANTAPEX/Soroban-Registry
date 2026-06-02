@@ -1,5 +1,11 @@
 use crate::validation::extractors::ValidatedJson;
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
+use chrono::Utc;
 use futures_util::stream::{self, StreamExt};
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};
@@ -301,8 +307,10 @@ async fn run_single_item(
         _ => true, // no source provided — skip source check
     };
 
-    let verified =
-        on_chain.contract_exists_on_chain && on_chain.wasm_hash_matches && on_chain.abi_valid && source_ok;
+    let verified = on_chain.contract_exists_on_chain
+        && on_chain.wasm_hash_matches
+        && on_chain.abi_valid
+        && source_ok;
 
     let failure_summary = if !verified {
         let reasons: Vec<String> = on_chain

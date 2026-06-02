@@ -4,6 +4,7 @@ pub mod engine;
 // Compiles source code and compares with on-chain bytecode
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use shared::RegistryError;
@@ -72,13 +73,13 @@ pub async fn verify_contract(
     build_params: Option<&Value>,
 ) -> Result<VerificationResult, RegistryError> {
     if source_code.trim().is_empty() {
-        return Err(RegistryError::InvalidInput(
+        return Err(RegistryError::invalid_input(
             "source_code cannot be empty".to_string(),
         ));
     }
 
     let deployed_normalized = normalize_hash(deployed_wasm_hash).ok_or_else(|| {
-        RegistryError::InvalidInput("deployed_wasm_hash must be a 64-char hex hash".to_string())
+        RegistryError::invalid_input("deployed_wasm_hash must be a 64-char hex hash".to_string())
     })?;
 
     tracing::info!(
@@ -131,12 +132,12 @@ pub async fn compile_contract(
 ) -> Result<Vec<u8>, RegistryError> {
     if let Some(encoded) = source_code.trim().strip_prefix("wasm_base64:") {
         return BASE64.decode(encoded.trim()).map_err(|e| {
-            RegistryError::InvalidInput(format!("Invalid wasm_base64 payload: {}", e))
+            RegistryError::invalid_input(format!("Invalid wasm_base64 payload: {}", e))
         });
     }
 
     let temp_dir = TempDir::new()
-        .map_err(|e| RegistryError::Internal(format!("Failed to create temp dir: {}", e)))?;
+        .map_err(|e| RegistryError::internal(format!("Failed to create temp dir: {}", e)))?;
     bootstrap_project(temp_dir.path(), source_code, compiler_version).await?;
 
     let mut command = Command::new("cargo");
@@ -155,8 +156,8 @@ pub async fn compile_contract(
 
     let output = timeout(BUILD_TIMEOUT, command.output())
         .await
-        .map_err(|_| RegistryError::VerificationFailed("Compilation timed out".to_string()))?
-        .map_err(|e| RegistryError::Internal(format!("Failed to execute cargo build: {}", e)))?;
+        .map_err(|_| RegistryError::verification_failed("Compilation timed out".to_string()))?
+        .map_err(|e| RegistryError::internal(format!("Failed to execute cargo build: {}", e)))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -166,7 +167,7 @@ pub async fn compile_contract(
             truncate_for_error(&stdout),
             truncate_for_error(&stderr)
         );
-        return Err(RegistryError::VerificationFailed(details));
+        return Err(RegistryError::verification_failed(details));
     }
 
     let wasm_path = temp_dir
@@ -191,7 +192,7 @@ pub async fn compile_contract(
                 }
             }
         }
-        return Err(RegistryError::Internal(
+        return Err(RegistryError::internal(
             "No WASM file found after build".to_string(),
         ));
     }

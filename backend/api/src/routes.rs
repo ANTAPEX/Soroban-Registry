@@ -1,26 +1,29 @@
 #[cfg(feature = "openapi")]
 use crate::openapi;
 use crate::{
-    ab_test_handlers, abi_versioning_handlers, ai::handlers as ai_handlers, analytics_handlers,
-    archival, auth, auth_handlers, batch_verify_handlers, breaking_changes, bulk_operations_handlers,
-    canary_handlers, category_handlers, client_observability_handlers, clone_federation_handlers,
-    collaborative_reviews, compatibility_testing_handlers, contract_events,
-    contract_stats_handlers, contributor_handlers, custom_metrics_handlers, dependency_handlers,
-    deprecated_contracts_handlers, deprecation_handlers, error_logging,
-    feature_flags, formal_verification_handlers, gas_estimation_handlers,
-    governance_handlers, graph_analysis_handlers, handlers, interoperability_handlers,
-    marketplace::{license_handlers as mp_license, metering as mp_metering,
-                  pricing_handlers as mp_pricing, stripe_handlers as mp_stripe,
-                  usdc_handlers as mp_usdc},
-    db_pool, elasticsearch_handlers, integrity, metrics_handler, migration_handlers, mutation_testing_handlers,
-    org_handlers, partition_manager, patch_handlers, performance_handlers,
-    plugin_marketplace_handlers, publisher_verification_handlers, query_analysis, query_monitor,
-    recommendation_handlers, report_handlers, resource_handlers, search_postgres,
-    security_scan_handlers, signature_verification, similarity_handlers, simulation_handlers,
+    ab_test_handlers, abi_versioning_handlers,
+    ai::handlers as ai_handlers,
+    analytics_handlers, archival, auth, auth_handlers, batch_verify_handlers, breaking_changes,
+    bulk_operations_handlers, canary_handlers, category_handlers, client_observability_handlers,
+    clone_federation_handlers, collaborative_reviews, compatibility_testing_handlers,
+    contract_events, contract_stats_handlers, contributor_handlers, custom_metrics_handlers,
+    db_pool, dependency_handlers, deprecated_contracts_handlers, deprecation_handlers,
+    elasticsearch_handlers, error_logging, feature_flags, formal_verification_handlers,
+    formal_verification_integration, gas_estimation_handlers, governance_handlers,
+    graph_analysis_handlers, handlers, integrity, interoperability_handlers,
+    marketplace::{
+        license_handlers as mp_license, metering as mp_metering, pricing_handlers as mp_pricing,
+        stripe_handlers as mp_stripe, usdc_handlers as mp_usdc,
+    },
+    metrics_handler, migration_handlers, mutation_testing_handlers, org_handlers,
+    partition_manager, patch_handlers, performance_handlers, plugin_marketplace_handlers,
+    publisher_verification_handlers, query_analysis, query_monitor, recommendation_handlers,
+    report_handlers, resource_handlers, search_postgres, security_scan_handlers,
+    signature_verification, similarity_handlers, simulation_handlers,
     state::AppState,
     state_monitor::handlers as state_monitor_handlers,
-    stats, subscription_handlers, v1_search_handlers, v1_similar_handlers, v1_trending_handlers,
-    verification_handlers, websocket, zk_proof_handlers,
+    stats, subscription_handlers, v1_contract_handlers, v1_search_handlers, v1_similar_handlers,
+    v1_trending_handlers, verification_handlers, websocket, zk_proof_handlers,
 };
 
 use axum::{
@@ -372,6 +375,14 @@ pub fn contract_routes() -> Router<AppState> {
             patch(handlers::update_contract_metadata),
         )
         .route(
+            "/api/v1/contracts/:id/metadata",
+            get(v1_contract_handlers::get_contract_metadata_v1),
+        )
+        .route(
+            "/api/v1/contracts/:id/vulnerability-assessment",
+            get(v1_contract_handlers::vulnerability_assessment_v1),
+        )
+        .route(
             "/api/contracts/:id/publisher",
             patch(handlers::change_contract_publisher),
         )
@@ -382,6 +393,10 @@ pub fn contract_routes() -> Router<AppState> {
         .route(
             "/api/contracts/:id/audit-log",
             get(handlers::get_contract_audit_log),
+        )
+        .route(
+            "/api/v1/contracts/:id/audits",
+            get(handlers::get_contract_audits),
         )
         .route(
             "/api/contracts/:id/abi",
@@ -600,6 +615,14 @@ pub fn contract_routes() -> Router<AppState> {
         .route(
             "/api/contracts/batch-verify",
             post(batch_verify_handlers::batch_verify_contracts),
+        )
+        .route(
+            "/api/v1/contracts/bulk-verify",
+            post(v1_contract_handlers::bulk_verify_v1),
+        )
+        .route(
+            "/api/v1/contracts/bulk-verify/jobs/:job_id",
+            get(v1_contract_handlers::get_bulk_verify_job_v1),
         )
         // Async batch verification job endpoints
         .route(
@@ -838,6 +861,7 @@ pub fn health_routes() -> Router<AppState> {
         .route("/health/live", get(handlers::health_check_live))
         .route("/health/ready", get(handlers::health_check_ready))
         .route("/health/detailed", get(handlers::health_check_detailed))
+        .route("/api/v1/health", get(v1_contract_handlers::health_v1))
         .route("/api/stats", get(stats::get_stats_handler))
         .route(
             "/api/v1/analytics/contracts",
@@ -1295,6 +1319,48 @@ pub fn formal_verification_routes() -> Router<AppState> {
             "/api/contracts/:id/formal-verification/:session_id",
             get(formal_verification_handlers::get_formal_verification_session),
         )
+        .merge(formal_verification_integration_routes())
+}
+
+/// Issue #889 — formal verification integration: pluggable backends, property
+/// config, optional/mandatory policy, timeout-aware runs, caching, reports.
+pub fn formal_verification_integration_routes() -> Router<AppState> {
+    Router::new()
+        // Per-contract run + profile integration.
+        .route(
+            "/api/contracts/:id/formal-verification/run",
+            post(formal_verification_integration::run_verification),
+        )
+        .route(
+            "/api/contracts/:id/formal-verification/runs",
+            get(formal_verification_integration::list_runs),
+        )
+        .route(
+            "/api/contracts/:id/formal-verification/runs/:run_id/report",
+            get(formal_verification_integration::get_report),
+        )
+        .route(
+            "/api/contracts/:id/formal-verification/summary",
+            get(formal_verification_integration::get_summary),
+        )
+        .route(
+            "/api/contracts/:id/formal-verification/requirement",
+            get(formal_verification_integration::get_requirement),
+        )
+        // Property configuration + per-category policy.
+        .route(
+            "/api/formal-verification/properties",
+            get(formal_verification_integration::list_properties)
+                .post(formal_verification_integration::upsert_property),
+        )
+        .route(
+            "/api/formal-verification/policies",
+            get(formal_verification_integration::list_policies),
+        )
+        .route(
+            "/api/formal-verification/policies/:category",
+            put(formal_verification_integration::set_policy),
+        )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1375,10 +1441,7 @@ pub fn collaborative_review_routes() -> Router<AppState> {
 
 pub fn query_monitor_routes() -> Router<AppState> {
     Router::new()
-        .route(
-            "/api/admin/db/pool-stats",
-            get(db_pool::get_pool_stats),
-        )
+        .route("/api/admin/db/pool-stats", get(db_pool::get_pool_stats))
         .route(
             "/api/admin/db/slow-queries",
             get(query_monitor::get_slow_queries),
@@ -1562,9 +1625,8 @@ pub fn discovery_reporting_routes() -> Router<AppState> {
 
 // ── Issue #1007: Backend feature flag management ───────────────────────────
 pub fn feature_flag_routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/api/feature-flags",
-            get(crate::feature_flags::get_flag_status_handler),
-        )
+    Router::new().route(
+        "/api/feature-flags",
+        get(crate::feature_flags::get_flag_status_handler),
+    )
 }
