@@ -324,7 +324,7 @@ fn prompt(label: &str, default: Option<String>) -> Result<String> {
 fn prompt_with_validation<F>(
     label: &str,
     default: Option<String>,
-    validate: F,
+    mut validate: F,
     error_msg: &str,
 ) -> Result<String>
 where

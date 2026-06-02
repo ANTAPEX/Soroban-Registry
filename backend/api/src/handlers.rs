@@ -10,7 +10,7 @@ use axum::{
 use serde_json::{json, Value};
 use shared::{
     Contract, ContractSearchParams, ContractVersion, CreateContractVersionRequest, PaginatedResponse, PublishRequest, Publisher,
-    SemVer,
+    SemVer, VerifyRequest,
 };
 use uuid::Uuid;
 
@@ -33,6 +33,17 @@ fn map_query_rejection(err: QueryRejection) -> ApiError {
     ApiError::bad_request("InvalidQuery", format!("Invalid query parameters: {}", err.body_text()))
 }
 
+#[utoipa::path(
+    get,
+    path = "/health",
+    summary = "Health check",
+    description = "Returns service uptime and database connectivity status.",
+    tag = "Health",
+    responses(
+        (status = 200, description = "Service healthy", body = Value),
+        (status = 503, description = "Service degraded", body = Value)
+    )
+)]
 pub async fn health_check(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
     let uptime = state.started_at.elapsed().as_secs();
     let now = chrono::Utc::now().to_rfc3339();
@@ -67,6 +78,21 @@ pub async fn health_check(State(state): State<AppState>) -> (StatusCode, Json<Va
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/stats",
+    summary = "Registry statistics",
+    description = "Returns aggregate counts and lightweight API version usage counters.",
+    tag = "System",
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Stats response", body = crate::openapi::StatsResponse),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_stats(State(state): State<AppState>) -> ApiResult<Json<Value>> {
     let total_contracts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contracts")
         .fetch_one(&state.db)
@@ -88,10 +114,28 @@ pub async fn get_stats(State(state): State<AppState>) -> ApiResult<Json<Value>> 
         "total_contracts": total_contracts,
         "verified_contracts": verified_contracts,
         "total_publishers": total_publishers,
+        "api_versions": state.api_version_metrics.snapshot(),
     })))
 }
 
 /// List and search contracts
+#[utoipa::path(
+    get,
+    path = "/contracts",
+    summary = "List contracts",
+    description = "Lists contracts with filtering, pagination and sorting.",
+    tag = "Contracts",
+    params(shared::ContractSearchParams),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Paginated contract list", body = crate::openapi::PaginatedContractsResponse),
+        (status = 400, description = "Invalid query", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn list_contracts(
     State(state): State<AppState>,
     params: Result<Query<ContractSearchParams>, QueryRejection>,
@@ -198,6 +242,26 @@ pub async fn list_contracts(
 }
 
 /// Get a specific contract by ID
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}",
+    summary = "Get contract",
+    description = "Fetches a contract by UUID.",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Contract", body = Contract),
+        (status = 400, description = "Invalid contract id", body = crate::openapi::ErrorBody),
+        (status = 404, description = "Not found", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_contract(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -224,6 +288,25 @@ pub async fn get_contract(
     Ok(Json(contract))
 }
 
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/versions",
+    summary = "List contract versions",
+    description = "Returns versions for a contract, ordered newest-first.",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Contract versions", body = [ContractVersion]),
+        (status = 400, description = "Invalid contract id", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_contract_versions(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -246,6 +329,28 @@ pub async fn get_contract_versions(
     Ok(Json(versions))
 }
 
+#[utoipa::path(
+    post,
+    path = "/contracts/{id}/versions",
+    summary = "Create contract version",
+    description = "Creates a new contract version and stores its ABI. Enforces semver major bump on breaking ABI changes.",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract UUID or contract_id")
+    ),
+    request_body = shared::CreateContractVersionRequest,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Created version", body = ContractVersion),
+        (status = 400, description = "Invalid input", body = crate::openapi::ErrorBody),
+        (status = 404, description = "Contract not found", body = crate::openapi::ErrorBody),
+        (status = 422, description = "Unprocessable request", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn create_contract_version(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -355,6 +460,19 @@ pub async fn create_contract_version(
         .await
         .map_err(|err| db_internal_error("commit contract version", err))?;
 
+    state
+        .webhook_dispatcher
+        .emit(
+            crate::webhooks::WebhookEventType::ContractUpdated,
+            Some(contract_id),
+            json!({
+                "contract_uuid": contract_uuid,
+                "version": version_row.version,
+                "wasm_hash": version_row.wasm_hash,
+            }),
+        )
+        .await;
+
     Ok(Json(version_row))
 }
 
@@ -381,6 +499,23 @@ async fn fetch_contract_identity(state: &AppState, id: &str) -> ApiResult<(Uuid,
     row.ok_or_else(|| ApiError::not_found("ContractNotFound", format!("No contract found with ID: {}", id)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/contracts",
+    summary = "Publish contract",
+    description = "Registers a contract and its publisher in the registry.",
+    tag = "Contracts",
+    request_body = shared::PublishRequest,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Created contract", body = Contract),
+        (status = 400, description = "Invalid request", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn publish_contract(
     State(state): State<AppState>,
     payload: Result<Json<PublishRequest>, JsonRejection>,
@@ -419,6 +554,23 @@ pub async fn publish_contract(
     Ok(Json(contract))
 }
 
+#[utoipa::path(
+    post,
+    path = "/publishers",
+    summary = "Create publisher",
+    description = "Creates a publisher record.",
+    tag = "Publishers",
+    request_body = Publisher,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Publisher created", body = Publisher),
+        (status = 400, description = "Invalid request", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn create_publisher(
     State(state): State<AppState>,
     payload: Result<Json<Publisher>, JsonRejection>,
@@ -442,6 +594,26 @@ pub async fn create_publisher(
     Ok(Json(created))
 }
 
+#[utoipa::path(
+    get,
+    path = "/publishers/{id}",
+    summary = "Get publisher",
+    description = "Fetches a publisher by UUID.",
+    tag = "Publishers",
+    params(
+        ("id" = String, Path, description = "Publisher UUID")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Publisher", body = Publisher),
+        (status = 400, description = "Invalid publisher id", body = crate::openapi::ErrorBody),
+        (status = 404, description = "Not found", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_publisher(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -468,6 +640,25 @@ pub async fn get_publisher(
     Ok(Json(publisher))
 }
 
+#[utoipa::path(
+    get,
+    path = "/publishers/{id}/contracts",
+    summary = "List publisher contracts",
+    description = "Lists contracts published by a publisher.",
+    tag = "Publishers",
+    params(
+        ("id" = String, Path, description = "Publisher UUID")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Publisher contracts", body = [Contract]),
+        (status = 400, description = "Invalid publisher id", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_publisher_contracts(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -491,54 +682,330 @@ pub async fn get_publisher_contracts(
 }
 
 // Stubs for upstream added endpoints
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/abi",
+    summary = "Get contract ABI",
+    description = "Returns the contract ABI for the current version (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "ABI response", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_contract_abi() -> impl IntoResponse {
     Json(json!({"abi": null}))
 }
 
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/state/{key}",
+    summary = "Get contract state",
+    description = "Reads a contract state key (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id"),
+        ("key" = String, Path, description = "State key")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "State", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_contract_state() -> impl IntoResponse {
     Json(json!({"state": {}}))
 }
 
+#[utoipa::path(
+    post,
+    path = "/contracts/{id}/state/{key}",
+    summary = "Update contract state",
+    description = "Updates a contract state key (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id"),
+        ("key" = String, Path, description = "State key")
+    ),
+    request_body = Value,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Update result", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn update_contract_state() -> impl IntoResponse {
     Json(json!({"success": true}))
 }
 
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/analytics",
+    summary = "Contract analytics",
+    description = "Returns contract analytics (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Analytics response", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_contract_analytics() -> impl IntoResponse {
     Json(json!({"analytics": {}}))
 }
 
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/trust-score",
+    summary = "Trust score",
+    description = "Returns a trust score for the contract (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Trust score", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_trust_score() -> impl IntoResponse {
     Json(json!({"score": 0}))
 }
 
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/dependencies",
+    summary = "Dependencies",
+    description = "Returns direct dependencies of the contract (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Dependencies", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_contract_dependencies() -> impl IntoResponse {
     Json(json!({"dependencies": []}))
 }
 
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/dependents",
+    summary = "Dependents",
+    description = "Returns dependents of the contract (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Dependents", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_contract_dependents() -> impl IntoResponse {
     Json(json!({"dependents": []}))
 }
 
+#[utoipa::path(
+    get,
+    path = "/contracts/graph",
+    summary = "Contract graph",
+    description = "Returns a dependency graph view (MVP stub).",
+    tag = "Contracts",
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Graph response", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_contract_graph() -> impl IntoResponse {
     Json(json!({"graph": {}}))
 }
 
+#[utoipa::path(
+    get,
+    path = "/contracts/trending",
+    summary = "Trending contracts",
+    description = "Returns trending contracts (MVP stub).",
+    tag = "Contracts",
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Trending response", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_trending_contracts() -> impl IntoResponse {
     Json(json!({"trending": []}))
 }
 
-pub async fn verify_contract() -> impl IntoResponse {
-    Json(json!({"verified": true}))
-}
-
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/deployments/status",
+    summary = "Deployment status",
+    description = "Returns deployment status (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Status response", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_deployment_status() -> impl IntoResponse {
     Json(json!({"status": "pending"}))
 }
 
-pub async fn deploy_green() -> impl IntoResponse {
+#[derive(serde::Deserialize)]
+pub struct DeployGreenRequest {
+    pub contract_id: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/contracts/verify",
+    summary = "Verify contract",
+    description = "Marks a contract as verified and emits a `contract_verified` webhook event.",
+    tag = "Contracts",
+    request_body = shared::VerifyRequest,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Verification result", body = Value),
+        (status = 400, description = "Invalid request", body = crate::openapi::ErrorBody),
+        (status = 404, description = "Contract not found", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn verify_contract(
+    State(state): State<AppState>,
+    payload: Result<Json<VerifyRequest>, JsonRejection>,
+) -> axum::response::Response {
+    let Json(req) = match payload {
+        Ok(v) => v,
+        Err(err) => return map_json_rejection(err).into_response(),
+    };
+
+    let contract_uuid: Option<Uuid> = match sqlx::query_scalar::<_, Uuid>(
+        "UPDATE contracts SET is_verified = true, updated_at = NOW() WHERE contract_id = $1 RETURNING id",
+    )
+    .bind(&req.contract_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(v) => v,
+        Err(err) => return db_internal_error("verify contract", err).into_response(),
+    };
+
+    let Some(contract_uuid) = contract_uuid else {
+        return ApiError::not_found(
+            "ContractNotFound",
+            format!("No contract found with contract_id: {}", req.contract_id),
+        )
+        .into_response();
+    };
+
+    state
+        .webhook_dispatcher
+        .emit(
+            crate::webhooks::WebhookEventType::ContractVerified,
+            Some(req.contract_id.clone()),
+            json!({
+                "contract_uuid": contract_uuid,
+                "compiler_version": req.compiler_version,
+            }),
+        )
+        .await;
+
+    Json(json!({"verified": true, "contract_uuid": contract_uuid})).into_response()
+}
+
+#[utoipa::path(
+    post,
+    path = "/deployments/green",
+    summary = "Deploy green",
+    description = "Triggers a green deployment (MVP stub) and emits a `contract_deployed` webhook event when contract_id is provided.",
+    tag = "Contracts",
+    request_body = DeployGreenRequest,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Deployment result", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn deploy_green(
+    State(state): State<AppState>,
+    payload: Option<Json<DeployGreenRequest>>,
+) -> impl IntoResponse {
+    let contract_id = payload.and_then(|p| p.contract_id);
+    if let Some(contract_id) = contract_id {
+        state
+            .webhook_dispatcher
+            .emit(
+                crate::webhooks::WebhookEventType::ContractDeployed,
+                Some(contract_id),
+                json!({"deployment": "green"}),
+            )
+            .await;
+    }
+
     Json(json!({"deployment_id": ""}))
 }
 
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/performance",
+    summary = "Contract performance",
+    description = "Returns performance metrics (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Performance response", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_contract_performance() -> impl IntoResponse {
     Json(json!({"performance": {}}))
 }

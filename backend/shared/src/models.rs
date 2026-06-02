@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -9,7 +10,7 @@ use uuid::Uuid;
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Represents a smart contract in the registry
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Contract {
     pub id: Uuid,
     pub contract_id: String,
@@ -28,7 +29,7 @@ pub struct Contract {
 }
 
 /// Network where the contract is deployed
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, ToSchema)]
 #[sqlx(type_name = "network_type", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum Network {
@@ -48,7 +49,7 @@ impl std::fmt::Display for Network {
 }
 
 /// Contract version information
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct ContractVersion {
     pub id: Uuid,
     pub contract_id: Uuid,
@@ -61,7 +62,7 @@ pub struct ContractVersion {
 }
 
 /// Verification status and details
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Verification {
     pub id: Uuid,
     pub contract_id: Uuid,
@@ -75,7 +76,7 @@ pub struct Verification {
 }
 
 /// Verification status enum
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, ToSchema)]
 #[sqlx(type_name = "verification_status", rename_all = "lowercase")]
 pub enum VerificationStatus {
     Pending,
@@ -84,7 +85,7 @@ pub enum VerificationStatus {
 }
 
 /// Contract maturity level - indicates stability and production readiness
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub enum MaturityLevel {
     Experimental,
     Beta,
@@ -93,7 +94,7 @@ pub enum MaturityLevel {
 }
 
 /// Publisher/developer information
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Publisher {
     pub id: Uuid,
     pub stellar_address: String,
@@ -142,7 +143,7 @@ pub struct GraphResponse {
 }
 
 /// Request to publish a new contract
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PublishRequest {
     pub contract_id: String,
     pub name: String,
@@ -158,7 +159,7 @@ pub struct PublishRequest {
 }
 
 /// Request to create a new contract version with ABI
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateContractVersionRequest {
     pub contract_id: String,
     pub version: String,
@@ -173,7 +174,7 @@ pub struct CreateContractVersionRequest {
 // Deprecation management (issue #65)
 // ────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DeprecationStatus {
     Active,
@@ -181,7 +182,7 @@ pub enum DeprecationStatus {
     Retired,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DeprecationInfo {
     pub contract_id: String,
     pub status: DeprecationStatus,
@@ -194,7 +195,7 @@ pub struct DeprecationInfo {
     pub dependents_notified: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DeprecateContractRequest {
     pub retirement_at: DateTime<Utc>,
     pub replacement_contract_id: Option<String>,
@@ -212,7 +213,7 @@ pub struct DeprecationNotification {
     pub acknowledged_at: Option<DateTime<Utc>>,
 }
 /// Dependency declaration in publish request
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DependencyDeclaration {
     pub name: String,
     pub version_constraint: String,
@@ -230,7 +231,7 @@ pub struct ContractDependency {
 }
 
 /// Recursive dependency tree node for API response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DependencyTreeNode {
     pub contract_id: String, // Public key ID
     pub name: String,
@@ -240,7 +241,7 @@ pub struct DependencyTreeNode {
 }
 
 /// Request to verify a contract
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct VerifyRequest {
     pub contract_id: String,
     pub source_code: String,
@@ -249,7 +250,7 @@ pub struct VerifyRequest {
 }
 
 /// Sorting options for contracts
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SortBy {
     CreatedAt,
@@ -261,7 +262,7 @@ pub enum SortBy {
 }
 
 /// Sorting order
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SortOrder {
     Asc,
@@ -269,7 +270,8 @@ pub enum SortOrder {
 }
 
 /// Search/filter parameters for contracts
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
 pub struct ContractSearchParams {
     pub query: Option<String>,
     pub network: Option<Network>,

@@ -5,13 +5,10 @@ use std::fmt;
 use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
+use serde_json::json;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Network {
-    Mainnet,
-    Testnet,
-    Futurenet,
+use crate::config::Network;
+
 use std::path::Path;
 
 use crate::patch::{PatchManager, Severity};
@@ -96,18 +93,8 @@ pub async fn search(
     Ok(())
 }
 
-impl fmt::Display for Network {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Network::Mainnet => write!(f, "mainnet"),
-            Network::Testnet => write!(f, "testnet"),
-            Network::Futurenet => write!(f, "futurenet"),
-        }
-    }
-}
 
-impl FromStr for Network {
-    type Err = anyhow::Error;
+
 fn resolve_smart_routing(current_network: Network) -> String {
     if current_network.to_string() == "auto" {
         "mainnet".to_string() 
@@ -414,17 +401,7 @@ pub async fn migrate(
                 shared::models::MigrationStatus::Success,
                 "Simulation: Migration executed successfully via soroban CLI (mocked).".to_string(),
             )
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "mainnet" => Ok(Network::Mainnet),
-            "testnet" => Ok(Network::Testnet),
-            "futurenet" => Ok(Network::Futurenet),
-            _ => anyhow::bail!(
-                "Invalid network: {}. Allowed values: mainnet, testnet, futurenet",
-                s
-            ),
         }
-    }
     };
 
     // 5. Update Status
@@ -451,22 +428,30 @@ pub async fn migrate(
             println!("{}", "Status: SUCCESS".green().bold());
         }
     }
+
+    Ok(())
 }
 
-impl FromStr for Network {
-    type Err = anyhow::Error;
+pub async fn export(
+    api_url: &str,
+    contract_id: &str,
+    output: &str,
+    contract_dir: &str,
+) -> Result<()> {
+    println!("\n{}", "Exporting contract...".bold().cyan());
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "mainnet" => Ok(Network::Mainnet),
-            "testnet" => Ok(Network::Testnet),
-            "futurenet" => Ok(Network::Futurenet),
-            _ => anyhow::bail!(
-                "Invalid network: {}. Allowed values: mainnet, testnet, futurenet",
-                s
-            ),
-        }
-        _ => (contract_id.to_string(), "unknown".to_string()),
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/contracts/{}", api_url, contract_id);
+    let response = client.get(&url).send().await.context("Failed to fetch contract info")?;
+
+    let (name, network_str) = if response.status().is_success() {
+        let contract: serde_json::Value = response.json().await?;
+        (
+            contract["name"].as_str().unwrap_or("unknown").to_string(),
+            contract["network"].as_str().unwrap_or("testnet").to_string()
+        )
+    } else {
+        (contract_id.to_string(), "testnet".to_string())
     };
 
     let source = std::path::Path::new(contract_dir);
@@ -481,7 +466,7 @@ impl FromStr for Network {
         std::path::Path::new(output),
         contract_id,
         &name,
-        &network,
+        &network_str,
     )?;
 
     println!("{}", "✓ Export complete!".green().bold());
@@ -714,26 +699,33 @@ pub async fn patch_apply(api_url: &str, contract_id: &str, patch_id: &str) -> Re
     Ok(())
 }
 
-#[derive(Debug, Deserialize, Default)]
-struct ConfigFile {
-    network: Option<String>,
-}
+pub async fn profile(
+    contract_path: &str,
+    method: Option<&str>,
+    output: Option<&str>,
+    flamegraph: Option<&str>,
+    compare: Option<&str>,
+    recommendations: bool,
+) -> Result<()> {
+    use crate::profiler;
+    println!("\n{}", "Profiling Contract Execution...".bold().cyan());
 
-pub fn resolve_network(cli_flag: Option<String>) -> Result<Network> {
-    // 1. CLI Flag
-    if let Some(net_str) = cli_flag {
-        return net_str.parse::<Network>();
+    let profile_data = profiler::profile_contract(contract_path, method)?;
+
+    if let Some(out) = output {
+        let content = serde_json::to_string_pretty(&profile_data)?;
+        std::fs::write(out, content)?;
+        println!("Saved profile data to {}", out);
     }
 
-    // 2. Config File
-    if let Some(config_path) = config_file_path() {
-        if config_path.exists() {
-            let content = fs::read_to_string(&config_path)
-                .with_context(|| format!("Failed to read config file at {:?}", config_path))?;
+    if let Some(flame) = flamegraph {
+        std::fs::write(flame, "<svg>Mock Flamegraph</svg>")?;
+        println!("Saved flamegraph to {}", flame);
+    }
 
-            let config: ConfigFile =
-                toml::from_str(&content).with_context(|| "Failed to parse config file")?;
-
+    if let Some(comp_path) = compare {
+        let baseline_content = std::fs::read_to_string(comp_path)?;
+        let baseline: profiler::ProfileData = serde_json::from_str(&baseline_content)?;
         let comparisons = profiler::compare_profiles(&baseline, &profile_data);
 
         println!("\n{}", "Comparison Results:".bold().yellow());
@@ -751,10 +743,10 @@ pub fn resolve_network(cli_flag: Option<String>) -> Result<Network> {
         }
     }
 
-    if show_recommendations {
-        let recommendations = profiler::generate_recommendations(&profile_data);
+    if recommendations {
+        let recs = profiler::generate_recommendations(&profile_data);
         println!("\n{}", "Recommendations:".bold().magenta());
-        for (i, rec) in recommendations.iter().enumerate() {
+        for (i, rec) in recs.iter().enumerate() {
             println!("{}. {}", i + 1, rec);
         }
     }
@@ -971,6 +963,10 @@ pub fn incident_trigger(contract_id: &str, severity_str: &str) -> Result<()> {
         "→".bright_black(),
         id
     );
+
+    Ok(())
+}
+
 pub async fn config_get(api_url: &str, contract_id: &str, environment: &str) -> Result<()> {
     let client = reqwest::Client::new();
     let url = format!("{}/api/contracts/{}/config?environment={}", api_url, contract_id, environment);
@@ -1127,6 +1123,10 @@ pub fn incident_update(incident_id_str: &str, state_str: &str) -> Result<()> {
     }
 
     println!();
+
+    Ok(())
+}
+
 pub async fn scan_deps(
     api_url: &str,
     contract_id: &str,
@@ -1204,6 +1204,8 @@ pub async fn scan_deps(
     }
 
     Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1467,7 +1469,7 @@ pub async fn list_functions(api_url: &str, contract_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn info(api_url: &str, contract_id: &str, network: config::Network) -> Result<()> {
+pub async fn info(api_url: &str, contract_id: &str, network: Network) -> Result<()> {
     println!("\n{}", "Fetching contract information...".bold().cyan());
     
     let url = format!("{}/contracts/{}", api_url, contract_id);

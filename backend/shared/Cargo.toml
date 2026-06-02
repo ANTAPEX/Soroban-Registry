@@ -13,3 +13,4 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 anyhow = { workspace = true }
 rust_decimal = "1.35"
+utoipa = { version = "5.4.0", features = ["chrono", "uuid"] }

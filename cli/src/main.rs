@@ -8,6 +8,7 @@ mod formal_verification;
 mod fuzz;
 mod import;
 mod incident;
+mod logs;
 mod manifest;
 mod migration;
 mod multisig;
@@ -21,6 +22,7 @@ mod wizard;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use patch::Severity;
+use std::io::Write;
 
 /// Soroban Registry CLI — discover, publish, verify, and deploy Soroban contracts
 #[derive(Debug, Parser)]
@@ -161,6 +163,33 @@ pub enum Commands {
 
     /// Launch the interactive setup wizard
     Wizard {},
+
+    /// View and manage CLI logs
+    Log {
+        /// Show the last N matching log entries
+        #[arg(long, default_value = "50")]
+        limit: usize,
+
+        /// Follow new log entries (tail -f)
+        #[arg(long)]
+        tail: bool,
+
+        /// Filter by level (info|warn|error|debug)
+        #[arg(long, value_enum)]
+        level: Option<logs::LogLevel>,
+
+        /// Filter by service/component name
+        #[arg(long)]
+        service: Option<String>,
+
+        /// Search substring across message + context
+        #[arg(long)]
+        search: Option<String>,
+
+        /// Export output to a file
+        #[arg(long)]
+        export: Option<String>,
+    },
 
     /// Show command history
     History {
@@ -360,7 +389,7 @@ pub enum Commands {
     },
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 pub enum ConfigSubcommands {
     Get {
         #[arg(long)]
@@ -640,6 +669,18 @@ async fn main() -> Result<()> {
     let network = config::resolve_network(cli.network)?;
     log::debug!("Network: {:?}", network);
 
+    let _ = logs::append_log(&logs::LogEntry {
+        timestamp: chrono::Utc::now(),
+        level: logs::LogLevel::Info,
+        service: "cli".to_string(),
+        message: "command_invoked".to_string(),
+        context: Some(serde_json::json!({
+            "command": format!("{:?}", &cli.command),
+            "api_url": &cli.api_url,
+            "network": network.to_string(),
+        })),
+    });
+
     match cli.command {
         Commands::Search {
             query,
@@ -661,6 +702,7 @@ async fn main() -> Result<()> {
             contract_id,
             name,
             description,
+            network: _, // we use the global network
             category,
             tags,
             publisher,
@@ -767,6 +809,55 @@ async fn main() -> Result<()> {
         Commands::Wizard {} => {
             log::debug!("Command: wizard");
             wizard::run(&cli.api_url).await?;
+        }
+        Commands::Log {
+            limit,
+            tail,
+            level,
+            service,
+            search,
+            export,
+        } => {
+            let path = logs::default_log_path()?;
+            let filter = logs::LogFilter { level, service, search };
+
+            if tail {
+                let initial = logs::read_logs(&path, &filter, limit)?;
+                if initial.is_empty() {
+                    println!("No logs found.");
+                } else {
+                    for entry in &initial {
+                        println!("{}", logs::format_entry(entry, true));
+                    }
+                }
+
+                if let Some(out_path) = export {
+                    let mut file = std::fs::File::create(&out_path)?;
+                    for entry in initial {
+                        writeln!(file, "{}", logs::format_entry(&entry, false))?;
+                    }
+                }
+
+                logs::follow_logs(&path, filter, move |entry| {
+                    println!("{}", logs::format_entry(&entry, true));
+                })
+                .await?;
+            } else {
+                let entries = logs::read_logs(&path, &filter, limit)?;
+                if entries.is_empty() {
+                    println!("No logs found.");
+                } else if let Some(out_path) = export {
+                    let mut file = std::fs::File::create(&out_path)?;
+                    for entry in entries {
+                        writeln!(file, "{}", logs::format_entry(&entry, false))?;
+                    }
+                    println!("Exported logs to {}", out_path);
+                } else {
+                    for entry in entries {
+                        println!("{}", logs::format_entry(&entry, true));
+                    }
+                }
+            }
         }
         Commands::History { search, limit } => {
             log::debug!("Command: history | search={:?} limit={}", search, limit);
@@ -924,10 +1015,10 @@ async fn main() -> Result<()> {
         } => {
             fuzz::run_fuzzer(
                 &contract_path,
-                &duration,
-                &timeout,
-                threads,
-                max_cases,
+                &duration.to_string(),
+                &timeout.to_string(),
+                threads as usize,
+                max_cases as u64,
                 &output,
                 minimize,
             )
@@ -1134,7 +1225,7 @@ async fn main() -> Result<()> {
                     &cli.api_url,
                     contract_id.as_deref(),
                     entry_type.as_deref(),
-                    *limit,
+                    limit,
                 )
                 .await?;
             }

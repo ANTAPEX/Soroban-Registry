@@ -6,6 +6,26 @@ use uuid::Uuid;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/deprecation-info",
+    summary = "Get deprecation info",
+    description = "Returns deprecation status and migration metadata for a contract.",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract UUID or contract_id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Deprecation info", body = DeprecationInfo),
+        (status = 400, description = "Invalid contract id", body = crate::openapi::ErrorBody),
+        (status = 404, description = "Contract not found", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_deprecation_info(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -72,6 +92,27 @@ pub async fn get_deprecation_info(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/contracts/{id}/deprecate",
+    summary = "Deprecate contract",
+    description = "Marks a contract as deprecated and stores migration guidance. Also notifies dependents.",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract UUID or contract_id")
+    ),
+    request_body = DeprecateContractRequest,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Updated deprecation info", body = DeprecationInfo),
+        (status = 400, description = "Invalid request", body = crate::openapi::ErrorBody),
+        (status = 404, description = "Contract not found", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn deprecate_contract(
     State(state): State<AppState>,
     Path(id): Path<String>,

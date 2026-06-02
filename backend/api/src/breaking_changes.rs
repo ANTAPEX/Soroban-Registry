@@ -1,6 +1,7 @@
 use axum::{extract::{Query, State}, Json};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -8,14 +9,14 @@ use crate::type_safety::parser::parse_json_spec;
 use crate::type_safety::types::{ContractABI, ContractFunction, SorobanType, StructField, EnumVariant};
 use crate::error::{ApiError, ApiResult};
 
-#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ChangeSeverity {
     Breaking,
     NonBreaking,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, ToSchema)]
 pub struct BreakingChange {
     pub severity: ChangeSeverity,
     pub category: String,
@@ -26,7 +27,7 @@ pub struct BreakingChange {
     pub type_name: Option<String>,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, ToSchema)]
 pub struct BreakingChangeReport {
     pub old_id: String,
     pub new_id: String,
@@ -36,12 +37,30 @@ pub struct BreakingChangeReport {
     pub changes: Vec<BreakingChange>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
 pub struct BreakingChangeQuery {
     pub old_id: String,
     pub new_id: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/contracts/breaking-changes",
+    summary = "ABI breaking changes",
+    description = "Compares two ABIs and returns breaking/non-breaking changes.",
+    tag = "Contracts",
+    params(BreakingChangeQuery),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Breaking change report", body = BreakingChangeReport),
+        (status = 400, description = "Invalid ABI selector", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
 pub async fn get_breaking_changes(
     Query(query): Query<BreakingChangeQuery>,
     State(state): State<AppState>,

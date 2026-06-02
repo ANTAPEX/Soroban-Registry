@@ -4,6 +4,7 @@ mod error;
 mod state;
 mod rate_limit;
 mod aggregation;
+mod api_versioning;
 // mod auth;
 // mod auth_handlers;
 mod cache;
@@ -14,6 +15,8 @@ mod metrics;
 mod analytics;
 mod breaking_changes;
 mod deprecation_handlers;
+mod webhooks;
+mod openapi;
 
 use anyhow::Result;
 use axum::{middleware, Router};
@@ -80,9 +83,9 @@ async fn main() -> Result<()> {
 
     // Build router
     let app = Router::new()
-        .merge(routes::contract_routes())
-        .merge(routes::publisher_routes())
         .merge(routes::health_routes())
+        .merge(routes::api_router(state.api_version_metrics.clone()))
+        .merge(openapi::routes())
         .merge(routes::migration_routes())
         .fallback(handlers::route_not_found)
         .layer(middleware::from_fn(request_logger))
