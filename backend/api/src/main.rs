@@ -47,10 +47,41 @@ async fn track_in_flight_middleware(
             "Service is shutting down and temporarily unavailable",
         ));
     }
+    let method = req.method().as_str().to_owned();
+    // Use the matched route template (e.g. "/api/contracts/:id") rather than the
+    // concrete URI so per-id paths don't explode the metric label cardinality.
+    let path = req
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map(|p| p.as_str().to_owned())
+        .unwrap_or_else(|| req.uri().path().to_owned());
+    let request_size = content_length_bytes(req.headers());
+
     metrics::HTTP_IN_FLIGHT.inc();
+    let start = std::time::Instant::now();
     let res = next.run(req).await;
+    let elapsed = start.elapsed().as_secs_f64();
     metrics::HTTP_IN_FLIGHT.dec();
+
+    metrics::observe_http(&method, &path, res.status().as_u16(), elapsed);
+    if let Some(bytes) = request_size {
+        metrics::HTTP_REQUEST_SIZE
+            .with_label_values(&[&method])
+            .observe(bytes);
+    }
+    if let Some(bytes) = content_length_bytes(res.headers()) {
+        metrics::HTTP_RESPONSE_SIZE
+            .with_label_values(&[&method])
+            .observe(bytes);
+    }
     Ok(res)
+}
+
+fn content_length_bytes(headers: &axum::http::HeaderMap) -> Option<f64> {
+    headers
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<f64>().ok())
 }
 
 #[tokio::main]
@@ -350,6 +381,7 @@ async fn main() -> Result<()> {
 
     let web_security = WebSecurityConfig::from_env();
     let cors = web_security.build_cors_layer();
+    let https_config = api::security::HttpsConfig::from_env();
 
     // Build router
     let app = routes::application_routes(schema)
@@ -377,6 +409,10 @@ async fn main() -> Result<()> {
             api::security::csrf_and_origin_middleware,
         ))
         .layer(cors)
+        .layer(middleware::from_fn_with_state(
+            https_config,
+            api::security::https_enforcement_middleware,
+        ))
         .layer(middleware::from_fn(request_tracing::tracing_middleware))
         .with_state(state.clone());
 
