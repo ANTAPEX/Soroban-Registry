@@ -1,66 +1,10 @@
 use opentelemetry::global;
 use opentelemetry::propagation::Injector;
-use opentelemetry::trace::TracerProvider as _;
-use opentelemetry::KeyValue;
-use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::propagation::TraceContextPropagator;
-use opentelemetry_sdk::Resource;
-use std::borrow::Cow;
+use shared::logging::{init_logging, LogConfig};
 
 pub fn init_tracing(service_name: &str) {
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "indexer=info".into());
-    let fmt_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stdout);
-
-    global::set_text_map_propagator(TraceContextPropagator::new());
-
-    let otlp_endpoint = std::env::var("OTLP_ENDPOINT")
-        .or_else(|_| std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT"))
-        .ok();
-    let service_name =
-        std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| service_name.to_string());
-
-    // Clone before the move into Resource::new so we can use it again for
-    // provider.tracer(&tracer_name) without a use-after-move error.
-    let tracer_name = service_name.clone();
-
-    if let Some(endpoint) = otlp_endpoint {
-        let trace_config =
-            opentelemetry_sdk::trace::Config::default().with_resource(Resource::new(vec![
-                KeyValue::new("service.name", service_name),
-            ]));
-
-        match opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_trace_config(trace_config)
-            .with_exporter(
-                opentelemetry_otlp::new_exporter()
-                    .tonic()
-                    .with_endpoint(endpoint),
-            )
-            .install_batch(opentelemetry_sdk::runtime::Tokio)
-        {
-            Ok(provider) => {
-                let tracer = provider.tracer(Cow::Owned(tracer_name));
-                tracing_subscriber::registry()
-                    .with(env_filter)
-                    .with(fmt_layer)
-                    .with(tracing_opentelemetry::layer().with_tracer(tracer))
-                    .init();
-                return;
-            }
-            Err(err) => {
-                eprintln!("Failed to initialize OTLP tracing: {err}");
-            }
-        }
-    }
-
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(fmt_layer)
-        .init();
+    let config = LogConfig::from_env_with_service(service_name);
+    init_logging(config);
 }
 
 pub fn inject_current_trace_context(headers: &mut reqwest::header::HeaderMap) {

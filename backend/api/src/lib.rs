@@ -30,6 +30,7 @@ pub mod deprecation_handlers;
 pub mod disaster_recovery_models;
 pub mod error;
 pub mod error_logging;
+pub mod logging;
 pub mod events;
 pub mod formal_verification;
 pub mod formal_verification_handlers;

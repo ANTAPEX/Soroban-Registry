@@ -1,4 +1,5 @@
 import { Pool, QueryConfig, QueryResult, QueryResultRow } from "pg";
+import { logger } from "./logger.js";
 
 // Issue #876: Connection pool configuration via environment variables
 const MIN_POOL_SIZE = parseInt(process.env.DB_MIN_POOL_SIZE ?? "2", 10);
@@ -33,8 +34,9 @@ class InstrumentedPool extends Pool {
         typeof textOrConfig === "string"
           ? textOrConfig
           : textOrConfig.text ?? "(prepared)";
-      console.warn(
-        `[slow-query] ${elapsedMs}ms (threshold: ${SLOW_QUERY_THRESHOLD_MS}ms): ${text.substring(0, 200)}`
+      logger.warn(
+        { elapsedMs, thresholdMs: SLOW_QUERY_THRESHOLD_MS, query: text.substring(0, 200) },
+        `slow query detected: ${elapsedMs}ms`
       );
     }
 

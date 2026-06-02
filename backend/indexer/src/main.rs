@@ -27,6 +27,7 @@ use config::{DatabaseConfig, ServiceConfig};
 use db::DatabaseWriter;
 use reorg::ReorgHandler;
 use rpc::StellarRpcClient;
+use sqlx::ConnectOptions;
 use state::{IndexerState, StateManager};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

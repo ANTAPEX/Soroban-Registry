@@ -64,7 +64,7 @@ impl VerificationEngine {
             .semaphore
             .acquire()
             .await
-            .map_err(|_| RegistryError::Internal("semaphore closed".to_string()))?;
+            .map_err(|_| RegistryError::internal("semaphore closed".to_string()))?;
 
         self.queued.fetch_sub(1, Ordering::Relaxed);
         self.active.fetch_add(1, Ordering::Relaxed);
@@ -119,7 +119,7 @@ impl VerificationEngine {
         for handle in handles {
             match handle.await {
                 Ok(r) => results.push(r),
-                Err(e) => results.push(Err(RegistryError::Internal(format!("task panicked: {e}")))),
+                Err(e) => results.push(Err(RegistryError::internal(format!("task panicked: {e}")))),
             }
         }
         results
