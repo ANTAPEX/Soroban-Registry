@@ -275,6 +275,7 @@ impl DbQueue {
 
 /// RAII guard returned by [`DbQueue::acquire`].  Releases the semaphore permit
 /// and decrements the active-request counter on drop.
+#[derive(Debug)]
 pub struct DbQueuePermit {
     _permit: OwnedSemaphorePermit,
     queue: Arc<DbQueue>,
