@@ -56,6 +56,7 @@ export default function CodeRunner({ initialCode, language }: CodeRunnerProps) {
       // Restore console
       console.log = originalLog;
       console.error = originalError;
+       console.error = originalError;
 
       setOutput(logs.join('\n') || 'Code executed successfully (no output).');
     } catch (err: unknown) {
