@@ -426,7 +426,6 @@ pub fn gather_metrics(r: &Registry) -> String {
     String::from_utf8(buf).unwrap_or_default()
 }
 
-#[allow(dead_code)]
 pub fn observe_http(method: &str, path: &str, status: u16, duration_secs: f64) {
     HTTP_REQUESTS_TOTAL
         .with_label_values(&[method, path, &status.to_string()])

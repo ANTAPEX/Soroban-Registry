@@ -144,6 +144,10 @@ services:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./observability/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
       - prometheus_data:/prometheus
+    # Lets the host.docker.internal:9100 node-exporter scrape target resolve on
+    # Linux as well as Docker Desktop.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - api
 
