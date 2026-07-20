@@ -183,8 +183,8 @@ pub fn profile_contract(contract_path: &str, method: Option<&str>) -> Result<Pro
 
         let func_start = Instant::now();
         // Simulate function execution
-        let mut dummy_profiler = Profiler::new();
-        simulate_execution(path, Some(func), &mut dummy_profiler)?;
+        let mut prof = Profiler::new();
+        let _ = simulate_execution(path, Some(func), &mut prof)?;
         let func_duration = func_start.elapsed();
 
         function_profiles.insert(

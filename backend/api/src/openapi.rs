@@ -1,226 +1,204 @@
-use crate::analytics_handlers;
-use crate::breaking_changes;
-use crate::contract_stats_handlers;
-use crate::custom_metrics_handlers;
-use crate::deprecation_handlers;
-use crate::handlers;
-use crate::handlers::{ContractChangelogEntry, ContractChangelogResponse};
-use crate::interoperability_handlers;
-use crate::metrics_handler;
-use crate::recommendation_handlers;
-use crate::similarity_handlers;
-use shared::models::*;
-use utoipa::OpenApi;
+use axum::{
+    response::{IntoResponse, Redirect},
+    routing::get,
+    Json, Router,
+};
+use serde::Serialize;
+use serde_json::Value;
+use utoipa::{
+    openapi::{
+        security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
+        OpenApi as OpenApiSpec, Server,
+    },
+    Modify, OpenApi, ToSchema,
+};
+use utoipa_swagger_ui::{SwaggerUi, Url};
+
+use crate::{api_versioning::ApiVersionMetricsSnapshot, breaking_changes, deprecation_handlers, handlers, webhooks};
+use shared::{Contract, ContractVersion, Publisher};
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorBody {
+    pub error: String,
+    pub message: String,
+    pub code: u16,
+    pub timestamp: String,
+    pub correlation_id: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PaginatedContractsResponse {
+    #[serde(rename = "contracts")]
+    pub items: Vec<Contract>,
+    pub total: i64,
+    pub page: i64,
+    #[serde(rename = "pages")]
+    pub total_pages: i64,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StatsResponse {
+    pub total_contracts: i64,
+    pub verified_contracts: i64,
+    pub total_publishers: i64,
+    pub api_versions: ApiVersionMetricsSnapshot,
+}
+
+struct SecurityAddon;
+
+impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut OpenApiSpec) {
+        let Some(components) = openapi.components.as_mut() else {
+            return;
+        };
+        components.add_security_scheme(
+            "bearerAuth",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("JWT")
+                    .build(),
+            ),
+        );
+    }
+}
 
 #[derive(OpenApi)]
 #[openapi(
     paths(
-        handlers::health_check,
-        handlers::get_stats,
-        handlers::list_contracts_openapi_marker,
-        handlers::export_contract_metadata,
-        handlers::get_contract_export_status,
-        handlers::get_contracts_batch,
+        handlers::list_contracts,
+        handlers::publish_contract,
         handlers::get_contract,
         handlers::get_contract_versions,
-        handlers::get_contract_changelog,
-        handlers::get_trust_score,
-        // `get_contract_state` / `update_contract_state` are currently stubs without
-        // `#[utoipa::path]`, and break OpenAPI generation. Omit until implemented.
         handlers::create_contract_version,
-        handlers::publish_contract,
+        handlers::get_trending_contracts,
+        handlers::get_contract_graph,
+        handlers::get_contract_abi,
+        handlers::get_contract_state,
+        handlers::update_contract_state,
+        handlers::get_contract_analytics,
+        handlers::get_trust_score,
+        handlers::get_contract_dependencies,
+        handlers::get_contract_dependents,
+        handlers::verify_contract,
+        handlers::get_contract_performance,
+        handlers::get_deployment_status,
+        handlers::deploy_green,
+        breaking_changes::get_breaking_changes,
+        deprecation_handlers::get_deprecation_info,
+        deprecation_handlers::deprecate_contract,
         handlers::create_publisher,
         handlers::get_publisher,
         handlers::get_publisher_contracts,
-        handlers::get_contract_abi,
-        handlers::get_contract_openapi_yaml,
-        handlers::get_contract_openapi_json,
-        analytics_handlers::get_contract_analytics,
-        analytics_handlers::get_analytics_summary,
-        handlers::get_contract_dependencies,
-        handlers::get_contract_dependents,
-        handlers::get_contract_graph,
-        handlers::get_impact_analysis,
-        contract_stats_handlers::get_contract_stats,
-        contract_stats_handlers::get_contract_stats_timeseries,
-        contract_stats_handlers::get_trending_contracts,
-        recommendation_handlers::get_contract_recommendations,
-        similarity_handlers::get_similar_contracts,
-        similarity_handlers::analyze_contract_similarity_batch,
-        handlers::verify_contract,
-        handlers::update_contract_metadata,
-        handlers::change_contract_publisher,
-        handlers::update_contract_status,
-        handlers::get_contract_audit_log,
-        handlers::get_contract_audits,
-        handlers::get_all_audit_logs,
-        handlers::get_deployment_status,
-        handlers::deploy_green,
-        handlers::get_contract_performance,
-        handlers::get_contract_interactions,
-        handlers::post_contract_interaction,
-        handlers::post_contract_interactions_batch,
-        crate::auth_handlers::get_challenge,
-        crate::auth_handlers::verify_challenge,
-        breaking_changes::get_breaking_changes,
-        custom_metrics_handlers::get_metric_catalog,
-        custom_metrics_handlers::get_contract_metrics,
-        custom_metrics_handlers::record_contract_metric,
-        custom_metrics_handlers::record_metrics_batch,
-        deprecation_handlers::get_deprecation_info,
-        deprecation_handlers::deprecate_contract,
-        interoperability_handlers::get_contract_interoperability,
-        metrics_handler::metrics_endpoint,
+        handlers::get_stats,
+        webhooks::create_webhook,
+        webhooks::list_webhooks,
+        webhooks::get_webhook,
+        webhooks::list_deliveries,
+        webhooks::list_dead_letters,
+        webhooks::retry_dead_letter
     ),
     components(
         schemas(
             Contract,
-            ContractExportFormat,
-            ContractExportRequest,
-            ContractExportMetadata,
-            ContractMetadataExportRecord,
-            ContractMetadataExportEnvelope,
-            ContractExportJobStatus,
-            ContractExportAcceptedResponse,
-            ContractExportStatusResponse,
-            ContractGetResponse,
-            NetworkConfig,
-            Network,
-            UpgradeStrategy,
             ContractVersion,
-            Verification,
-            VerificationStatus,
-            MaturityLevel,
             Publisher,
-            ContractStats,
-            GraphNode,
-            GraphEdge,
-            GraphResponse,
-            ProtocolComplianceStatus,
-            InteroperabilityCapabilityKind,
-            InteroperabilityProtocolMatch,
-            InteroperabilityCapability,
-            InteroperabilitySuggestion,
-            InteroperabilitySummary,
-            ContractInteroperabilityResponse,
-            PublishRequest,
-            MigrationScript,
-            DeploymentEnvironment,
-            CanaryRelease,
-            AbTest,
-            ContractSimilaritySignature,
-            ContractSimilarityReport,
-            SimilarityMatchType,
-            SimilarityReviewStatus,
-            ContractSimilarityResult,
-            ContractSimilarityResponse,
-            BatchSimilarityAnalysisRequest,
-            BatchSimilarityAnalysisItem,
-            BatchSimilarityAnalysisResponse,
-            PerformanceMetric,
-            CustomMetric,
-            PerformanceAnomaly,
-            crate::handlers::ContractAuditLogEntry,
-            ContractInteraction,
-            ContractDependency,
-            ImpactAnalysisResponse,
-            ContractAnalyticsResponse,
-            DeploymentStats,
-            InteractorStats,
-            TopUser,
-            TimelineEntry,
-            RecordCustomMetricRequest,
-            CustomMetricAggregate,
-            CustomMetricType,
-            DeprecationInfo,
-            DeprecationStatus,
-            DeprecateContractRequest,
-            ChangePublisherRequest,
-            UpdateContractStatusRequest,
-            UpdateContractMetadataRequest,
-            InteractionsListResponse,
-            ContractInteractionResponse,
-            CreateInteractionRequest,
-            CreateInteractionBatchRequest,
-            crate::auth_handlers::ChallengeResponse,
-            crate::auth_handlers::VerifyRequest,
-            crate::auth_handlers::VerifyResponse,
+            shared::ContractSearchParams,
+            shared::PublishRequest,
+            shared::CreateContractVersionRequest,
+            shared::DeprecationInfo,
+            shared::DeprecateContractRequest,
+            shared::VerifyRequest,
+            shared::Network,
+            shared::SortBy,
+            shared::SortOrder,
             breaking_changes::ChangeSeverity,
             breaking_changes::BreakingChange,
             breaking_changes::BreakingChangeReport,
-            ContractChangelogEntry,
-            ContractChangelogResponse,
-            RecommendationReason,
-            RecommendedContract,
-            ContractRecommendationsResponse,
-            custom_metrics_handlers::MetricSeriesResponse,
-            custom_metrics_handlers::MetricSeriesPoint,
-            custom_metrics_handlers::MetricSampleResponse,
-            custom_metrics_handlers::MetricSample,
-            custom_metrics_handlers::MetricCatalogEntry,
-            // Review system
-            ReviewResponse,
-            ReviewStatus,
-            ReviewSortBy,
-            CreateReviewRequest,
-            ReviewVoteRequest,
-            ReviewVoteResponse,
-            FlagReviewRequest,
-            ModerateReviewRequest,
-            ContractRatingStats,
-            RatingDistribution,
-            // Collaborative Review system
-            CollaborativeReview,
-            CollaborativeReviewer,
-            CollaborativeComment,
-            CreateCollaborativeReviewRequest,
-            AddCollaborativeCommentRequest,
-            UpdateReviewerStatusRequest,
-            CollaborativeReviewDetails,
-            CollaborativeReviewStatus,
-            AuditScanStatus,
-            AuditType,
-            ContractAuditFinding,
-            ContractAuditResponse,
-            PaginatedAuditsResponse,
+            breaking_changes::BreakingChangeQuery,
+            PaginatedContractsResponse,
+            StatsResponse,
+            ErrorBody,
+            webhooks::WebhookEventType,
+            webhooks::CreateWebhookRequest,
+            webhooks::WebhookEndpointPublic,
+            webhooks::WebhookEndpointCreated,
+            webhooks::WebhookDelivery,
+            webhooks::WebhookDeadLetter
         )
     ),
+    modifiers(&SecurityAddon),
     tags(
-        (name = "Authentication", description = "Wallet-based authentication with challenge/verify"),
-        (name = "Observability", description = "Monitor API health and performance"),
-        (name = "Contracts", description = "Everything about contracts"),
-        (name = "Publishers", description = "Publisher management"),
-        (name = "Artifacts", description = "Contract ABIs and OpenAPI specs"),
-        (name = "Analytics", description = "Usage and performance metrics"),
-        (name = "Analysis", description = "Contract ABI analysis and breaking changes"),
-        (name = "Graphs", description = "Dependency graphs and impact analysis"),
-        (name = "Verification", description = "Source code verification"),
-        (name = "Metrics", description = "Custom application metrics"),
-        (name = "Maintenance", description = "Deprecation and version management"),
-        (name = "Administration", description = "Administrative audit logs"),
-        (name = "Deployments", description = "Deployment management"),
-        (name = "Versions", description = "Contract version history and management"),
-        (name = "Security", description = "Security and trust score assessments"),
-        (name = "Reviews", description = "Contract reviews and ratings"),
+        (name = "Contracts", description = "Contract discovery, publishing, versions and verification"),
+        (name = "Publishers", description = "Publisher registration and lookup"),
+        (name = "Webhooks", description = "Webhook registration and delivery inspection"),
+        (name = "System", description = "System statistics and operational endpoints")
     ),
-    modifiers(&SecurityAddon)
+    security(
+        (),
+        ("bearerAuth" = [])
+    )
 )]
-pub struct ApiDoc;
+pub struct VersionedApiDoc;
 
-struct SecurityAddon;
-
-impl utoipa::Modify for SecurityAddon {
-    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
-        if let Some(components) = openapi.components.as_mut() {
-            components.add_security_scheme(
-                "bearerAuth",
-                utoipa::openapi::security::SecurityScheme::Http(
-                    utoipa::openapi::security::HttpBuilder::new()
-                        .scheme(utoipa::openapi::security::HttpAuthScheme::Bearer)
-                        .bearer_format("JWT")
-                        .build(),
-                ),
-            );
-        }
-    }
+fn versioned_spec(server_url: &str, title: &str, version: &str) -> OpenApiSpec {
+    let mut api = VersionedApiDoc::openapi();
+    api.servers = Some(vec![Server::new(server_url)]);
+    api.info.title = title.to_string();
+    api.info.version = version.to_string();
+    api.info.description = Some(
+        "Auth: Bearer tokens are documented for forward-compatibility.\n\nRate limits: responses include `x-ratelimit-*` headers; on 429 you also get `Retry-After`.\n\nChangelog: see CHANGELOG.md.\n\nMigration: docs/migrations/v1-to-v2.md."
+            .to_string(),
+    );
+    api
 }
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(handlers::health_check),
+    components(schemas(Value, ErrorBody)),
+    tags((name = "Health", description = "Health check endpoints")),
+    info(title = "Soroban Registry API (public)", version = "1.0.0")
+)]
+pub struct PublicDoc;
+
+async fn openapi_v1() -> impl IntoResponse {
+    Json(versioned_spec(
+        "/api/v1",
+        "Soroban Registry API (v1)",
+        "1.0.0",
+    ))
+}
+
+async fn openapi_v2() -> impl IntoResponse {
+    Json(versioned_spec(
+        "/api/v2",
+        "Soroban Registry API (v2)",
+        "2.0.0",
+    ))
+}
+
+async fn openapi_public() -> impl IntoResponse {
+    Json(PublicDoc::openapi())
+}
+
+pub fn routes<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    Router::new()
+        .route("/openapi.json", get(openapi_v1))
+        .route("/api/v1/openapi.json", get(openapi_v1))
+        .route("/api/v2/openapi.json", get(openapi_v2))
+        .route("/openapi.public.json", get(openapi_public))
+        .route("/swagger", get(|| async { Redirect::permanent("/api/docs") }))
+        .route("/swagger-ui", get(|| async { Redirect::permanent("/api/docs") }))
+        .merge(
+            SwaggerUi::new("/api/docs").urls(vec![
+                Url::new("public", "/openapi.public.json"),
+                Url::new("v1", "/api/v1/openapi.json"),
+                Url::new("v2", "/api/v2/openapi.json"),
+            ]),
+        )
+}
+

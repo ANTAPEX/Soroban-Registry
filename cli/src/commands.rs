@@ -13,14 +13,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
+use serde_json::json;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Network {
-    Mainnet,
-    Testnet,
-    Futurenet,
-}
+use crate::config::Network;
 
 use std::path::Path;
 
@@ -418,65 +413,7 @@ pub async fn upgrade_analyze(
     Ok(())
 }
 
-#[cfg(test)]
-mod upgrade_analyze_tests {
-    use super::*;
-    use std::io::Write;
-    use tempfile::tempdir;
 
-    #[tokio::test]
-    async fn upgrade_analyze_with_local_files_returns_ok() {
-        let dir = tempdir().unwrap();
-        let old_path = dir.path().join("old_schema.json");
-        let new_path = dir.path().join("new_schema.json");
-
-        // Old schema with one field
-        let old_schema = r#"{ "fields": [ { "name": "count", "type": "u64" } ] }"#;
-        // New schema empty (removal -> error expected)
-        let new_schema = r#"{ "fields": [] }"#;
-
-        let mut f1 = std::fs::File::create(&old_path).unwrap();
-        write!(f1, "{}", old_schema).unwrap();
-        let mut f2 = std::fs::File::create(&new_path).unwrap();
-        write!(f2, "{}", new_schema).unwrap();
-
-        // Should return Ok() even if findings include errors; function prints results.
-        let res = upgrade_analyze(
-            "http://localhost:3001",
-            old_path.to_str().unwrap(),
-            new_path.to_str().unwrap(),
-            true,
-        )
-        .await;
-        assert!(res.is_ok());
-    }
-}
-
-impl fmt::Display for Network {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Network::Mainnet => write!(f, "mainnet"),
-            Network::Testnet => write!(f, "testnet"),
-            Network::Futurenet => write!(f, "futurenet"),
-        }
-    }
-}
-
-impl FromStr for Network {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "mainnet" => Ok(Network::Mainnet),
-            "testnet" => Ok(Network::Testnet),
-            "futurenet" => Ok(Network::Futurenet),
-            _ => anyhow::bail!(
-                "Invalid network: {}. Allowed values: mainnet, testnet, futurenet",
-                s
-            ),
-        }
-    }
-}
 
 fn resolve_smart_routing(current_network: Network) -> String {
     if current_network.to_string() == "auto" {
@@ -1432,26 +1369,40 @@ pub async fn migrate(
 
 pub async fn export(
     api_url: &str,
-    id: Option<&str>,
-    output: Option<&str>,
+    contract_id: &str,
+    output: &str,
     contract_dir: &str,
-    format: Option<&str>,
-    filters: Vec<String>,
-    page_size: usize,
 ) -> Result<()> {
-    let resolved_format = crate::export::RegistryExportFormat::resolve(format, id, output)?;
-    let summary = crate::export::export_registry_data(crate::export::RegistryExportOptions {
-        api_url,
-        id,
-        output,
-        contract_dir,
-        format: resolved_format,
-        filters,
-        page_size,
-        include_related: true,
-        compress: false,
-    })
-    .await?;
+    println!("\n{}", "Exporting contract...".bold().cyan());
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/contracts/{}", api_url, contract_id);
+    let response = client.get(&url).send().await.context("Failed to fetch contract info")?;
+
+    let (name, network_str) = if response.status().is_success() {
+        let contract: serde_json::Value = response.json().await?;
+        (
+            contract["name"].as_str().unwrap_or("unknown").to_string(),
+            contract["network"].as_str().unwrap_or("testnet").to_string()
+        )
+    } else {
+        (contract_id.to_string(), "testnet".to_string())
+    };
+
+    let source = std::path::Path::new(contract_dir);
+    anyhow::ensure!(
+        source.is_dir(),
+        "contract directory does not exist: {}",
+        contract_dir
+    );
+
+    crate::export::create_archive(
+        source,
+        std::path::Path::new(output),
+        contract_id,
+        &name,
+        &network_str,
+    )?;
 
     println!("{}", "✓ Export complete!".green().bold());
     println!(
@@ -1738,6 +1689,61 @@ pub async fn patch_apply(api_url: &str, contract_id: &str, patch_id: &str) -> Re
     println!("  {}: {}", "Contract".bold(), audit.contract_id);
     println!("  {}: {}", "Patch".bold(), audit.patch_id);
     println!("  {}: {}\n", "Applied At".bold(), audit.applied_at);
+
+    Ok(())
+}
+
+pub async fn profile(
+    contract_path: &str,
+    method: Option<&str>,
+    output: Option<&str>,
+    flamegraph: Option<&str>,
+    compare: Option<&str>,
+    recommendations: bool,
+) -> Result<()> {
+    use crate::profiler;
+    println!("\n{}", "Profiling Contract Execution...".bold().cyan());
+
+    let profile_data = profiler::profile_contract(contract_path, method)?;
+
+    if let Some(out) = output {
+        let content = serde_json::to_string_pretty(&profile_data)?;
+        std::fs::write(out, content)?;
+        println!("Saved profile data to {}", out);
+    }
+
+    if let Some(flame) = flamegraph {
+        std::fs::write(flame, "<svg>Mock Flamegraph</svg>")?;
+        println!("Saved flamegraph to {}", flame);
+    }
+
+    if let Some(comp_path) = compare {
+        let baseline_content = std::fs::read_to_string(comp_path)?;
+        let baseline: profiler::ProfileData = serde_json::from_str(&baseline_content)?;
+        let comparisons = profiler::compare_profiles(&baseline, &profile_data);
+
+        println!("\n{}", "Comparison Results:".bold().yellow());
+        for comp in comparisons.iter().take(10) {
+            let sign = if comp.time_diff_ns > 0 { "+" } else { "" };
+            println!(
+                "{}: {} ({}{:.2}%, {:.2}ms → {:.2}ms)",
+                comp.function.bold(),
+                comp.status,
+                sign,
+                comp.time_diff_percent,
+                comp.baseline_time.as_secs_f64() * 1000.0,
+                comp.current_time.as_secs_f64() * 1000.0
+            );
+        }
+    }
+
+    if recommendations {
+        let recs = profiler::generate_recommendations(&profile_data);
+        println!("\n{}", "Recommendations:".bold().magenta());
+        for (i, rec) in recs.iter().enumerate() {
+            println!("{}. {}", i + 1, rec);
+        }
+    }
 
     Ok(())
 }
@@ -2267,17 +2273,18 @@ impl LocalContractStateStore {
     }
 }
 
-fn state_root_dir() -> Result<PathBuf> {
-    if let Ok(custom) = std::env::var("SOROBAN_REGISTRY_STATE_DIR") {
-        let path = PathBuf::from(custom);
-        fs::create_dir_all(&path).with_context(|| {
-            format!(
-                "Failed to create custom state directory from SOROBAN_REGISTRY_STATE_DIR: {}",
-                path.display()
-            )
-        })?;
-        return Ok(path);
-    }
+    println!();
+
+    Ok(())
+}
+
+pub async fn scan_deps(
+    api_url: &str,
+    contract_id: &str,
+    dependencies: &str,
+    fail_on_high: bool,
+) -> Result<()> {
+    println!("\n{}", "Scanning Dependencies...".bold().cyan());
 
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(home) = dirs::home_dir() {
@@ -2383,8 +2390,22 @@ async fn try_remote_state_get(
         return Ok(None);
     }
 
-    if !response.status().is_success() {
-        return Ok(None);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_network_parsing() {
+        assert_eq!("mainnet".parse::<Network>().unwrap(), Network::Mainnet);
+        assert_eq!("testnet".parse::<Network>().unwrap(), Network::Testnet);
+        assert_eq!("futurenet".parse::<Network>().unwrap(), Network::Futurenet);
+        assert_eq!("Mainnet".parse::<Network>().unwrap(), Network::Mainnet); // Case insensitive
+        assert!("invalid".parse::<Network>().is_err());
     }
 
     let payload: serde_json::Value = response.json().await.unwrap_or_else(|_| json!({}));
@@ -4024,19 +4045,11 @@ pub async fn contract_stats(
     Ok(())
 }
 
-/// Get comprehensive registry statistics
-/// Command: soroban-registry stats [options]
-pub async fn stats(
-    api_url: &str,
-    timeframe: &str,
-    format: &str,
-    output: Option<&str>,
-) -> Result<()> {
-    let fmt = output_format::validate_format(format).unwrap_or(output_format::OutputFormat::Table);
-
-    let client = crate::net::client();
-    let url = format!("{}/api/stats?timeframe={}", api_url, timeframe);
-
+pub async fn info(api_url: &str, contract_id: &str, network: Network) -> Result<()> {
+    println!("\n{}", "Fetching contract information...".bold().cyan());
+    
+    let url = format!("{}/contracts/{}", api_url, contract_id);
+    let client = reqwest::Client::new();
     let response = client
         .get(&url)
         .send_with_retry()

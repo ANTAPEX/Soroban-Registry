@@ -3,7 +3,7 @@ use rust_decimal::Decimal;
 use serde::de::{self, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use std::fmt;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -22,24 +22,7 @@ pub struct Tag {
 }
 
 /// Represents a smart contract in the registry
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
-#[schema(example = json!({
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "contract_id": "C...1234",
-    "wasm_hash": "a1b2c3d4...",
-    "name": "YieldOptimizer",
-    "description": "Optimizes yield across protocols",
-    "publisher_id": "550e8400-e29b-41d4-a716-446655440001",
-    "network": "mainnet",
-    "is_verified": true,
-    "category": "DeFi",
-    "tags": [
-        {"id": "550e8400-e29b-41d4-a716-446655440005", "name": "yield", "color": "#888888"},
-        {"id": "550e8400-e29b-41d4-a716-446655440006", "name": "optimization", "color": "#888888"}
-    ],
-    "created_at": "2023-10-27T10:00:00Z",
-    "updated_at": "2023-10-27T10:00:00Z"
-}))]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Contract {
     pub id: Uuid,
     pub contract_id: String,
@@ -185,7 +168,7 @@ pub struct NetworkHealthResponse {
 }
 
 /// Network where the contract is deployed
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, ToSchema)]
 #[sqlx(type_name = "network_type", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum Network {
@@ -345,7 +328,7 @@ pub struct ContractSource {
 }
 
 /// Contract version information
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct ContractVersion {
     pub id: Uuid,
     pub contract_id: Uuid,
@@ -479,7 +462,7 @@ pub struct UpdateOrganizationRequest {
 }
 
 /// Verification status and details
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Verification {
     pub id: Uuid,
     pub contract_id: Uuid,
@@ -493,7 +476,7 @@ pub struct Verification {
 }
 
 /// Verification status enum
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, ToSchema)]
 #[sqlx(type_name = "verification_status", rename_all = "lowercase")]
 pub enum VerificationStatus {
     #[serde(rename = "unverified")]
@@ -517,7 +500,7 @@ pub enum AuditStatus {
 }
 
 /// Contract maturity level - indicates stability and production readiness
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub enum MaturityLevel {
     Experimental,
     Beta,
@@ -526,16 +509,7 @@ pub enum MaturityLevel {
 }
 
 /// Publisher/developer information
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
-#[schema(example = json!({
-    "id": "550e8400-e29b-41d4-a716-446655440001",
-    "stellar_address": "GABC...",
-    "username": "SorobanDev",
-    "email": "dev@soroban.io",
-    "github_url": "https://github.com/sorobandev",
-    "website": "https://soroban.io",
-    "created_at": "2023-10-27T10:00:00Z"
-}))]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Publisher {
     pub id: Uuid,
     pub stellar_address: String,
@@ -768,7 +742,7 @@ pub struct ContractInteroperabilityResponse {
 }
 
 /// Request to publish a new contract
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PublishRequest {
     pub contract_id: String,
     pub wasm_hash: String,
@@ -865,7 +839,7 @@ pub struct BulkStatusUpdateRequest {
 }
 
 /// Request to create a new contract version with ABI
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateContractVersionRequest {
     pub contract_id: String,
     pub version: String,
@@ -926,7 +900,7 @@ pub struct RevertVersionRequest {
 // Deprecation management (issue #65)
 // ────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DeprecationStatus {
     Active,
@@ -934,7 +908,7 @@ pub enum DeprecationStatus {
     Retired,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DeprecationInfo {
     pub contract_id: String,
     pub status: DeprecationStatus,
@@ -947,7 +921,7 @@ pub struct DeprecationInfo {
     pub dependents_notified: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DeprecateContractRequest {
     pub retirement_at: DateTime<Utc>,
     pub replacement_contract_id: Option<String>,
@@ -975,7 +949,7 @@ pub struct ImpactAnalysisResponse {
     pub has_cycles: bool,
 }
 /// Dependency declaration in publish request
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DependencyDeclaration {
     pub name: String,
     pub version_constraint: String,
@@ -1004,7 +978,7 @@ pub struct MigrationScript {
 }
 
 /// Recursive dependency tree node for API response
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DependencyTreeNode {
     pub contract_id: String, // Public key ID
     pub name: String,
@@ -1014,7 +988,7 @@ pub struct DependencyTreeNode {
 }
 
 /// Request to verify a contract
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct VerifyRequest {
     pub contract_id: String,
     pub source_code: String,
@@ -1022,76 +996,11 @@ pub struct VerifyRequest {
     pub compiler_version: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct BatchVerifyItem {
-    pub contract_id: String,
-    #[serde(default)]
-    pub source_code: Option<String>,
-    #[serde(default)]
-    pub build_params: Option<serde_json::Value>,
-    #[serde(default)]
-    pub compiler_version: Option<String>,
-    /// "basic" | "standard" | "strict"
-    #[serde(default)]
-    pub level: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct BatchVerifyRequest {
-    pub contracts: Vec<BatchVerifyItem>,
-}
-
-/// Lifecycle state of an asynchronous batch verification job.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum BatchVerifyJobStatus {
-    Pending,
-    Processing,
-    Completed,
-    /// Job finished but at least one contract could not be verified.
-    PartialFailure,
-    Failed,
-}
-
-/// Per-contract result inside a batch job.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct BatchVerifyJobResult {
-    pub contract_id: String,
-    pub verified: bool,
-    /// Human-readable failure reason; absent on success.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub network: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub wasm_hash_matches: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub abi_valid: Option<bool>,
-}
-
-/// Response returned when a batch job is submitted or polled.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct BatchVerifyJobResponse {
-    pub job_id: Uuid,
-    pub status: BatchVerifyJobStatus,
-    pub total: usize,
-    pub verified: usize,
-    pub failed: usize,
-    pub submitted_at: DateTime<Utc>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_at: Option<DateTime<Utc>>,
-    /// Per-contract results; populated once the job reaches Completed or PartialFailure.
-    #[serde(default)]
-    pub results: Vec<BatchVerifyJobResult>,
-    pub status_url: String,
-}
-
 /// Sorting options for contracts
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum SortBy {
-    #[serde(rename = "created_at", alias = "createdat")]
     CreatedAt,
-    #[serde(rename = "updated_at", alias = "updatedat")]
     UpdatedAt,
     VerifiedAt,
     LastAccessedAt,
@@ -1106,7 +1015,7 @@ pub enum SortBy {
 }
 
 /// Sorting order
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SortOrder {
     Asc,
@@ -1114,7 +1023,8 @@ pub enum SortOrder {
 }
 
 /// Search/filter parameters for contracts
-#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+#[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
 pub struct ContractSearchParams {
     pub query: Option<String>,
     pub network: Option<Network>,

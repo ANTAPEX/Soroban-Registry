@@ -12,15 +12,23 @@ use crate::state::AppState;
 
 #[utoipa::path(
     get,
-    path = "/api/contracts/{id}/deprecation",
+    path = "/contracts/{id}/deprecation-info",
+    summary = "Get deprecation info",
+    description = "Returns deprecation status and migration metadata for a contract.",
+    tag = "Contracts",
     params(
-        ("id" = String, Path, description = "Contract identifier")
+        ("id" = String, Path, description = "Contract UUID or contract_id")
+    ),
+    security(
+        ("bearerAuth" = [])
     ),
     responses(
-        (status = 200, description = "Deprecation status and info", body = DeprecationInfo),
-        (status = 404, description = "Contract not found")
-    ),
-    tag = "Maintenance"
+        (status = 200, description = "Deprecation info", body = DeprecationInfo),
+        (status = 400, description = "Invalid contract id", body = crate::openapi::ErrorBody),
+        (status = 404, description = "Contract not found", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
 )]
 pub async fn get_deprecation_info(
     State(state): State<AppState>,
@@ -97,17 +105,24 @@ pub async fn get_deprecation_info(
 
 #[utoipa::path(
     post,
-    path = "/api/contracts/{id}/deprecate",
+    path = "/contracts/{id}/deprecate",
+    summary = "Deprecate contract",
+    description = "Marks a contract as deprecated and stores migration guidance. Also notifies dependents.",
+    tag = "Contracts",
     params(
-        ("id" = String, Path, description = "Contract identifier")
+        ("id" = String, Path, description = "Contract UUID or contract_id")
     ),
     request_body = DeprecateContractRequest,
-    responses(
-        (status = 200, description = "Contract deprecated successfully", body = DeprecationInfo),
-        (status = 404, description = "Contract not found"),
-        (status = 400, description = "Invalid input or missing migration path")
+    security(
+        ("bearerAuth" = [])
     ),
-    tag = "Maintenance"
+    responses(
+        (status = 200, description = "Updated deprecation info", body = DeprecationInfo),
+        (status = 400, description = "Invalid request", body = crate::openapi::ErrorBody),
+        (status = 404, description = "Contract not found", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
 )]
 pub async fn deprecate_contract(
     State(state): State<AppState>,

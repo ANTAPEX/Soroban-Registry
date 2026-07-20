@@ -23,20 +23,8 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use shared::models::SourceFormat;
 use shared::{
-    pagination::Cursor, AdvancedSearchRequest, AnalyticsEventType, AuditActionType,
-    ChangePublisherRequest, Contract, ContractAuditLog, ContractDeploymentHistory,
-    ContractExportAcceptedResponse, ContractExportFormat, ContractExportJobStatus,
-    ContractExportMetadata, ContractExportRequest, ContractExportStatusResponse,
-    ContractGetResponse, ContractInteractionResponse, ContractMetadataExportEnvelope,
-    ContractMetadataExportRecord, ContractSearchParams, ContractSource, ContractVersion,
-    CreateContractVersionRequest, CreateInteractionBatchRequest, CreateInteractionRequest,
-    DeploymentHistoryQueryParams, FavoriteSearch, FieldOperator, GraphResponse,
-    InteractionTimeSeriesPoint, InteractionTimeSeriesResponse, InteractionsListResponse,
-    InteractionsQueryParams, Network, NetworkConfig, NetworkEndpoints, NetworkHealth,
-    NetworkHealthResponse, NetworkInfo, NetworkListResponse, NetworkStatus, PaginatedResponse,
-    PublishRequest, Publisher, QueryCondition, QueryNode, QueryOperator, SaveFavoriteSearchRequest,
-    SearchSuggestion, SearchSuggestionsResponse, SemVer, TrendingParams,
-    UpdateContractMetadataRequest, UpdateContractStatusRequest, VerifyRequest,
+    Contract, ContractSearchParams, ContractVersion, CreateContractVersionRequest, PaginatedResponse, PublishRequest, Publisher,
+    SemVer, VerifyRequest,
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -261,24 +249,20 @@ fn maturity_filter_value(maturity: &shared::MaturityLevel) -> &'static str {
     }
 }
 
-pub(crate) async fn fetch_contract_identity(
-    state: &AppState,
-    id: &str,
-) -> ApiResult<(Uuid, String)> {
-    if let Ok(uuid) = Uuid::parse_str(id) {
-        let (contract_id,): (String,) =
-            sqlx::query_as("SELECT contract_id FROM contracts WHERE id = $1")
-                .bind(uuid)
-                .fetch_one(&state.db)
-                .await
-                .map_err(|err| match err {
-                    sqlx::Error::RowNotFound => {
-                        ApiError::not_found("ContractNotFound", "Contract not found")
-                    }
-                    _ => db_internal_error("fetch contract identity by uuid", err),
-                })?;
-        return Ok((uuid, contract_id));
-    }
+#[utoipa::path(
+    get,
+    path = "/health",
+    summary = "Health check",
+    description = "Returns service uptime and database connectivity status.",
+    tag = "Health",
+    responses(
+        (status = 200, description = "Service healthy", body = Value),
+        (status = 503, description = "Service degraded", body = Value)
+    )
+)]
+pub async fn health_check(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
+    let uptime = state.started_at.elapsed().as_secs();
+    let now = chrono::Utc::now().to_rfc3339();
 
     let (uuid, contract_id): (Uuid, String) =
         sqlx::query_as("SELECT id, contract_id FROM contracts WHERE contract_id = $1")
@@ -377,13 +361,26 @@ async fn require_multisig_approval_for_sensitive_update(
     Ok(())
 }
 
-#[allow(dead_code)]
-fn map_json_rejection(err: JsonRejection) -> ApiError {
-    ApiError::bad_request_with(
-        "InvalidRequest",
-        format!("Invalid JSON payload: {}", err.body_text()),
+#[utoipa::path(
+    get,
+    path = "/stats",
+    summary = "Registry statistics",
+    description = "Returns aggregate counts and lightweight API version usage counters.",
+    tag = "System",
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Stats response", body = crate::openapi::StatsResponse),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
     )
-}
+)]
+pub async fn get_stats(State(state): State<AppState>) -> ApiResult<Json<Value>> {
+    let total_contracts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contracts")
+        .fetch_one(&state.db)
+        .await
+        .map_err(|err| db_internal_error("count contracts", err))?;
 
 fn map_query_rejection(err: QueryRejection) -> ApiError {
     ApiError::bad_request_with(
@@ -403,24 +400,44 @@ fn sort_timestamp_column(sort_by: &shared::SortBy) -> Option<&'static str> {
     }
 }
 
-fn contract_timestamp_for_sort(
-    contract: &Contract,
-    sort_by: &shared::SortBy,
-) -> Option<chrono::DateTime<chrono::Utc>> {
-    match sort_by {
-        shared::SortBy::CreatedAt => Some(contract.created_at),
-        shared::SortBy::UpdatedAt => Some(contract.updated_at),
-        shared::SortBy::VerifiedAt => contract.verified_at,
-        shared::SortBy::LastAccessedAt => contract.last_accessed_at,
-        _ => None,
-    }
+    Ok(Json(json!({
+        "total_contracts": total_contracts,
+        "verified_contracts": verified_contracts,
+        "total_publishers": total_publishers,
+        "api_versions": state.api_version_metrics.snapshot(),
+    })))
 }
 
-pub(crate) async fn track_contract_access(state: &AppState, contract_id: Uuid) {
-    let cache_key = contract_id.to_string();
-    if !state.cache.should_refresh_contract_access(&cache_key).await {
-        return;
-    }
+/// List and search contracts
+#[utoipa::path(
+    get,
+    path = "/contracts",
+    summary = "List contracts",
+    description = "Lists contracts with filtering, pagination and sorting.",
+    tag = "Contracts",
+    params(shared::ContractSearchParams),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Paginated contract list", body = crate::openapi::PaginatedContractsResponse),
+        (status = 400, description = "Invalid query", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn list_contracts(
+    State(state): State<AppState>,
+    params: Result<Query<ContractSearchParams>, QueryRejection>,
+) -> axum::response::Response {
+    let Query(params) = match params {
+        Ok(q) => q,
+        Err(err) => return map_query_rejection(err).into_response(),
+    };
+    
+    let page = params.page.unwrap_or(1).max(1);
+    let limit = params.limit.unwrap_or(20).clamp(1, 100);
+    let offset = (page - 1).max(0) * limit;
 
     let db = state.db.clone();
     tokio::spawn(async move {
@@ -623,11 +640,37 @@ pub enum NetworkStatusIndicator {
     Maintenance,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub struct NetworkStatsV1 {
-    pub contract_count: i64,
-    pub transaction_volume_24h: i64,
-}
+/// Get a specific contract by ID
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}",
+    summary = "Get contract",
+    description = "Fetches a contract by UUID.",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Contract", body = Contract),
+        (status = 400, description = "Invalid contract id", body = crate::openapi::ErrorBody),
+        (status = 404, description = "Not found", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_contract(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Contract>> {
+    let contract_uuid = Uuid::parse_str(&id).map_err(|_| {
+        ApiError::bad_request(
+            "InvalidContractId",
+            format!("Invalid contract ID format: {}", id),
+        )
+    })?;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct NetworkHealthMetricsV1 {
@@ -655,13 +698,35 @@ pub struct NetworkInfoV1 {
     pub status_message: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub struct NetworkListResponseV1 {
-    pub networks: Vec<NetworkInfoV1>,
-    pub cached_at: chrono::DateTime<chrono::Utc>,
-    pub cache_ttl_seconds: i64,
-    pub real_time: bool,
-}
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/versions",
+    summary = "List contract versions",
+    description = "Returns versions for a contract, ordered newest-first.",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Contract versions", body = [ContractVersion]),
+        (status = 400, description = "Invalid contract id", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_contract_versions(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Vec<ContractVersion>>> {
+    let contract_uuid = Uuid::parse_str(&id).map_err(|_| {
+        ApiError::bad_request(
+            "InvalidContractId",
+            format!("Invalid contract ID format: {}", id),
+        )
+    })?;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct NetworkStatsRow {
@@ -677,10 +742,34 @@ fn network_maintenance_override(network_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn status_indicator(network_id: &str, status: &NetworkStatus) -> NetworkStatusIndicator {
-    if network_maintenance_override(network_id) {
-        return NetworkStatusIndicator::Maintenance;
-    }
+#[utoipa::path(
+    post,
+    path = "/contracts/{id}/versions",
+    summary = "Create contract version",
+    description = "Creates a new contract version and stores its ABI. Enforces semver major bump on breaking ABI changes.",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract UUID or contract_id")
+    ),
+    request_body = shared::CreateContractVersionRequest,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Created version", body = ContractVersion),
+        (status = 400, description = "Invalid input", body = crate::openapi::ErrorBody),
+        (status = 404, description = "Contract not found", body = crate::openapi::ErrorBody),
+        (status = 422, description = "Unprocessable request", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn create_contract_version(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    payload: Result<Json<CreateContractVersionRequest>, JsonRejection>,
+) -> ApiResult<Json<ContractVersion>> {
+    let Json(req) = payload.map_err(map_json_rejection)?;
 
     match status {
         NetworkStatus::Online => NetworkStatusIndicator::Healthy,
@@ -793,10 +882,20 @@ async fn fetch_network_catalog(db: &sqlx::PgPool) -> Result<NetworkListResponse,
         });
     }
 
-    Ok(NetworkListResponse {
-        networks,
-        cached_at: now,
-    })
+    state
+        .webhook_dispatcher
+        .emit(
+            crate::webhooks::WebhookEventType::ContractUpdated,
+            Some(contract_id),
+            json!({
+                "contract_uuid": contract_uuid,
+                "version": version_row.version,
+                "wasm_hash": version_row.wasm_hash,
+            }),
+        )
+        .await;
+
+    Ok(Json(version_row))
 }
 
 async fn refresh_network_catalog_cache(state: &AppState) -> Result<NetworkListResponse, ApiError> {
@@ -819,23 +918,33 @@ async fn refresh_network_catalog_cache(state: &AppState) -> Result<NetworkListRe
     Ok(response)
 }
 
-async fn fetch_network_stats(
-    db: &sqlx::PgPool,
-) -> Result<HashMap<String, NetworkStatsV1>, sqlx::Error> {
-    let rows: Vec<NetworkStatsRow> = sqlx::query_as(
-        r#"
-        SELECT
-            c.network,
-            COUNT(DISTINCT c.id)::BIGINT AS contract_count,
-            COALESCE((
-                SELECT SUM(ci.interaction_count)
-                FROM contract_interactions ci
-                WHERE ci.network = c.network
-                  AND ci.created_at >= NOW() - INTERVAL '24 hours'
-            ), 0)::BIGINT AS transaction_volume_24h
-        FROM contracts c
-        GROUP BY c.network
-        "#,
+#[utoipa::path(
+    post,
+    path = "/contracts",
+    summary = "Publish contract",
+    description = "Registers a contract and its publisher in the registry.",
+    tag = "Contracts",
+    request_body = shared::PublishRequest,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Created contract", body = Contract),
+        (status = 400, description = "Invalid request", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn publish_contract(
+    State(state): State<AppState>,
+    payload: Result<Json<PublishRequest>, JsonRejection>,
+) -> ApiResult<Json<Contract>> {
+    let Json(req) = payload.map_err(map_json_rejection)?;
+
+    let publisher: Publisher = sqlx::query_as(
+        "INSERT INTO publishers (stellar_address) VALUES ($1)
+         ON CONFLICT (stellar_address) DO UPDATE SET stellar_address = EXCLUDED.stellar_address
+         RETURNING *"
     )
     .fetch_all(db)
     .await?;
@@ -860,23 +969,28 @@ async fn fetch_active_validator_count(db: &sqlx::PgPool) -> Result<i64, sqlx::Er
         .await
 }
 
-async fn fetch_network_catalog_v1(
-    state: &AppState,
-    real_time: bool,
-) -> Result<NetworkListResponseV1, ApiError> {
-    let catalog = fetch_network_catalog(&state.db)
-        .await
-        .map_err(|err| db_internal_error("fetch network catalog v1", err))?;
-    let stats = fetch_network_stats(&state.db)
-        .await
-        .map_err(|err| db_internal_error("fetch network stats", err))?;
-    let validator_count = fetch_active_validator_count(&state.db)
-        .await
-        .map_err(|err| db_internal_error("fetch validator count", err))?;
-    let definitions: HashMap<&'static str, StaticNetworkDefinition> = configured_networks()
-        .into_iter()
-        .map(|definition| (definition.id, definition))
-        .collect();
+#[utoipa::path(
+    post,
+    path = "/publishers",
+    summary = "Create publisher",
+    description = "Creates a publisher record.",
+    tag = "Publishers",
+    request_body = Publisher,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Publisher created", body = Publisher),
+        (status = 400, description = "Invalid request", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn create_publisher(
+    State(state): State<AppState>,
+    payload: Result<Json<Publisher>, JsonRejection>,
+) -> ApiResult<Json<Publisher>> {
+    let Json(publisher) = payload.map_err(map_json_rejection)?;
 
     let networks = catalog
         .networks
@@ -925,10 +1039,36 @@ async fn fetch_network_catalog_v1(
     })
 }
 
-async fn refresh_network_catalog_v1_cache(
-    state: &AppState,
-) -> Result<NetworkListResponseV1, ApiError> {
-    let response = fetch_network_catalog_v1(state, false).await?;
+#[utoipa::path(
+    get,
+    path = "/publishers/{id}",
+    summary = "Get publisher",
+    description = "Fetches a publisher by UUID.",
+    tag = "Publishers",
+    params(
+        ("id" = String, Path, description = "Publisher UUID")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Publisher", body = Publisher),
+        (status = 400, description = "Invalid publisher id", body = crate::openapi::ErrorBody),
+        (status = 404, description = "Not found", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_publisher(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Publisher>> {
+    let publisher_uuid = Uuid::parse_str(&id).map_err(|_| {
+        ApiError::bad_request(
+            "InvalidPublisherId",
+            format!("Invalid publisher ID format: {}", id),
+        )
+    })?;
 
     if let Ok(serialized) = serde_json::to_string(&response) {
         state
@@ -945,8 +1085,43 @@ async fn refresh_network_catalog_v1_cache(
     Ok(response)
 }
 
-pub async fn run_network_catalog_refresh(state: AppState) {
-    let mut interval = tokio::time::interval(Duration::from_secs(NETWORKS_REFRESH_INTERVAL_SECS));
+#[utoipa::path(
+    get,
+    path = "/publishers/{id}/contracts",
+    summary = "List publisher contracts",
+    description = "Lists contracts published by a publisher.",
+    tag = "Publishers",
+    params(
+        ("id" = String, Path, description = "Publisher UUID")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Publisher contracts", body = [Contract]),
+        (status = 400, description = "Invalid publisher id", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_publisher_contracts(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Vec<Contract>>> {
+    let publisher_uuid = Uuid::parse_str(&id).map_err(|_| {
+        ApiError::bad_request(
+            "InvalidPublisherId",
+            format!("Invalid publisher ID format: {}", id),
+        )
+    })?;
+
+    let contracts: Vec<Contract> = sqlx::query_as(
+        "SELECT * FROM contracts WHERE publisher_id = $1 ORDER BY created_at DESC",
+    )
+    .bind(publisher_uuid)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| db_internal_error("get publisher contracts", err))?;
 
     loop {
         interval.tick().await;
@@ -956,293 +1131,333 @@ pub async fn run_network_catalog_refresh(state: AppState) {
     }
 }
 
-#[derive(
-    Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, sqlx::Type, utoipa::ToSchema,
-)]
-#[sqlx(type_name = "contract_audit_event_type", rename_all = "snake_case")]
-#[allow(dead_code)]
-pub enum ContractAuditEventType {
-    ContractCreated,
-    MetadataUpdated,
-    VerificationAdded,
-    StatusChanged,
-    PublisherChanged,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow, utoipa::ToSchema)]
-#[allow(dead_code)]
-pub struct ContractAuditLogEntry {
-    pub id: Uuid,
-    pub event_type: ContractAuditEventType,
-    pub contract_id: Uuid,
-    pub user_id: Uuid,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-    pub changes: serde_json::Value,
-    pub ip_address: String,
-}
-
-#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
-pub struct AuditLogQuery {
-    #[serde(default = "default_audit_limit")]
-    pub limit: i64,
-    #[serde(default)]
-    pub offset: i64,
-}
-
-fn default_audit_limit() -> i64 {
-    100
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub struct PublisherContractsQuery {
-    #[serde(default = "default_contracts_limit")]
-    pub limit: i64,
-    #[serde(default)]
-    pub offset: i64,
-    /// Filter by network (mainnet, testnet, futurenet)
-    pub network: Option<Network>,
-    /// Filter by category (e.g., DeFi, NFT)
-    pub category: Option<String>,
-}
-
-fn default_contracts_limit() -> i64 {
-    20
-}
-
-const DEFAULT_CONTRACT_LIST_LIMIT: i64 = 50;
-const MAX_CONTRACT_LIST_LIMIT: i64 = 1000;
-
-fn validate_contract_list_pagination(
-    params: &ContractSearchParams,
-) -> Result<(i64, i64, i64), ApiError> {
-    let limit = params.limit.unwrap_or(DEFAULT_CONTRACT_LIST_LIMIT);
-    if !(1..=MAX_CONTRACT_LIST_LIMIT).contains(&limit) {
-        return Err(ApiError::bad_request_with(
-            "InvalidPaginationLimit",
-            format!(
-                "Invalid `limit` value {limit}. Expected an integer between 1 and {MAX_CONTRACT_LIST_LIMIT}."
-            ),
-        ));
-    }
-
-    if let Some(offset) = params.offset {
-        if offset < 0 {
-            return Err(ApiError::bad_request_with(
-                "InvalidPaginationOffset",
-                format!("Invalid `offset` value {offset}. Expected a non-negative integer."),
-            ));
-        }
-
-        let page = (offset / limit) + 1;
-        return Ok((limit, offset, page));
-    }
-
-    let page = params.page.unwrap_or(1).max(1);
-    let offset = (page - 1).max(0) * limit;
-    Ok((limit, offset, page))
-}
-
-pub(crate) fn extract_ip_address(headers: &HeaderMap) -> String {
-    if let Some(forwarded_for) = headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-    {
-        let first = forwarded_for
-            .split(',')
-            .next()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        if let Some(ip) = first {
-            return ip.to_string();
-        }
-    }
-
-    if let Some(real_ip) = headers
-        .get("x-real-ip")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        return real_ip.to_string();
-    }
-
-    "unknown".to_string()
-}
-
-fn parse_batch_fields(raw_fields: Option<&str>) -> Option<HashSet<String>> {
-    let set: HashSet<String> = raw_fields
-        .unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase())
-        .collect();
-
-    if set.is_empty() {
-        None
-    } else {
-        Some(set)
-    }
-}
-
-fn contract_to_filtered_value(contract: &Contract, fields: Option<&HashSet<String>>) -> Value {
-    if fields.is_none() {
-        return serde_json::to_value(contract).unwrap_or(Value::Null);
-    }
-
-    let Some(source) = serde_json::to_value(contract)
-        .ok()
-        .and_then(|v| v.as_object().cloned())
-    else {
-        return Value::Null;
-    };
-
-    let mut out = serde_json::Map::new();
-    let selected = fields.expect("checked above");
-
-    for field in selected {
-        if field == "address" {
-            out.insert(
-                "address".to_string(),
-                Value::String(contract.contract_id.clone()),
-            );
-            continue;
-        }
-
-        if let Some(value) = source.get(field) {
-            out.insert(field.clone(), value.clone());
-        }
-    }
-
-    Value::Object(out)
-}
-
-pub(crate) async fn write_contract_audit_log(
-    db: &sqlx::PgPool,
-    action_type: AuditActionType,
-    contract_id: Uuid,
-    user_id: Uuid,
-    changes: serde_json::Value,
-    ip_address: &str,
-) -> Result<(), sqlx::Error> {
-    let (old_value, new_value) = split_audit_changes(&changes, ip_address);
-
-    sqlx::query(
-        "INSERT INTO contract_audit_log (action_type, contract_id, old_value, new_value, changed_by)
-         VALUES ($1, $2, $3, $4, $5)",
+// Stubs for upstream added endpoints
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/abi",
+    summary = "Get contract ABI",
+    description = "Returns the contract ABI for the current version (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "ABI response", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
     )
-    .bind(action_type)
-    .bind(contract_id)
-    .bind(old_value)
-    .bind(new_value)
-    .bind(user_id.to_string())
-    .execute(db)
-    .await?;
-
-    Ok(())
+)]
+pub async fn get_contract_abi() -> impl IntoResponse {
+    Json(json!({"abi": null}))
 }
 
-fn split_audit_changes(
-    changes: &serde_json::Value,
-    ip_address: &str,
-) -> (Option<serde_json::Value>, Option<serde_json::Value>) {
-    let mut old_value = serde_json::Map::new();
-    let mut new_value = serde_json::Map::new();
-    let mut saw_before_after_pair = false;
-
-    match changes {
-        serde_json::Value::Object(fields) => {
-            for (field, delta) in fields {
-                match delta {
-                    serde_json::Value::Object(delta_obj) => {
-                        let before = delta_obj.get("before");
-                        let after = delta_obj.get("after");
-
-                        if before.is_some() || after.is_some() {
-                            saw_before_after_pair = true;
-                            if let Some(before) = before {
-                                if !before.is_null() {
-                                    old_value.insert(field.clone(), before.clone());
-                                }
-                            }
-                            if let Some(after) = after {
-                                if !after.is_null() {
-                                    new_value.insert(field.clone(), after.clone());
-                                }
-                            }
-                        } else {
-                            new_value.insert(field.clone(), delta.clone());
-                        }
-                    }
-                    _ => {
-                        new_value.insert(field.clone(), delta.clone());
-                    }
-                }
-            }
-        }
-        _ => {
-            new_value.insert("changes".to_string(), changes.clone());
-        }
-    }
-
-    if !saw_before_after_pair && new_value.is_empty() {
-        new_value.insert("changes".to_string(), changes.clone());
-    }
-
-    new_value.insert(
-        "_ip_address".to_string(),
-        serde_json::Value::String(ip_address.to_string()),
-    );
-
-    let old_value = if old_value.is_empty() {
-        None
-    } else {
-        Some(serde_json::Value::Object(old_value))
-    };
-    let new_value = if new_value.is_empty() {
-        None
-    } else {
-        Some(serde_json::Value::Object(new_value))
-    };
-
-    (old_value, new_value)
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/state/{key}",
+    summary = "Get contract state",
+    description = "Reads a contract state key (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id"),
+        ("key" = String, Path, description = "State key")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "State", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_contract_state() -> impl IntoResponse {
+    Json(json!({"state": {}}))
 }
 
-fn parse_interaction_type(
-    interaction_type: Option<&str>,
-    method: Option<&str>,
-) -> Result<String, ApiError> {
-    let mut normalized = interaction_type
-        .map(|v| v.trim().to_ascii_lowercase())
-        .or_else(|| {
-            if method.is_some() {
-                Some("invoke".to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "invoke".to_string());
+#[utoipa::path(
+    post,
+    path = "/contracts/{id}/state/{key}",
+    summary = "Update contract state",
+    description = "Updates a contract state key (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id"),
+        ("key" = String, Path, description = "State key")
+    ),
+    request_body = Value,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Update result", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn update_contract_state() -> impl IntoResponse {
+    Json(json!({"success": true}))
+}
 
-    if normalized == "invocation" {
-        normalized = "invoke".to_string();
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/analytics",
+    summary = "Contract analytics",
+    description = "Returns contract analytics (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Analytics response", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_contract_analytics() -> impl IntoResponse {
+    Json(json!({"analytics": {}}))
+}
+
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/trust-score",
+    summary = "Trust score",
+    description = "Returns a trust score for the contract (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Trust score", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_trust_score() -> impl IntoResponse {
+    Json(json!({"score": 0}))
+}
+
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/dependencies",
+    summary = "Dependencies",
+    description = "Returns direct dependencies of the contract (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Dependencies", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_contract_dependencies() -> impl IntoResponse {
+    Json(json!({"dependencies": []}))
+}
+
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/dependents",
+    summary = "Dependents",
+    description = "Returns dependents of the contract (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Dependents", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_contract_dependents() -> impl IntoResponse {
+    Json(json!({"dependents": []}))
+}
+
+#[utoipa::path(
+    get,
+    path = "/contracts/graph",
+    summary = "Contract graph",
+    description = "Returns a dependency graph view (MVP stub).",
+    tag = "Contracts",
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Graph response", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_contract_graph() -> impl IntoResponse {
+    Json(json!({"graph": {}}))
+}
+
+#[utoipa::path(
+    get,
+    path = "/contracts/trending",
+    summary = "Trending contracts",
+    description = "Returns trending contracts (MVP stub).",
+    tag = "Contracts",
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Trending response", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_trending_contracts() -> impl IntoResponse {
+    Json(json!({"trending": []}))
+}
+
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/deployments/status",
+    summary = "Deployment status",
+    description = "Returns deployment status (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Status response", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_deployment_status() -> impl IntoResponse {
+    Json(json!({"status": "pending"}))
+}
+
+#[derive(serde::Deserialize)]
+pub struct DeployGreenRequest {
+    pub contract_id: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/contracts/verify",
+    summary = "Verify contract",
+    description = "Marks a contract as verified and emits a `contract_verified` webhook event.",
+    tag = "Contracts",
+    request_body = shared::VerifyRequest,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Verification result", body = Value),
+        (status = 400, description = "Invalid request", body = crate::openapi::ErrorBody),
+        (status = 404, description = "Contract not found", body = crate::openapi::ErrorBody),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody),
+        (status = 500, description = "Server error", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn verify_contract(
+    State(state): State<AppState>,
+    payload: Result<Json<VerifyRequest>, JsonRejection>,
+) -> axum::response::Response {
+    let Json(req) = match payload {
+        Ok(v) => v,
+        Err(err) => return map_json_rejection(err).into_response(),
+    };
+
+    let contract_uuid: Option<Uuid> = match sqlx::query_scalar::<_, Uuid>(
+        "UPDATE contracts SET is_verified = true, updated_at = NOW() WHERE contract_id = $1 RETURNING id",
+    )
+    .bind(&req.contract_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(v) => v,
+        Err(err) => return db_internal_error("verify contract", err).into_response(),
+    };
+
+    let Some(contract_uuid) = contract_uuid else {
+        return ApiError::not_found(
+            "ContractNotFound",
+            format!("No contract found with contract_id: {}", req.contract_id),
+        )
+        .into_response();
+    };
+
+    state
+        .webhook_dispatcher
+        .emit(
+            crate::webhooks::WebhookEventType::ContractVerified,
+            Some(req.contract_id.clone()),
+            json!({
+                "contract_uuid": contract_uuid,
+                "compiler_version": req.compiler_version,
+            }),
+        )
+        .await;
+
+    Json(json!({"verified": true, "contract_uuid": contract_uuid})).into_response()
+}
+
+#[utoipa::path(
+    post,
+    path = "/deployments/green",
+    summary = "Deploy green",
+    description = "Triggers a green deployment (MVP stub) and emits a `contract_deployed` webhook event when contract_id is provided.",
+    tag = "Contracts",
+    request_body = DeployGreenRequest,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Deployment result", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn deploy_green(
+    State(state): State<AppState>,
+    payload: Option<Json<DeployGreenRequest>>,
+) -> impl IntoResponse {
+    let contract_id = payload.and_then(|p| p.contract_id);
+    if let Some(contract_id) = contract_id {
+        state
+            .webhook_dispatcher
+            .emit(
+                crate::webhooks::WebhookEventType::ContractDeployed,
+                Some(contract_id),
+                json!({"deployment": "green"}),
+            )
+            .await;
     }
 
-    let valid = matches!(
-        normalized.as_str(),
-        "deploy" | "invoke" | "transfer" | "query" | "publish_success" | "publish_failed"
-    );
+    Json(json!({"deployment_id": ""}))
+}
 
-    if !valid {
-        return Err(ApiError::bad_request_with(
-            "InvalidInteractionType",
-            format!(
-                "interaction_type '{}' is invalid; expected one of: deploy, invoke, transfer, query, publish_success, publish_failed",
-                normalized
-            ),
-        ));
-    }
-
-    Ok(normalized)
+#[utoipa::path(
+    get,
+    path = "/contracts/{id}/performance",
+    summary = "Contract performance",
+    description = "Returns performance metrics (MVP stub).",
+    tag = "Contracts",
+    params(
+        ("id" = String, Path, description = "Contract id")
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Performance response", body = Value),
+        (status = 429, description = "Rate limited", body = crate::openapi::ErrorBody)
+    )
+)]
+pub async fn get_contract_performance() -> impl IntoResponse {
+    Json(json!({"performance": {}}))
 }
 
 fn infer_target_identifier_from_parameters(

@@ -1,17 +1,7 @@
 use crate::ai::service::AIService;
 use crate::auth::AuthManager;
 use crate::cache::{CacheConfig, CacheLayer};
-use crate::crypto::EncryptionService;
-use crate::contract_events::ContractEventHub;
-use crate::feature_flags::FeatureFlagManager;
-use crate::health_monitor::HealthMonitorStatus;
-use crate::rate_limit::RateLimitState;
-use crate::resource_tracking::ResourceManager;
-use crate::search_client::SearchClient;
-use crate::search_postgres::PostgresSearchService;
-use crate::state_monitor::StateMonitorService;
-use shared::source_storage::SourceStorage;
-
+use crate::{api_versioning::ApiVersionMetrics, webhooks::{WebhookDispatcher, WebhookStore}};
 use prometheus::Registry;
 use sqlx::PgPool;
 use std::sync::atomic::AtomicBool;
@@ -84,23 +74,9 @@ pub struct AppState {
     pub cache: Arc<CacheLayer>,
     pub contract_events: Arc<ContractEventHub>,
     pub registry: Registry,
-    pub job_engine: Arc<soroban_batch::engine::JobEngine>,
-    pub is_shutting_down: Arc<AtomicBool>,
-    pub health_monitor_status: HealthMonitorStatus,
-    pub auth_mgr: Arc<RwLock<AuthManager>>,
-    pub resource_mgr: Arc<RwLock<ResourceManager>>,
-    pub source_storage: Arc<SourceStorage>,
-    pub event_broadcaster: broadcast::Sender<RealtimeEvent>,
-    pub search: Arc<SearchClient>,
-    pub pg_search: Arc<PostgresSearchService>,
-    pub ai_service: Option<Arc<AIService>>,
-    pub state_monitor: Option<Arc<StateMonitorService>>,
-    pub rate_limit_state: Arc<RateLimitState>,
-    pub db_breaker: Arc<crate::db_resilience::CircuitBreaker>,
-    pub db_queue: Arc<crate::db_resilience::DbQueue>,
-    pub feature_flags: Arc<FeatureFlagManager>,
-    /// At-rest field encryption service (#895).
-    pub encryption: Arc<EncryptionService>,
+    pub api_version_metrics: Arc<ApiVersionMetrics>,
+    pub webhook_store: Arc<WebhookStore>,
+    pub webhook_dispatcher: WebhookDispatcher,
 }
 
 impl AppState {
@@ -117,64 +93,18 @@ impl AppState {
         feature_flags: Arc<FeatureFlagManager>,
     ) -> Result<Self, shared::error::RegistryError> {
         let config = CacheConfig::from_env();
-        let auth_manager = match AuthManager::from_env() {
-            Ok(manager) => manager,
-            Err(err) => {
-                #[cfg(test)]
-                {
-                    let _ = err;
-                    AuthManager::new("test-jwt-secret-at-least-32-chars".to_string())
-                }
-                #[cfg(not(test))]
-                {
-                    panic!("JWT config validated at startup: {:?}", err)
-                }
-            }
-        };
-        let auth_mgr = Arc::new(RwLock::new(auth_manager));
-        let resource_mgr = Arc::new(RwLock::new(ResourceManager::new()));
-        let contract_events = Arc::new(ContractEventHub::from_env());
-        let source_storage = Arc::new(SourceStorage::new().await?);
-
-        let elasticsearch_url = std::env::var("ELASTICSEARCH_URL")
-            .unwrap_or_else(|_| "http://localhost:9200".to_string());
-        let search = Arc::new(SearchClient::new(&elasticsearch_url).expect("Search client init"));
-        let pg_search = Arc::new(PostgresSearchService::new(db.clone()));
-
-        // Initialize state monitor (optional)
-        let state_monitor = match StateMonitorService::new(db.clone(), event_broadcaster.clone()) {
-            Ok(service) => {
-                info!("State monitor service initialized");
-                Some(Arc::new(service))
-            }
-            Err(e) => {
-                warn!("State monitor service not initialized: {}", e);
-                None
-            }
-        };
-
-        Ok(Self {
+        let api_version_metrics = Arc::new(ApiVersionMetrics::new());
+        let webhook_store = Arc::new(WebhookStore::default());
+        let webhook_dispatcher = WebhookDispatcher::spawn(Arc::clone(&webhook_store));
+        Self {
             db,
             started_at: Instant::now(),
             cache: Arc::new(CacheLayer::new(config).await),
             contract_events,
             registry,
-            job_engine,
-            is_shutting_down,
-            health_monitor_status: HealthMonitorStatus::default(),
-            auth_mgr,
-            resource_mgr,
-            source_storage,
-            event_broadcaster,
-            search,
-            pg_search,
-            ai_service,
-            state_monitor,
-            rate_limit_state,
-            db_breaker,
-            db_queue,
-            feature_flags,
-            encryption: Arc::new(EncryptionService::from_env()),
-        })
+            api_version_metrics,
+            webhook_store,
+            webhook_dispatcher,
+        }
     }
 }

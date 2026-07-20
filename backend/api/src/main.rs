@@ -1,4 +1,22 @@
-#![warn(unused_imports)]
+mod routes;
+mod handlers;
+mod error;
+mod state;
+mod rate_limit;
+mod aggregation;
+mod api_versioning;
+// mod auth;
+// mod auth_handlers;
+mod cache;
+mod metrics_handler;
+mod metrics;
+// mod resource_handlers;
+// mod resource_tracking;
+mod analytics;
+mod breaking_changes;
+mod deprecation_handlers;
+mod webhooks;
+mod openapi;
 
 use anyhow::Result;
 use axum::extract::{MatchedPath, Request, State};
@@ -406,7 +424,11 @@ async fn main() -> Result<()> {
     let https_config = api::security::HttpsConfig::from_env();
 
     // Build router
-    let app = routes::application_routes(schema)
+    let app = Router::new()
+        .merge(routes::health_routes())
+        .merge(routes::api_router(state.api_version_metrics.clone()))
+        .merge(openapi::routes())
+        .merge(routes::migration_routes())
         .fallback(handlers::route_not_found)
         .layer(middleware::from_fn(
             validation::payload_size::payload_size_validation_middleware,
