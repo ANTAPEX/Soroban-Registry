@@ -9,6 +9,9 @@ use sqlx::PgPool;
 
 use crate::error::ApiError;
 use crate::state::AppState;
+
+/// Full-text search queries slower than this are counted as slow for alerting.
+const SEARCH_SLOW_QUERY_MS: u64 = 500;
 use axum::{
     extract::{Query, State},
     Json,
@@ -184,6 +187,15 @@ impl PostgresSearchService {
         let total = count_query.fetch_one(&self.db).await?;
 
         let took = start_time.elapsed().as_millis() as u64;
+
+        crate::metrics::SEARCH_QUERY_DURATION
+            .with_label_values(&["fulltext"])
+            .observe(took as f64 / 1000.0);
+        if took >= SEARCH_SLOW_QUERY_MS {
+            crate::metrics::SEARCH_SLOW_QUERIES
+                .with_label_values(&["fulltext"])
+                .inc();
+        }
 
         let contracts = rows
             .into_iter()
