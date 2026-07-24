@@ -204,8 +204,10 @@ pub async fn search(
     }
 
     let url = format!("{}/api/contracts", api_url);
-    let query: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
-    let (status, body) = crate::cached_http::cached_get(&url, &query)
+    // Named `query_pairs`, not `query`: it previously shadowed the `query: &str`
+    // parameter, which the result-rendering code below still needs.
+    let query_pairs: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
+    let (status, body) = crate::cached_http::cached_get(&url, &query_pairs)
         .await
         .context("Failed to search contracts")?;
 
