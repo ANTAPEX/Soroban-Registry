@@ -11,6 +11,7 @@ Thank you for your interest in contributing! This document provides guidelines a
 - [Testing](#testing)
 - [Submitting a Pull Request](#submitting-a-pull-request)
 - [Code Standards](#code-standards)
+- [Database Migrations](#database-migrations)
 - [Issue Selection](#issue-selection)
 
 ## Getting Started
@@ -214,6 +215,10 @@ CREATE TABLE contract_dependencies (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 ```
+
+### Database Migrations
+
+Migration files already merged into `main` are immutable. Never edit, delete, or rename an existing file in `database/migrations`, because deployed databases record its checksum. Make schema corrections by adding a new migration that moves the schema forward.
 
 ## Testing
 

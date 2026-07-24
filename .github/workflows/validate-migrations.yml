@@ -5,6 +5,8 @@ on:
     paths:
       - "database/migrations/**"
       - ".github/scripts/validate-migrations.sh"
+      - ".github/scripts/check-migration-immutability.sh"
+      - ".github/scripts/test-migration-immutability.sh"
       - ".github/workflows/validate-migrations.yml"
   push:
     branches:
@@ -14,15 +16,24 @@ on:
 
 jobs:
   validate:
-    name: Check Migration File Naming
+    name: Check Migration Files
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Validate migration files
+      - name: Validate migration filenames
         run: bash .github/scripts/validate-migrations.sh
+
+      - name: Test migration checksum validation
+        run: bash .github/scripts/test-migration-immutability.sh
+
+      - name: Check merged migration checksums
+        if: github.event_name == 'pull_request'
+        run: bash .github/scripts/check-migration-immutability.sh "${{ github.event.pull_request.base.sha }}"
 
       - name: Comment on PR (on failure)
         if: failure() && github.event_name == 'pull_request'
@@ -33,5 +44,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '❌ **Migration Validation Failed**\n\nPlease check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.\n\nCommon issues:\n- Duplicate migration prefixes\n- Invalid filename format\n- Missing zero-padding in prefix\n\nSee [docs/MIGRATIONS.md](../blob/main/docs/MIGRATIONS.md) for naming conventions.'
+              body: '❌ **Migration Validation Failed**\n\nPlease check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details. Existing migrations cannot be modified, deleted, or renamed. Add a new migration to fix the schema forward.'
             })
