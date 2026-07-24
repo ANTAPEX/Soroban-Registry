@@ -5434,6 +5434,7 @@ pub async fn verify_contract(
     headers: HeaderMap,
     ValidatedJson(req): ValidatedJson<VerifyRequest>,
 ) -> ApiResult<Json<Value>> {
+    let verification_started = std::time::Instant::now();
     let contract: Contract = sqlx::query_as(
         "SELECT * FROM contracts WHERE contract_id = $1 ORDER BY created_at DESC LIMIT 1",
     )
@@ -5587,6 +5588,11 @@ pub async fn verify_contract(
             )
             .await;
 
+            crate::metrics::observe_verification_latency(
+                "success",
+                verification_started.elapsed().as_secs_f64(),
+            );
+
             Ok(Json(json!({
                 "verified": true,
                 "status": "verified",
@@ -5665,6 +5671,11 @@ pub async fn verify_contract(
                 .map_err(|err| db_internal_error("write failed status audit log", err))?;
             }
 
+            crate::metrics::observe_verification_latency(
+                "failure",
+                verification_started.elapsed().as_secs_f64(),
+            );
+
             Err(ApiError::unprocessable(
                 "VerificationFailed",
                 failure_message,
@@ -5719,6 +5730,11 @@ pub async fn verify_contract(
                     db_internal_error("write verifier error status audit log", db_err)
                 })?;
             }
+
+            crate::metrics::observe_verification_latency(
+                "failure",
+                verification_started.elapsed().as_secs_f64(),
+            );
 
             Err(ApiError::unprocessable(
                 "VerificationFailed",

@@ -79,6 +79,7 @@ pub mod resource_tracking;
 pub mod routes;
 pub mod search_client;
 pub mod security;
+pub mod service_health;
 pub mod security_scan_handlers;
 pub mod signing_handlers;
 pub mod similarity_handlers;
