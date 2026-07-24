@@ -156,7 +156,10 @@ async fn test_both_endpoints_accept_the_same_filter_spellings() {
     // Categories must be split the same way on both endpoints.
     for url in [
         format!("{}/api/contracts?categories=DeFi,NFT", base),
-        format!("{}/api/v1/contracts/search?q=token&categories=DeFi,NFT", base),
+        format!(
+            "{}/api/v1/contracts/search?q=token&categories=DeFi,NFT",
+            base
+        ),
     ] {
         let res = client
             .get(&url)
