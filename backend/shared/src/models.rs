@@ -295,6 +295,100 @@ where
     deserializer.deserialize_any(NetworksVisitor)
 }
 
+/// Deserialize a free-form string filter that may arrive either as a
+/// comma-separated string (`?categories=DeFi,NFT`) or as repeated query
+/// parameters (`?categories=DeFi&categories=NFT`), so both callers agree.
+///
+/// Blank entries are dropped and an all-blank filter deserializes to `None`,
+/// matching `deserialize_optional_networks`.
+pub fn deserialize_optional_string_list<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct StringListVisitor;
+
+    impl<'de> Visitor<'de> for StringListVisitor {
+        type Value = Option<Vec<String>>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a comma-separated string or sequence of values")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut values = Vec::new();
+            // Repeated params may themselves be comma-separated, so split again.
+            while let Some(value) = seq.next_element::<String>()? {
+                values.extend(
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_owned),
+                );
+            }
+
+            if values.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(values))
+            }
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            let values: Vec<String> = value
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect();
+
+            if values.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(values))
+            }
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(&value)
+        }
+
+        fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(value)
+        }
+    }
+
+    deserializer.deserialize_any(StringListVisitor)
+}
+
 /// Upgrade strategy for contract upgrades
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
 #[sqlx(type_name = "upgrade_strategy_type", rename_all = "lowercase")]
@@ -1118,15 +1212,20 @@ pub enum SortOrder {
 pub struct ContractSearchParams {
     pub query: Option<String>,
     pub network: Option<Network>,
-    /// Multiple networks filter (e.g. ?networks=mainnet&networks=testnet)
+    /// Multiple networks filter, comma-separated: `?networks=mainnet,testnet`.
+    /// (Repeating the key is rejected by the query extractor as a duplicate
+    /// field; a sequence is still accepted when deserializing from JSON.)
     #[serde(default, deserialize_with = "deserialize_optional_networks")]
     pub networks: Option<Vec<Network>>,
     pub verified_only: Option<bool>,
     /// Filter by verification_status (unverified, pending, verified, failed)
     pub verification_status: Option<VerificationStatus>,
     pub category: Option<String>,
-    /// Multiple categories filter (e.g. ?categories=DeFi&categories=NFT)
+    /// Multiple categories filter, comma-separated: `?categories=DeFi,NFT`.
+    #[serde(default, deserialize_with = "deserialize_optional_string_list")]
     pub categories: Option<Vec<String>>,
+    /// Multiple tags filter, comma-separated: `?tags=defi,amm`.
+    #[serde(default, deserialize_with = "deserialize_optional_string_list")]
     pub tags: Option<Vec<String>>,
     pub maturity: Option<MaturityLevel>,
     pub page: Option<i64>,

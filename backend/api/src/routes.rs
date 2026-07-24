@@ -1098,7 +1098,6 @@ pub fn admin_routes() -> Router<AppState> {
             "/api/admin/audit-logs/cleanup",
             post(handlers::handle_retention_cleanup),
         )
-        .merge(migration_routes())
         // Category management (issue #414) – admin-only write endpoints
         .route(
             "/api/admin/categories",

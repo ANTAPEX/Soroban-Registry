@@ -15,6 +15,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use chrono::{DateTime, Utc};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use flate2::{write::GzEncoder, Compression};
@@ -33,7 +34,8 @@ use shared::{
     DeploymentHistoryQueryParams, FavoriteSearch, FieldOperator, GraphResponse,
     InteractionTimeSeriesPoint, InteractionTimeSeriesResponse, InteractionsListResponse,
     InteractionsQueryParams, Network, NetworkConfig, NetworkEndpoints, NetworkHealth,
-    NetworkHealthResponse, NetworkInfo, NetworkListResponse, NetworkStatus, PaginatedResponse,
+    NetworkHealthResponse, NetworkInfo, NetworkListResponse, NetworkStatus, PaginatedAuditsResponse,
+    PaginatedResponse,
     PublishRequest, Publisher, QueryCondition, QueryNode, QueryOperator, SaveFavoriteSearchRequest,
     SearchSuggestion, SearchSuggestionsResponse, SemVer, TrendingParams,
     UpdateContractMetadataRequest, UpdateContractStatusRequest, VerifyRequest,
@@ -88,7 +90,10 @@ use contract_abi::{generate_openapi, parse_json_spec, to_json, to_yaml};
 pub(crate) fn db_internal_error(operation: &str, err: sqlx::Error) -> ApiError {
     tracing::error!(operation = operation, error = ?err, "database operation failed");
     if let sqlx::Error::Database(db_err) = &err {
-        let code = db_err.code().as_deref();
+        // Bind the Cow returned by code() before borrowing it, so the temporary
+        // outlives the `match code` below (fixes E0716: temporary dropped while borrowed).
+        let code = db_err.code();
+        let code = code.as_deref();
         let constraint = db_err.constraint();
         let message = database_constraint_message(operation, constraint, db_err.message());
 
