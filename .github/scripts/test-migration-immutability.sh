@@ -61,4 +61,11 @@ git -C "$fixture" rm --quiet database/migrations/002_user_names.sql
 git -C "$fixture" commit --quiet -m "Delete migration"
 assert_check 1 "ERROR: deleted merged migration: database/migrations/002_user_names.sql"
 
+git -C "$fixture" switch --quiet -C typechange "$base_commit"
+git -C "$fixture" rm --quiet database/migrations/001_users.sql
+ln -s 002_user_names.sql "$fixture/database/migrations/001_users.sql"
+git -C "$fixture" add database/migrations/001_users.sql
+git -C "$fixture" commit --quiet -m "Convert migration to symlink"
+assert_check 1 "ERROR: modified merged migration: database/migrations/001_users.sql"
+
 echo "Migration immutability tests passed"
