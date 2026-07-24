@@ -218,11 +218,15 @@ pub enum Commands {
         #[arg(long, short, default_value = "0")]
         offset: usize,
 
-        /// Filter by network (mainnet, testnet, futurenet)
-        #[arg(long, short)]
-        network: Option<crate::config::Network>,
+        /// Filter by network (comma-separated: mainnet,testnet,futurenet). The
+        /// field is `networks`, not `network`: clap derives an arg id from the
+        /// field name, and the global `--network` (global = true) shares that
+        /// id, so a subcommand-local `network` field would collide with it and
+        /// panic trying to downcast the matched value.
+        #[arg(long)]
+        networks: Option<String>,
 
-        /// Filter by category
+        /// Filter by category (comma-separated for multiple: DeFi,NFT)
         #[arg(long, short)]
         category: Option<String>,
 
@@ -2976,15 +2980,19 @@ pub async fn dispatch_command(
         Commands::List {
             limit,
             offset,
-            network,
+            networks: filter_networks,
             category,
             format,
         } => {
+            let networks_vec: Vec<String> = filter_networks
+                .map(|n| n.split(',').map(|s| s.trim().to_string()).collect())
+                .unwrap_or_default();
             commands::contract_list(
                 &cli.api_url,
                 limit,
                 offset,
-                network.or(Some(cfg_network)),
+                Some(cfg_network),
+                networks_vec,
                 category,
                 &format,
             )
