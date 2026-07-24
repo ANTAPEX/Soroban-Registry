@@ -1041,6 +1041,7 @@ pub async fn contract_list(
     limit: usize,
     offset: usize,
     network: Option<crate::config::Network>,
+    networks: Vec<String>,
     category: Option<String>,
     format: &str,
 ) -> Result<()> {
@@ -1049,11 +1050,20 @@ pub async fn contract_list(
         ("page", ((offset / limit) + 1).to_string()),
     ];
 
-    if let Some(net) = network {
+    // Normalize before sending so comma-separated `--networks`/`--category` and
+    // the singular `--network` flag produce the same request shape as `search`,
+    // and unknown networks fail here rather than being silently dropped server-side.
+    let networks = normalize_network_filters(&networks)?;
+    let categories = normalize_filter_values(&category.into_iter().collect::<Vec<_>>());
+
+    if !networks.is_empty() {
+        query.push(("networks", networks.join(",")));
+    } else if let Some(net) = network {
         query.push(("network", net.to_string()));
     }
-    if let Some(cat) = category {
-        query.push(("category", cat));
+
+    if !categories.is_empty() {
+        query.push(("categories", categories.join(",")));
     }
 
     let url = format!("{}/api/contracts", api_url.trim_end_matches('/'));
@@ -1259,6 +1269,7 @@ pub async fn list(
         limit,
         0,
         Some(network),
+        Vec::new(),
         None,
         if json { "json" } else { "table" },
     )
