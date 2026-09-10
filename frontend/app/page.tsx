@@ -122,7 +122,7 @@ export default function Home() {
                 />
                 <button
                   type="submit"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity font-medium"
+                  className="btn-stellar-primary absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2"
                 >
                   Search
                 </button>
@@ -311,9 +311,9 @@ export default function Home() {
               <p className="text-sm text-muted-foreground mb-4">
                 Share your contracts with the ecosystem and help other builders.
               </p>
-              <Link 
+              <Link
                 href="/publish"
-                className="w-full py-2 bg-primary text-primary-foreground rounded-lg font-medium text-sm flex items-center justify-center gap-2"
+                className="btn-stellar-primary w-full py-2 text-sm"
               >
                 Publish Your Contract
                 <ArrowRight className="w-4 h-4" />
@@ -338,14 +338,14 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row gap-4">
               <Link
                 href="/contracts"
-                className="btn-glow inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-medium"
+                className="btn-stellar-primary px-6 py-3"
               >
                 Browse Contracts
                 <ArrowRight className="w-4 h-4" />
               </Link>
               <Link
                 href="/templates"
-                className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl border border-border text-foreground hover:bg-accent font-medium transition-all"
+                className="btn-stellar-outline px-6 py-3"
               >
                 View Templates
               </Link>

@@ -424,7 +424,7 @@ export default function Navbar() {
 
                             <Link
                                 href="/publish"
-                                className="flex items-center gap-1.5 px-3.5 py-1.5 ml-1 rounded-md bg-primary text-primary-foreground text-[13px] font-semibold btn-glow transition-all hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                className="btn-stellar-primary px-3.5 py-1.5 ml-1 text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/50"
                             >
                                 <Plus className="w-3.5 h-3.5" />
                                 Publish
@@ -615,7 +615,7 @@ export default function Navbar() {
                             <Link
                                 href="/publish"
                                 onClick={() => setMobileOpen(false)}
-                                className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm btn-glow"
+                                className="btn-stellar-primary py-2.5 text-sm"
                             >
                                 <Plus className="w-4 h-4" />
                                 Publish

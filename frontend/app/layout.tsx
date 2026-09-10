@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import Providers from "@/components/Providers";
 import Script from "next/script";
@@ -12,6 +13,19 @@ acceptLanguage.languages(languages);
 
 const GA_PROVIDER = process.env.NEXT_PUBLIC_ANALYTICS_PROVIDER || 'ga'
 const GA_ID = process.env.NEXT_PUBLIC_GA_ID
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-space-grotesk",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://soroban-registry.com"),
@@ -76,7 +90,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const dir = lng === 'ar' ? 'rtl' : 'ltr';
 
   return (
-    <html lang={lng} dir={dir} suppressHydrationWarning>
+    <html
+      lang={lng}
+      dir={dir}
+      suppressHydrationWarning
+      className={`${inter.variable} ${spaceGrotesk.variable}`}
+    >
       <head>
         {/* Theme detection script to prevent flash */}
         <script
