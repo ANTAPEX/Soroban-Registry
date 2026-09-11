@@ -695,6 +695,7 @@ export interface SemanticContractSearchResponse
 
 export interface PublishRequest {
   contract_id: string;
+  wasm_hash: string;
   name: string;
   description?: string;
   network: "mainnet" | "testnet" | "futurenet";
@@ -942,27 +943,71 @@ function semanticScore(contract: Contract, queryTokens: string[], intent: Search
   return Math.min(1, tokenScore * 0.6 + intentBonus + popularityBonus);
 }
 
+// The backend rejects browser mutation requests (POST/PUT/PATCH/DELETE)
+// without a matching x-csrf-token header + sr_csrf cookie pair (see
+// security.rs's csrf_and_origin_middleware). Fetch and cache the token once,
+// re-fetching if a request comes back CSRF-rejected (e.g. the cookie expired).
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+let csrfTokenPromise: Promise<string> | null = null;
+
+async function fetchCsrfToken(): Promise<string> {
+  const res = await fetch(`${API_URL}/api/auth/csrf`, { credentials: "include" });
+  if (!res.ok) throw new Error(`Failed to fetch CSRF token: ${res.status}`);
+  const data = (await res.json()) as { token: string };
+  return data.token;
+}
+
+function getCsrfToken(): Promise<string> {
+  if (!csrfTokenPromise) {
+    csrfTokenPromise = fetchCsrfToken().catch((err) => {
+      csrfTokenPromise = null;
+      throw err;
+    });
+  }
+  return csrfTokenPromise;
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_URL}${path}`;
-  const headers = new Headers(options?.headers);
-  if (!headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  if (!headers.has("Authorization") && typeof window !== "undefined") {
-    try {
-      const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
-      if (token) headers.set("Authorization", `Bearer ${token}`);
-    } catch {
-      // Storage may be unavailable in hardened/private browsing contexts.
+  const method = (options?.method || "GET").toUpperCase();
+  const isMutating = MUTATING_METHODS.has(method);
+
+  const buildHeaders = (csrfToken?: string) => {
+    const headers = new Headers(options?.headers);
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
     }
-  }
+    if (!headers.has("Authorization") && typeof window !== "undefined") {
+      try {
+        const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+        if (token) headers.set("Authorization", `Bearer ${token}`);
+      } catch {
+        // Storage may be unavailable in hardened/private browsing contexts.
+      }
+    }
+    if (csrfToken) headers.set("x-csrf-token", csrfToken);
+    return headers;
+  };
+
+  const doFetch = async (csrfToken?: string) =>
+    fetch(url, {
+      credentials: "include",
+      ...options,
+      headers: buildHeaders(csrfToken),
+    });
 
   let response: Response;
   try {
-    response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    response = isMutating ? await doFetch(await getCsrfToken()) : await doFetch();
+    // The cached token can go stale (cookie expiry); refresh once and retry.
+    if (isMutating && response.status === 403) {
+      const { details } = await extractErrorData(response.clone());
+      const errorCode = (details as { error_code?: string } | undefined)?.error_code;
+      if (errorCode?.startsWith("CSRF")) {
+        csrfTokenPromise = null;
+        response = await doFetch(await getCsrfToken());
+      }
+    }
   } catch (err) {
     throw new NetworkError(`Network request failed: ${String(err)}`);
   }
@@ -1062,7 +1107,7 @@ export async function fetchContracts(
   if (params.sort_by) searchParams.set("sort_by", params.sort_by);
   if (params.sort_order) searchParams.set("sort_order", params.sort_order);
 
-  return apiFetch<PaginatedResponse<Contract>>(`/contracts?${searchParams.toString()}`);
+  return apiFetch<PaginatedResponse<Contract>>(`/api/contracts?${searchParams.toString()}`);
 }
 
 export async function advancedSearchContracts(
@@ -1074,7 +1119,7 @@ export async function advancedSearchContracts(
     sort_order?: ContractSearchParams["sort_order"];
   },
 ): Promise<PaginatedResponse<Contract>> {
-  return apiFetch<PaginatedResponse<Contract>>("/contracts/search", {
+  return apiFetch<PaginatedResponse<Contract>>("/api/contracts/search", {
     method: "POST",
     body: JSON.stringify(params),
   });
@@ -1089,7 +1134,7 @@ export async function fetchContract(id: string, network?: Network): Promise<Cont
     return { ...contract, current_network: network };
   }
   const qs = network ? `?network=${network}` : "";
-  return apiFetch<ContractGetResponse>(`/contracts/${id}${qs}`);
+  return apiFetch<ContractGetResponse>(`/api/contracts/${id}${qs}`);
 }
 
 export async function fetchContractHealth(id: string): Promise<ContractHealth> {
@@ -1104,7 +1149,7 @@ export async function fetchContractHealth(id: string): Promise<ContractHealth> {
       updated_at: new Date().toISOString(),
     };
   }
-  return apiFetch<ContractHealth>(`/contracts/${id}/health`);
+  return apiFetch<ContractHealth>(`/api/contracts/${id}/health`);
 }
 
 export async function fetchContractAnalytics(id: string): Promise<ContractAnalyticsResponse> {
@@ -1116,14 +1161,14 @@ export async function fetchContractAnalytics(id: string): Promise<ContractAnalyt
       timeline: [],
     };
   }
-  return apiFetch<ContractAnalyticsResponse>(`/contracts/${id}/analytics`);
+  return apiFetch<ContractAnalyticsResponse>(`/api/contracts/${id}/analytics`);
 }
 
 export async function fetchContractVersions(id: string): Promise<ContractVersion[]> {
   if (USE_MOCKS) {
     return (MOCK_VERSIONS[id] || []) as ContractVersion[];
   }
-  return apiFetch<ContractVersion[]>(`/contracts/${id}/versions`);
+  return apiFetch<ContractVersion[]>(`/api/contracts/${id}/versions`);
 }
 
 export async function fetchContractAbi(id: string, version?: string): Promise<ContractAbiResponse> {
@@ -1131,14 +1176,14 @@ export async function fetchContractAbi(id: string, version?: string): Promise<Co
     return { abi: null };
   }
   const qs = version ? `?version=${version}` : "";
-  return apiFetch<ContractAbiResponse>(`/contracts/${id}/abi${qs}`);
+  return apiFetch<ContractAbiResponse>(`/api/contracts/${id}/abi${qs}`);
 }
 
 export async function fetchContractChangelog(id: string): Promise<ContractChangelogResponse> {
   if (USE_MOCKS) {
     return { contract_id: id, entries: [] };
   }
-  return apiFetch<ContractChangelogResponse>(`/contracts/${id}/changelog`);
+  return apiFetch<ContractChangelogResponse>(`/api/contracts/${id}/changelog`);
 }
 
 export async function fetchContractRecommendations(
@@ -1154,7 +1199,7 @@ export async function fetchContractRecommendations(
       recommendations: [],
     };
   }
-  return apiFetch<ContractRecommendationsResponse>(`/contracts/${id}/recommendations`);
+  return apiFetch<ContractRecommendationsResponse>(`/api/contracts/${id}/recommendations`);
 }
 
 export async function fetchContractInteractions(
@@ -1170,12 +1215,12 @@ export async function fetchContractInteractions(
   if (queryParams.account) searchParams.set("account", queryParams.account);
   if (queryParams.method) searchParams.set("method", queryParams.method);
   return apiFetch<InteractionsListResponse>(
-    `/contracts/${id}/interactions?${searchParams.toString()}`,
+    `/api/contracts/${id}/interactions?${searchParams.toString()}`,
   );
 }
 
 export async function publishContract(data: PublishRequest): Promise<Contract> {
-  return apiFetch<Contract>("/contracts", {
+  return apiFetch<Contract>("/api/contracts", {
     method: "POST",
     body: JSON.stringify(data),
   });
@@ -1191,7 +1236,7 @@ export async function fetchPublisher(id: string): Promise<Publisher> {
       created_at: new Date().toISOString(),
     };
   }
-  return apiFetch<Publisher>(`/publishers/${id}`);
+  return apiFetch<Publisher>(`/api/publishers/${id}`);
 }
 
 export async function fetchPublishers(
@@ -1204,7 +1249,7 @@ export async function fetchPublishers(
   if (params.page) searchParams.set("page", String(params.page));
   if (params.page_size) searchParams.set("page_size", String(params.page_size));
   if (params.query) searchParams.set("query", params.query);
-  return apiFetch<PaginatedResponse<Publisher>>(`/publishers?${searchParams.toString()}`);
+  return apiFetch<PaginatedResponse<Publisher>>(`/api/publishers?${searchParams.toString()}`);
 }
 
 export async function fetchPublisherContracts(
@@ -1227,7 +1272,7 @@ export async function fetchPublisherContracts(
   if (params.page) searchParams.set("page", String(params.page));
   if (params.page_size) searchParams.set("page_size", String(params.page_size));
   return apiFetch<PaginatedResponse<Contract>>(
-    `/publishers/${publisherId}/contracts?${searchParams.toString()}`,
+    `/api/publishers/${publisherId}/contracts?${searchParams.toString()}`,
   );
 }
 
@@ -1237,7 +1282,7 @@ export async function fetchNetworks(): Promise<NetworkListResponse> {
   if (USE_MOCKS) {
     return { networks: [], cached_at: new Date().toISOString() };
   }
-  return apiFetch<NetworkListResponse>("/networks");
+  return apiFetch<NetworkListResponse>("/api/networks");
 }
 
 // ─── Search ───────────────────────────────────────────────────────────────────
@@ -1247,7 +1292,7 @@ export async function fetchSearchSuggestions(query: string): Promise<SearchSugge
     return { items: [] };
   }
   return apiFetch<SearchSuggestionsResponse>(
-    `/search/suggestions?query=${encodeURIComponent(query)}`,
+    `/api/search/suggestions?query=${encodeURIComponent(query)}`,
   );
 }
 
@@ -1276,7 +1321,7 @@ export async function semanticSearch(
   if (params.page) searchParams.set("page", String(params.page));
   if (params.page_size) searchParams.set("page_size", String(params.page_size));
   return apiFetch<SemanticContractSearchResponse>(
-    `/search/semantic?${searchParams.toString()}`,
+    `/api/search/semantic?${searchParams.toString()}`,
   );
 }
 
@@ -1293,7 +1338,21 @@ export async function fetchActivityFeed(
   if (params.limit) searchParams.set("limit", String(params.limit));
   if (params.event_type) searchParams.set("event_type", params.event_type);
   if (params.contract_id) searchParams.set("contract_id", params.contract_id);
-  return apiFetch<ActivityFeedResponse>(`/analytics/activity?${searchParams.toString()}`);
+  // Backend returns a `CursorPaginatedResponse<AnalyticsEvent>` shaped as
+  // { data, total, has_more, next_cursor } — adapt it to the `items`/`limit`
+  // shape the rest of the frontend expects.
+  const raw = await apiFetch<{
+    data: AnalyticsEvent[];
+    total: number;
+    has_more: boolean;
+    next_cursor: string | null;
+  }>(`/api/activity-feed?${searchParams.toString()}`);
+  return {
+    items: raw.data,
+    total: raw.total,
+    limit: params.limit || 20,
+    next_cursor: raw.next_cursor,
+  };
 }
 
 // ─── Dependency Graph ─────────────────────────────────────────────────────────
@@ -1308,14 +1367,14 @@ export async function fetchDependencyTree(id: string): Promise<DependencyTreeNod
       dependencies: [],
     };
   }
-  return apiFetch<DependencyTreeNode>(`/contracts/${id}/dependencies/tree`);
+  return apiFetch<DependencyTreeNode>(`/api/contracts/${id}/dependencies/tree`);
 }
 
 // ─── Custom Metrics ───────────────────────────────────────────────────────────
 
 export async function fetchMetricCatalog(contractId: string): Promise<MetricCatalogEntry[]> {
   if (USE_MOCKS) return [];
-  return apiFetch<MetricCatalogEntry[]>(`/contracts/${contractId}/metrics`);
+  return apiFetch<MetricCatalogEntry[]>(`/api/contracts/${contractId}/metrics`);
 }
 
 export async function fetchMetricSeries(
@@ -1337,7 +1396,7 @@ export async function fetchMetricSeries(
   if (params.to) searchParams.set("to", params.to);
   if (params.resolution) searchParams.set("resolution", params.resolution);
   return apiFetch<MetricSeriesResponse>(
-    `/contracts/${contractId}/metrics/${encodeURIComponent(metricName)}?${searchParams.toString()}`,
+    `/api/contracts/${contractId}/metrics/${encodeURIComponent(metricName)}?${searchParams.toString()}`,
   );
 }
 
@@ -1347,7 +1406,7 @@ export async function generateReleaseNotes(
   contractId: string,
   data: GenerateReleaseNotesRequest,
 ): Promise<ReleaseNotesResponse> {
-  return apiFetch<ReleaseNotesResponse>(`/contracts/${contractId}/release-notes/generate`, {
+  return apiFetch<ReleaseNotesResponse>(`/api/contracts/${contractId}/release-notes/generate`, {
     method: "POST",
     body: JSON.stringify(data),
   });
@@ -1357,7 +1416,7 @@ export async function listReleaseNotes(contractId: string): Promise<ReleaseNotes
   if (USE_MOCKS) {
     return [];
   }
-  return apiFetch<ReleaseNotesResponse[]>(`/contracts/${contractId}/release-notes`);
+  return apiFetch<ReleaseNotesResponse[]>(`/api/contracts/${contractId}/release-notes`);
 }
 
 export async function fetchReleaseNotes(
@@ -1386,7 +1445,7 @@ export async function fetchReleaseNotes(
       updated_at: new Date().toISOString(),
     };
   }
-  return apiFetch<ReleaseNotesResponse>(`/contracts/${contractId}/release-notes/${version}`);
+  return apiFetch<ReleaseNotesResponse>(`/api/contracts/${contractId}/release-notes/${version}`);
 }
 
 export async function updateReleaseNotes(
@@ -1394,7 +1453,7 @@ export async function updateReleaseNotes(
   version: string,
   data: UpdateReleaseNotesRequest,
 ): Promise<ReleaseNotesResponse> {
-  return apiFetch<ReleaseNotesResponse>(`/contracts/${contractId}/release-notes/${version}`, {
+  return apiFetch<ReleaseNotesResponse>(`/api/contracts/${contractId}/release-notes/${version}`, {
     method: "PATCH",
     body: JSON.stringify(data),
   });
@@ -1406,7 +1465,7 @@ export async function publishReleaseNotes(
   data: PublishReleaseNotesRequest = {},
 ): Promise<ReleaseNotesResponse> {
   return apiFetch<ReleaseNotesResponse>(
-    `/contracts/${contractId}/release-notes/${version}/publish`,
+    `/api/contracts/${contractId}/release-notes/${version}/publish`,
     { method: "POST", body: JSON.stringify(data) },
   );
 }
@@ -1421,14 +1480,14 @@ export async function fetchDeprecationInfo(contractId: string): Promise<Deprecat
       dependents_notified: 0,
     };
   }
-  return apiFetch<DeprecationInfo>(`/contracts/${contractId}/deprecation`);
+  return apiFetch<DeprecationInfo>(`/api/contracts/${contractId}/deprecation`);
 }
 
 export async function setDeprecation(
   contractId: string,
   data: Partial<DeprecationInfo>,
 ): Promise<DeprecationInfo> {
-  return apiFetch<DeprecationInfo>(`/contracts/${contractId}/deprecation`, {
+  return apiFetch<DeprecationInfo>(`/api/contracts/${contractId}/deprecation`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
@@ -1708,7 +1767,7 @@ export async function fetchContractSearchSuggestions(
   const search = new URLSearchParams();
   search.set("query", query);
   if (limit != null) search.set("limit", String(limit));
-  return apiFetch<SearchSuggestionsResponse>(`/search/suggestions?${search.toString()}`);
+  return apiFetch<SearchSuggestionsResponse>(`/api/search/suggestions?${search.toString()}`);
 }
 
 // ─── Custom Metrics ───────────────────────────────────────────────────────────
@@ -1747,7 +1806,7 @@ export async function fetchCustomMetricSeries(
 export async function fetchCollaborativeReview(
   contractId: string,
 ): Promise<CollaborativeReviewDetails> {
-  return apiFetch<CollaborativeReviewDetails>(`/contracts/${contractId}/review`);
+  return apiFetch<CollaborativeReviewDetails>(`/api/contracts/${contractId}/review`);
 }
 
 export interface CreateCollaborativeReviewRequest {
@@ -1778,7 +1837,7 @@ export async function addReviewComment(
   contractId: string,
   comment: Partial<CollaborativeComment>,
 ): Promise<CollaborativeComment> {
-  return apiFetch<CollaborativeComment>(`/contracts/${contractId}/review/comments`, {
+  return apiFetch<CollaborativeComment>(`/api/contracts/${contractId}/review/comments`, {
     method: "POST",
     body: JSON.stringify(comment),
   });
@@ -1800,7 +1859,7 @@ export async function fetchContractExamples(contractId: string): Promise<Contrac
   if (USE_MOCKS) {
     return MOCK_EXAMPLES[contractId] || [];
   }
-  return apiFetch<ContractExample[]>(`/contracts/${contractId}/examples`);
+  return apiFetch<ContractExample[]>(`/api/contracts/${contractId}/examples`);
 }
 
 export async function rateExample(
@@ -1822,7 +1881,7 @@ export { ApiError, NetworkError } from "./errors";
 
 export async function fetchMaintenanceWindow(): Promise<MaintenanceWindow | null> {
   try {
-    return await apiFetch<MaintenanceWindow>("/maintenance");
+    return await apiFetch<MaintenanceWindow>("/api/maintenance");
   } catch {
     return null;
   }

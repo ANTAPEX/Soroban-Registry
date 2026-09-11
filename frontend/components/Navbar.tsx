@@ -1,6 +1,6 @@
 'use client';
 
-import { Package, GitBranch, ChevronDown, BarChart2, Users, Menu, X, Layers, Search, Plus, Columns2, ShieldCheck, PieChart, TrendingUp, LogOut, Settings, Zap, Code2, User, ShoppingCart, Star } from 'lucide-react';
+import { Package, ChevronDown, BarChart2, Users, Menu, X, Layers, Search, ArrowUpRight, Columns2, ShieldCheck, PieChart, TrendingUp, Settings, Zap, Code2, Star, GitBranch } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -12,11 +12,11 @@ import { useFavorites } from '@/hooks/useFavorites';
 
 /* ─── nav links ──────────────────────────────────────────── */
 const NAV_LINKS = [
-    { href: '/contracts',       label: 'Browse',  icon: Package   },
-    { href: '/compare',         label: 'Compare', icon: Columns2  },
-    { href: '/marketplace',     label: 'Market',  icon: ShoppingCart },
-    { href: '/verify-contract', label: 'Verify',  icon: ShieldCheck },
-    { href: '/developer',       label: 'IDE',     icon: Code2 },
+    { href: '/contracts',       label: 'Browse'  },
+    { href: '/compare',         label: 'Compare' },
+    { href: '/marketplace',     label: 'Market'  },
+    { href: '/verify-contract', label: 'Verify'  },
+    { href: '/developer',       label: 'IDE'     },
 ] as const;
 
 const EXPLORE_LINKS = [
@@ -38,8 +38,12 @@ function useScrolled(threshold = 8) {
 }
 
 function useTrapFocus(ref: React.RefObject<HTMLElement | null>, active: boolean) {
+    const previouslyFocused = useRef<HTMLElement | null>(null);
+
     useEffect(() => {
         if (!active || !ref.current) return;
+        previouslyFocused.current = document.activeElement as HTMLElement | null;
+
         const el = ref.current;
         const focusable = el.querySelectorAll<HTMLElement>(
             'a[href], button:not([disabled]), input, [tabindex]:not([tabindex="-1"])'
@@ -55,13 +59,12 @@ function useTrapFocus(ref: React.RefObject<HTMLElement | null>, active: boolean)
         };
         el.addEventListener('keydown', onKey);
         first?.focus();
-        return () => el.removeEventListener('keydown', onKey);
+        return () => {
+            el.removeEventListener('keydown', onKey);
+            previouslyFocused.current?.focus();
+        };
     }, [active, ref]);
 }
-
-// Keep useTrapFocus callable but suppress the unused-vars warning via
-// a no-op reference so tree-shaking doesn't affect the export.
-void (useTrapFocus as unknown);
 
 /* ─── Search Modal ─────────────────────────────────────────── */
 function SearchModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
@@ -172,6 +175,49 @@ function SearchModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
     );
 }
 
+/* ─── Logo mark — an abstract soroban (abacus) glyph. "Soroban" is the
+   Japanese word for abacus, which is also why Stellar named its smart-
+   contracts platform Soroban — so the rods + beads are a literal nod to
+   the name, not just a generic icon. The bead color reuses --primary,
+   the same gold used for the nav's active underline and the Publish
+   CTA's badge, so the mark and the rest of the chrome read as one
+   system rather than a logo bolted onto an unrelated palette. ─── */
+function LogoMark({ className = 'w-8 h-8' }: { className?: string }) {
+    return (
+        <span className={`relative flex items-center justify-center rounded-lg bg-foreground flex-shrink-0 ${className}`}>
+            <svg viewBox="0 0 24 24" className="w-[62%] h-[62%]" fill="none" aria-hidden="true">
+                <line x1="3.5" y1="8" x2="20.5" y2="8" strokeWidth="2" strokeLinecap="round" className="stroke-background/40" />
+                <line x1="3.5" y1="16" x2="20.5" y2="16" strokeWidth="2" strokeLinecap="round" className="stroke-background/40" />
+                <circle cx="9" cy="8" r="2.75" className="fill-primary" />
+                <circle cx="15" cy="16" r="2.75" className="fill-primary" />
+            </svg>
+        </span>
+    );
+}
+
+/* ─── Publish CTA — black pill with a trailing gold arrow badge ─── */
+function PublishCta({ onClick, size = 'sm' }: { onClick?: () => void; size?: 'sm' | 'lg' }) {
+    const isLg = size === 'lg';
+    return (
+        <Link
+            href="/publish"
+            onClick={onClick}
+            className={`group inline-flex items-center rounded-full bg-foreground text-background font-semibold hover:opacity-90 transition-opacity ${
+                isLg ? 'justify-center gap-2.5 pl-5 pr-2 py-2 text-sm w-full' : 'gap-2 pl-4 pr-1.5 py-1.5 text-[13px]'
+            }`}
+        >
+            Publish
+            <span
+                className={`flex items-center justify-center rounded-full bg-primary text-primary-foreground flex-shrink-0 motion-safe:group-hover:scale-105 transition-transform ${
+                    isLg ? 'w-7 h-7' : 'w-6 h-6'
+                }`}
+            >
+                <ArrowUpRight className={isLg ? 'w-4 h-4' : 'w-3.5 h-3.5'} strokeWidth={2.5} />
+            </span>
+        </Link>
+    );
+}
+
 /* ─── Navbar ────────────────────────────────────────────────── */
 export default function Navbar() {
     const { t, i18n } = useTranslation('en');
@@ -182,11 +228,10 @@ export default function Navbar() {
 
     const [mobileOpen,    setMobileOpen]    = useState(false);
     const [exploreOpen,   setExploreOpen]   = useState(false);
-    const [, setProfileOpen]   = useState(false);
     const [searchOpen,    setSearchOpen]    = useState(false);
 
     const exploreTimeout = useRef<NodeJS.Timeout | null>(null);
-    const profileTimeout = useRef<NodeJS.Timeout | null>(null);
+    const exploreRef     = useRef<HTMLDivElement>(null);
     const drawerRef      = useRef<HTMLDivElement>(null);
 
     // Close mobile menu on route change
@@ -198,7 +243,7 @@ export default function Navbar() {
         return () => { document.body.style.overflow = ''; };
     }, [mobileOpen]);
 
-    // ESC closes mobile drawer
+    // ESC closes mobile drawer, trap focus while it's open
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') setMobileOpen(false);
@@ -210,6 +255,28 @@ export default function Navbar() {
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, []);
+    useTrapFocus(drawerRef, mobileOpen);
+
+    // Explore is opened by hover for pointer users, but must also work by
+    // click/keyboard (Enter/Space on the button) — close on outside click
+    // or Escape so it doesn't get stuck open for keyboard users either.
+    useEffect(() => {
+        if (!exploreOpen) return;
+        const onClickOutside = (e: MouseEvent) => {
+            if (exploreRef.current && !exploreRef.current.contains(e.target as Node)) {
+                setExploreOpen(false);
+            }
+        };
+        const onEscape = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setExploreOpen(false);
+        };
+        document.addEventListener('mousedown', onClickOutside);
+        document.addEventListener('keydown', onEscape);
+        return () => {
+            document.removeEventListener('mousedown', onClickOutside);
+            document.removeEventListener('keydown', onEscape);
+        };
+    }, [exploreOpen]);
 
     const isActive = useCallback((href: string) => pathname === href, [pathname]);
     const isExploreActive = EXPLORE_LINKS.some(l => pathname.startsWith(l.href));
@@ -217,101 +284,100 @@ export default function Navbar() {
     /* hover helpers */
     const onExploreEnter = () => { if (exploreTimeout.current) clearTimeout(exploreTimeout.current); setExploreOpen(true);  };
     const onExploreLeave = () => { exploreTimeout.current = setTimeout(() => setExploreOpen(false), 150); };
-    const onProfileEnter = () => { if (profileTimeout.current) clearTimeout(profileTimeout.current); setProfileOpen(true); };
-    const onProfileLeave = () => { profileTimeout.current = setTimeout(() => setProfileOpen(false), 150); };
+    const onExploreToggle = () => { if (exploreTimeout.current) clearTimeout(exploreTimeout.current); setExploreOpen(v => !v); };
+
+    const navLinkClass = (active: boolean) =>
+        `pb-[3px] border-b-2 text-[14px] font-medium transition-colors ${
+            active
+                ? 'text-foreground border-primary'
+                : 'text-foreground/65 border-transparent hover:text-foreground'
+        }`;
 
     return (
         <>
             {/* ── Main nav bar ───────────────────────────────────────── */}
             <nav
-                className={`sticky top-0 z-50 w-full transition-all duration-300 ${
-                    scrolled
-                        ? 'bg-background/95 backdrop-blur-2xl border-b border-border shadow-lg shadow-black/8'
-                        : 'bg-background/80 backdrop-blur-2xl border-b border-border/50 nav-glow'
+                className={`sticky top-0 z-50 w-full bg-background/95 backdrop-blur-xl border-b border-border transition-shadow duration-300 ${
+                    scrolled ? 'shadow-sm shadow-black/5' : ''
                 }`}
                 aria-label="Main navigation"
             >
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex items-center justify-between h-14">
+                    <div className="flex items-center justify-between h-16">
 
-                        {/* Logo */}
-                        <Link href="/" className="flex items-center gap-2 group flex-shrink-0" aria-label="Soroban Registry home">
-                            <div className="w-7 h-7 rounded-md bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-sm shadow-primary/25 group-hover:shadow-primary/50 transition-shadow">
-                                <Package className="w-4 h-4 text-white" />
-                            </div>
-                            <span className="text-base font-bold text-foreground tracking-tight hidden sm:block">
-                                Soroban<span className="text-primary">Registry</span>
+                        {/* Logo — abacus mark + name as one lockup, Stellar-style */}
+                        <Link href="/" className="group flex items-center gap-2.5 flex-shrink-0" aria-label="Soroban Registry home">
+                            <LogoMark className="w-8 h-8 transition-transform motion-safe:group-hover:scale-105" />
+                            <span className="text-lg font-bold text-foreground tracking-tight hidden sm:block">
+                                Soroban
                             </span>
                         </Link>
 
                         {/* ── Desktop nav links ─────────────────────────── */}
-                        <div className="hidden md:flex items-center gap-0.5" role="menubar" aria-label="Site navigation">
+                        <div className="hidden lg:flex items-center gap-5 xl:gap-7" role="menubar" aria-label="Site navigation">
 
-                            {NAV_LINKS.map(({ href, label, icon: Icon }) => (
+                            {NAV_LINKS.map(({ href, label }) => (
                                 <Link
                                     key={href}
                                     href={href}
                                     role="menuitem"
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${
-                                        isActive(href)
-                                            ? 'text-primary bg-primary/10'
-                                            : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                                    }`}
+                                    className={navLinkClass(isActive(href))}
                                     aria-current={isActive(href) ? 'page' : undefined}
                                 >
-                                    <Icon className="w-3 h-3" />
                                     {t(`navbar.${label.toLowerCase()}`, label)}
                                 </Link>
                             ))}
 
                             {/* Explore dropdown */}
                             <div
+                                ref={exploreRef}
                                 className="relative"
                                 onMouseEnter={onExploreEnter}
                                 onMouseLeave={onExploreLeave}
                                 role="none"
                             >
                                 <button
+                                    type="button"
+                                    onClick={onExploreToggle}
                                     role="menuitem"
                                     aria-haspopup="true"
                                     aria-expanded={exploreOpen}
-                                    className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-[13px] font-medium transition-all focus:outline-none ${
-                                        isExploreActive || exploreOpen
-                                            ? 'text-primary bg-primary/10'
-                                            : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                                    }`}
+                                    className={`flex items-center gap-1 focus:outline-none ${navLinkClass(isExploreActive || exploreOpen)}`}
                                 >
                                     Explore
-                                    <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${exploreOpen ? 'rotate-180' : ''}`} />
+                                    <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${exploreOpen ? 'rotate-180' : ''}`} />
                                 </button>
 
                                 <div
                                     role="menu"
-                                    className={`absolute top-full left-1/2 -translate-x-1/2 w-48 pt-1.5 transition-all duration-150 ${
+                                    className={`absolute top-full left-1/2 -translate-x-1/2 pt-4 transition-all duration-150 ${
                                         exploreOpen
                                             ? 'opacity-100 translate-y-0 pointer-events-auto'
                                             : 'opacity-0 -translate-y-2 pointer-events-none'
                                     }`}
                                 >
-                                    <div className="rounded-xl border border-border bg-card shadow-xl shadow-black/12 overflow-hidden">
-                                        <div className="py-1.5">
-                                            {EXPLORE_LINKS.map(({ href, label, icon: Icon }) => (
-                                                <Link
-                                                    key={href}
-                                                    href={href}
-                                                    role="menuitem"
-                                                    className={`flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors ${
-                                                        isActive(href)
-                                                            ? 'text-primary bg-primary/8'
-                                                            : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                                                    }`}
-                                                    aria-current={isActive(href) ? 'page' : undefined}
-                                                >
-                                                    <Icon className="w-3.5 h-3.5 text-primary/70" />
+                                    <div className="w-64 rounded-xl border border-border bg-card shadow-xl shadow-black/10 overflow-hidden p-3">
+                                        <p className="px-2 pt-1 pb-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                                            Explore
+                                        </p>
+                                        {EXPLORE_LINKS.map(({ href, label, icon: Icon }) => (
+                                            <Link
+                                                key={href}
+                                                href={href}
+                                                role="menuitem"
+                                                aria-current={isActive(href) ? 'page' : undefined}
+                                                className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${
+                                                    isActive(href) ? 'bg-accent' : 'hover:bg-accent'
+                                                }`}
+                                            >
+                                                <span className="w-9 h-9 rounded-lg border-2 border-border-strong flex items-center justify-center flex-shrink-0">
+                                                    <Icon className="w-4 h-4 text-primary" />
+                                                </span>
+                                                <span className={`text-sm font-semibold ${isActive(href) ? 'text-primary' : 'text-foreground'}`}>
                                                     {label}
-                                                </Link>
-                                            ))}
-                                        </div>
+                                                </span>
+                                            </Link>
+                                        ))}
                                     </div>
                                 </div>
                             </div>
@@ -319,29 +385,22 @@ export default function Navbar() {
                             <Link
                                 href="/graph"
                                 role="menuitem"
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${
-                                    isActive('/graph')
-                                        ? 'text-primary bg-primary/10'
-                                        : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                                }`}
+                                className={navLinkClass(isActive('/graph'))}
                                 aria-current={isActive('/graph') ? 'page' : undefined}
                             >
-                                <GitBranch className="w-3 h-3" />
                                 Graph
-            </Link>
+                            </Link>
                         </div>
 
                         {/* ── Desktop right actions ────────────────────── */}
-                        <div className="hidden md:flex items-center gap-1.5">
-                            {/* Search bar */}
+                        <div className="hidden lg:flex items-center gap-1.5 xl:gap-2">
+                            {/* Search */}
                             <button
                                 onClick={() => setSearchOpen(true)}
-                                className="hidden lg:flex items-center gap-2 h-8 w-44 px-3 rounded-md border border-border bg-background hover:bg-accent text-[13px] text-muted-foreground transition-all hover:border-primary/40 mr-1 group"
+                                className="flex items-center justify-center w-9 h-9 rounded-full bg-muted hover:bg-accent transition-colors"
                                 aria-label="Open search (⌘K)"
                             >
-                                <Search className="w-3.5 h-3.5 flex-shrink-0" />
-                                <span className="flex-1 text-left">Search…</span>
-                                <kbd className="hidden xl:block px-1 py-0.5 rounded border border-border bg-accent text-[10px] font-mono text-muted-foreground group-hover:border-primary/30 transition-colors">⌘K</kbd>
+                                <Search className="w-4 h-4 text-foreground" />
                             </button>
 
                             <LanguageSelector lng={lng} />
@@ -352,13 +411,13 @@ export default function Navbar() {
                             <Link
                                 href="/favorites"
                                 aria-label="Your favorites"
-                                className={`relative p-1.5 rounded-md transition-colors ${
+                                className={`relative flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
                                     isActive('/favorites')
-                                        ? 'text-primary bg-primary/10'
-                                        : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                                        ? 'text-primary bg-accent'
+                                        : 'text-foreground/70 hover:text-foreground hover:bg-accent'
                                 }`}
                             >
-                                <Star className="w-5 h-5" />
+                                <Star className="w-[18px] h-[18px]" />
                                 {favoritesCount > 0 && (
                                     <span className="absolute top-0.5 right-0.5 flex items-center justify-center min-w-[1rem] h-4 px-0.5 text-[10px] font-bold text-primary-foreground bg-primary rounded-full">
                                         {favoritesCount > 99 ? '99+' : favoritesCount}
@@ -366,80 +425,33 @@ export default function Navbar() {
                                 )}
                             </Link>
 
-                            {/* Profile dropdown */}
-                            <div
-                                className="relative ml-0.5"
-                                onMouseEnter={onProfileEnter}
-                                onMouseLeave={onProfileLeave}
-                            >
-                                <div className="rounded-lg border border-border bg-card shadow-lg shadow-black/8 overflow-hidden">
-                                    <div className="py-1">
-                                        <Link
-                                            href="/publishers"
-                                            className={`flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors ${
-                                                isActive('/publishers')
-                                                    ? 'text-primary bg-primary/5'
-                                                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                                            }`}
-                                        >
-                                            <Users className="w-3.5 h-3.5 text-primary/70" />
-                                            Publishers
-                                        </Link>
-                                        <Link
-                                            href="/stats"
-                                            className={`flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors ${
-                                                isActive('/stats')
-                                                    ? 'text-primary bg-primary/5'
-                                                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                                            }`}
-                                        >
-                                            <BarChart2 className="w-3.5 h-3.5 text-primary/70" />
-                                            Statistics
-                                        </Link>
-                                        <Link
-                                            href="/analytics"
-                                            className={`flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors ${
-                                                isActive('/analytics')
-                                                    ? 'text-primary bg-primary/5'
-                                                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                                            }`}
-                                        >
-                                            <PieChart className="w-3.5 h-3.5 text-primary/70" />
-                                            Analytics
-                                        </Link>
-                                        <Link
-                                            href="/templates"
-                                            className={`flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors ${
-                                                isActive('/templates')
-                                                    ? 'text-primary bg-primary/5'
-                                                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                                            }`}
-                                        >
-                                            <Layers className="w-3.5 h-3.5 text-primary/70" />
-                                            Templates
-                                        </Link>
-                                    </div>
-                                </div>
-                            </div>
-
+                            {/* Settings link */}
                             <Link
-                                href="/publish"
-                                className="flex items-center gap-1.5 px-3.5 py-1.5 ml-1 rounded-md bg-primary text-primary-foreground text-[13px] font-semibold btn-glow transition-all hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                href="/settings"
+                                aria-label="Settings"
+                                className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
+                                    isActive('/settings')
+                                        ? 'text-primary bg-accent'
+                                        : 'text-foreground/70 hover:text-foreground hover:bg-accent'
+                                }`}
                             >
-                                <Plus className="w-3.5 h-3.5" />
-                                Publish
+                                <Settings className="w-[18px] h-[18px]" />
                             </Link>
+
+                            <div className="ml-1">
+                                <PublishCta />
+                            </div>
                         </div>
 
                         {/* ── Mobile actions row ───────────────────────── */}
-                        <div className="flex md:hidden items-center gap-1">
+                        <div className="flex lg:hidden items-center gap-1">
                             {/* Mobile search button */}
                             <button
                                 onClick={() => setSearchOpen(true)}
-                                className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                                className="flex items-center justify-center w-9 h-9 rounded-full hover:bg-accent transition-colors"
                                 aria-label="Open search"
                             >
-                                <Search className="w-5 h-5" />
+                                <Search className="w-[18px] h-[18px] text-foreground" />
                             </button>
 
                             <LanguageSelector lng={lng} />
@@ -448,7 +460,7 @@ export default function Navbar() {
                             {/* Hamburger / close */}
                             <button
                                 onClick={() => setMobileOpen(v => !v)}
-                                className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                className="flex items-center justify-center w-9 h-9 rounded-full hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50"
                                 aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
                                 aria-expanded={mobileOpen}
                                 aria-controls="mobile-nav-drawer"
@@ -474,10 +486,11 @@ export default function Navbar() {
             {/* ── Mobile drawer overlay + panel ──────────────────────── */}
             <div
                 id="mobile-nav-drawer"
-                className={`fixed inset-0 z-[100] md:hidden transition-all duration-300 ${
+                className={`fixed inset-0 z-[100] lg:hidden transition-all duration-300 ${
                     mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
                 }`}
                 aria-hidden={!mobileOpen}
+                inert={!mobileOpen}
             >
                 {/* Backdrop */}
                 <div
@@ -498,12 +511,10 @@ export default function Navbar() {
                 >
                     {/* Drawer header */}
                     <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-                        <Link href="/" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
-                            <div className="w-6 h-6 rounded-md bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-                                <Package className="w-3.5 h-3.5 text-white" />
-                            </div>
-                            <span className="font-bold text-base text-foreground tracking-tight">
-                                Soroban<span className="text-primary">Registry</span>
+                        <Link href="/" className="flex items-center gap-2.5" onClick={() => setMobileOpen(false)}>
+                            <LogoMark className="w-7 h-7" />
+                            <span className="text-base font-bold text-foreground tracking-tight">
+                                Soroban
                             </span>
                         </Link>
                         <button
@@ -535,10 +546,10 @@ export default function Navbar() {
                                     key={`${href}-${label}`}
                                     href={href}
                                     onClick={() => setMobileOpen(false)}
-                                    className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                                    className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all ${
                                         isActive(href)
-                                            ? 'text-primary bg-primary/12 border border-primary/20'
-                                            : 'text-muted-foreground hover:text-foreground hover:bg-accent border border-transparent'
+                                            ? 'text-foreground border-border-strong bg-accent'
+                                            : 'text-foreground/70 border-transparent hover:text-foreground hover:bg-accent'
                                     }`}
                                 >
                                     <Icon className="w-4 h-4" />
@@ -572,15 +583,15 @@ export default function Navbar() {
                                     onClick={() => setMobileOpen(false)}
                                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                                         pathname === href
-                                            ? 'text-primary bg-primary/10'
-                                            : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                                            ? 'text-foreground'
+                                            : 'text-foreground/70 hover:text-foreground hover:bg-accent'
                                     }`}
                                     aria-current={pathname === href ? 'page' : undefined}
                                 >
-                                    <span className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-                                        pathname === href ? 'bg-primary/20' : 'bg-accent'
+                                    <span className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                                        pathname === href ? 'border-primary text-primary' : 'border-border-strong/25 text-foreground/60'
                                     }`}>
-                                        <Icon className={`w-3.5 h-3.5 ${pathname === href ? 'text-primary' : 'text-muted-foreground'}`} />
+                                        <Icon className="w-3.5 h-3.5" />
                                     </span>
                                     {label}
                                     {pathname === href && (
@@ -591,42 +602,18 @@ export default function Navbar() {
                         </nav>
                     </div>
 
-                    {/* Profile footer */}
-                    <div className="border-t border-border p-4 bg-accent/20">
-                        <div className="flex items-center gap-3 mb-3">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 border border-primary/20 flex items-center justify-center flex-shrink-0">
-                                <User className="w-5 h-5 text-primary" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-foreground truncate">User Profile</p>
-                                <p className="text-xs text-muted-foreground truncate">user@example.com</p>
-                            </div>
+                    {/* Footer actions — open to everyone, no account/sign-in concept */}
+                    <div className="border-t border-border p-4">
+                        <div className="flex items-center gap-2">
+                            <PublishCta size="lg" onClick={() => setMobileOpen(false)} />
                             <Link
                                 href="/settings"
                                 onClick={() => setMobileOpen(false)}
-                                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                                 aria-label="Settings"
+                                className="flex items-center justify-center w-11 h-11 rounded-full border-2 border-border-strong text-foreground hover:bg-accent transition-colors flex-shrink-0"
                             >
                                 <Settings className="w-4 h-4" />
                             </Link>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                            <Link
-                                href="/publish"
-                                onClick={() => setMobileOpen(false)}
-                                className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm btn-glow"
-                            >
-                                <Plus className="w-4 h-4" />
-                                Publish
-                            </Link>
-                            <button
-                                className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-red-500/20 text-red-500 text-sm font-medium hover:bg-red-500/8 transition-colors"
-                                onClick={() => setMobileOpen(false)}
-                            >
-                                <LogOut className="w-4 h-4" />
-                                Sign Out
-                            </button>
                         </div>
                     </div>
                 </div>

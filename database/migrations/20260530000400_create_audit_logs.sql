@@ -1,5 +1,5 @@
 -- The audit_logs table is already created by earlier migrations
--- (025_data_residency.sql and 20260427000000_audit_logs.sql, both using
+-- (025_data_residency.sql and 20260427000001_audit_logs.sql, both using
 -- CREATE TABLE IF NOT EXISTS with an equivalent schema). The original form of
 -- this migration used a bare CREATE TABLE / CREATE INDEX and therefore failed on
 -- any database that already had the table:

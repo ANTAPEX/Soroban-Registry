@@ -3,49 +3,56 @@
 /* Enable class-based dark mode for Tailwind 4 */
 @variant dark (&:where(.dark, .dark *));
 
-/* ── Stellar-inspired palette ─────────────────────────────────── */
+/* ── Stellar editorial design system ──────────────────────────── */
+/* Black/white base with a signature warm-yellow accent, bold
+   geometric display type over a clean grotesque body face —
+   modeled on Stellar.org's public brand language. */
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --primary: #06b6d4;
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --primary: #7a5f14;
   --primary-foreground: #ffffff;
-  --secondary: #8b5cf6;
+  --primary-gradient-end: #5c4710;
+  --secondary: #0a0a0a;
   --secondary-foreground: #ffffff;
-  --accent: #f1f5f9;
-  --accent-foreground: #0f172a;
-  --muted: #e2e8f0;
-  --muted-foreground: #64748b;
-  --border: #cbd5e1;
-  --input: #e2e8f0;
-  --ring: #06b6d4;
-  --radius: 0.75rem;
+  --accent: #fdf6e3;
+  --accent-foreground: #0a0a0a;
+  --muted: #f4f4f2;
+  --muted-foreground: #63635e;
+  --border: #e4e4e0;
+  --border-strong: #0a0a0a;
+  --input: #f4f4f2;
+  --ring: #7a5f14;
+  --radius: 0.625rem;
   --card: #ffffff;
-  --card-foreground: #0f172a;
+  --card-foreground: #0a0a0a;
   --surface: #ffffff;
-  --glow-primary: rgba(6, 182, 212, 0.25);
-  --glow-secondary: rgba(139, 92, 246, 0.2);
+  --glow-primary: rgba(122, 95, 20, 0.35);
+  --glow-secondary: rgba(10, 10, 10, 0.1);
 }
 
 .dark {
-  --background: #0b0d17;
-  --foreground: #e2e8f0;
-  --primary: #22d3ee;
-  --primary-foreground: #0b0d17;
-  --secondary: #a78bfa;
-  --secondary-foreground: #0b0d17;
-  --accent: #141627;
-  --accent-foreground: #e2e8f0;
-  --muted: #10122a;
-  --muted-foreground: #94a3b8;
-  --border: #1e2140;
-  --input: #1a1d3a;
-  --ring: #22d3ee;
-  --card: #111328;
-  --card-foreground: #e2e8f0;
-  --surface: #13152e;
-  --glow-primary: rgba(34, 211, 238, 0.15);
-  --glow-secondary: rgba(167, 139, 250, 0.12);
+  --background: #0a0a0a;
+  --foreground: #f5f5f0;
+  --primary: #f7c948;
+  --primary-foreground: #0a0a0a;
+  --primary-gradient-end: #ffe08a;
+  --secondary: #f5f5f0;
+  --secondary-foreground: #0a0a0a;
+  --accent: #17170f;
+  --accent-foreground: #f5f5f0;
+  --muted: #151513;
+  --muted-foreground: #a3a39c;
+  --border: #2a2a26;
+  --border-strong: #f5f5f0;
+  --input: #17170f;
+  --ring: #f7c948;
+  --card: #121210;
+  --card-foreground: #f5f5f0;
+  --surface: #121210;
+  --glow-primary: rgba(247, 201, 72, 0.2);
+  --glow-secondary: rgba(245, 245, 240, 0.08);
 }
 
 @theme inline {
@@ -60,6 +67,8 @@
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary-gradient-end: var(--primary-gradient-end);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-card: var(--card);
@@ -67,36 +76,62 @@
   --color-surface: var(--surface);
 
   --font-sans: var(--font-inter);
+  --font-display: var(--font-fraunces);
 }
 
-* {
-  border-color: var(--border);
-  transition:
-    background-color 0.3s ease,
-    color 0.3s ease,
-    border-color 0.3s ease,
-    box-shadow 0.3s ease;
-}
+/* Wrapped in @layer base so Tailwind's generated utilities (which live in
+   @layer utilities) can still override these — an unlayered `*` or `body`
+   rule would otherwise always beat every border/bg/text/font utility
+   regardless of source order, per CSS cascade-layer rules. */
+@layer base {
+  * {
+    border-color: var(--border);
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease,
+      border-color 0.3s ease,
+      box-shadow 0.3s ease;
+  }
 
-body {
-  background-color: var(--background);
-  color: var(--foreground);
-  font-family:
-    "Inter",
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Roboto,
-    "Helvetica Neue",
-    Arial,
-    "Noto Sans",
-    sans-serif;
-  transition:
-    background-color 0.3s ease,
-    color 0.3s ease,
-    border-color 0.3s ease;
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family:
+      var(--font-inter),
+      "Inter",
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      Roboto,
+      "Helvetica Neue",
+      Arial,
+      "Noto Sans",
+      sans-serif;
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease,
+      border-color 0.3s ease;
+  }
+
+  /* Editorial serif display face for headings, sitewide — matches
+     Stellar's own serif/sans pairing (serif headlines over a clean
+     grotesque for everything else) without touching every component
+     that renders an <h1>-<h4>. Reference the next/font variable
+     directly rather than through the @theme inline alias. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family:
+      var(--font-fraunces),
+      Georgia,
+      "Times New Roman",
+      serif;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
 }
 
 /* ── Base layouts ─────────────────────────────────────────────── */
@@ -114,14 +149,31 @@ body {
   background-size: 24px 24px;
 }
 
+/* ── Hero dot field — warm gold dot pattern fading in behind the
+   headline, matching Stellar's hero background treatment ─────────── */
+
+.hero-dot-field {
+  position: relative;
+}
+
+.hero-dot-field::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--primary) 1.5px, transparent 1.5px);
+  background-size: 26px 26px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 35%, black 30%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 35%, black 30%, transparent 75%);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.dark .hero-dot-field::before {
+  opacity: 0.35;
+}
+
 .hero-gradient {
-  background: linear-gradient(
-    135deg,
-    #0b0d17 0%,
-    #0d1a3a 30%,
-    #0a2540 50%,
-    #0b0d17 100%
-  );
+  background: #0a0a0a;
   position: relative;
   overflow: hidden;
 }
@@ -133,12 +185,12 @@ body {
   background:
     radial-gradient(
       ellipse 80% 50% at 20% 40%,
-      rgba(6, 182, 212, 0.12) 0%,
+      rgba(247, 201, 72, 0.16) 0%,
       transparent 70%
     ),
     radial-gradient(
       ellipse 60% 40% at 80% 60%,
-      rgba(139, 92, 246, 0.08) 0%,
+      rgba(245, 245, 240, 0.06) 0%,
       transparent 70%
     );
   animation: aurora-shift 12s ease-in-out infinite alternate;
@@ -160,26 +212,20 @@ body {
   }
 }
 
-:root .hero-gradient {
-  background: linear-gradient(
-    135deg,
-    #f0f9ff 0%,
-    #e0f2fe 30%,
-    #f0f4ff 50%,
-    #f8fafc 100%
-  );
+:root:not(.dark) .hero-gradient {
+  background: #ffffff;
 }
 
-:root .hero-gradient::before {
+:root:not(.dark) .hero-gradient::before {
   background:
     radial-gradient(
       ellipse 80% 50% at 20% 40%,
-      rgba(6, 182, 212, 0.06) 0%,
+      rgba(247, 201, 72, 0.18) 0%,
       transparent 70%
     ),
     radial-gradient(
       ellipse 60% 40% at 80% 60%,
-      rgba(139, 92, 246, 0.04) 0%,
+      rgba(10, 10, 10, 0.03) 0%,
       transparent 70%
     );
 }
@@ -193,7 +239,7 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-:root .glass {
+:root:not(.dark) .glass {
   background: rgba(255, 255, 255, 0.7);
   border: 1px solid rgba(0, 0, 0, 0.06);
 }
@@ -251,7 +297,7 @@ body {
 /* ── Gradient text ────────────────────────────────────────────── */
 
 .text-gradient {
-  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  background: linear-gradient(135deg, var(--primary), var(--primary-gradient-end));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -287,6 +333,17 @@ body {
 .animate-fade-in-up-delay-3 {
   animation: fade-in-up 0.6s ease-out 0.3s forwards;
   opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up,
+  .animate-fade-in-up-delay-1,
+  .animate-fade-in-up-delay-2,
+  .animate-fade-in-up-delay-3 {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* ── Skeleton loading animation ───────────────────────────────── */

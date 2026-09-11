@@ -93,11 +93,15 @@ CREATE INDEX IF NOT EXISTS idx_contract_signatures_subject   ON contract_signatu
 --   column "key_id" does not exist
 -- Augment the existing table with the key-based-revocation column instead so both
 -- the package-signing and #888 verification paths share it.
--- NOTE (follow-up): 034 declares signature_id NOT NULL with an FK to
--- package_signatures; the #888 key-based revocation path inserts rows with a NULL
--- signature_id, so fully enabling that path also requires relaxing that
--- constraint. That is a schema-reconciliation decision left for a dedicated PR.
+-- 034 declared signature_id NOT NULL (with an FK to package_signatures) and
+-- revoked_by NOT NULL; the #888 key-based revocation path
+-- (signature_verification.rs's revoke_key) inserts rows with a NULL
+-- signature_id and, when the caller omits it, a NULL revoked_by too, which
+-- both violated those constraints. Relaxing them doesn't change the
+-- package-signing path's own behavior, since it always supplies both.
 ALTER TABLE signature_revocations ADD COLUMN IF NOT EXISTS key_id TEXT;
+ALTER TABLE signature_revocations ALTER COLUMN signature_id DROP NOT NULL;
+ALTER TABLE signature_revocations ALTER COLUMN revoked_by DROP NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signature_revocations_key
     ON signature_revocations (key_id) WHERE key_id IS NOT NULL;

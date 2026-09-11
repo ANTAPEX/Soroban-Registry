@@ -6,10 +6,9 @@ use crate::{
     analytics_handlers, archival, auth, auth_handlers, batch_verify_handlers, breaking_changes,
     bulk_operations_handlers, canary_handlers, category_handlers, client_observability_handlers,
     clone_federation_handlers, collaborative_reviews, compatibility_testing_handlers,
-    contract_stats_handlers, contributor_handlers, custom_metrics_handlers,
-    db_pool, dependency_handlers, dependency_vulnerability_handlers,
-    deprecated_contracts_handlers, deprecation_handlers,
-    elasticsearch_handlers, error_logging, formal_verification_handlers,
+    contract_events, contract_stats_handlers, contributor_handlers, custom_metrics_handlers,
+    db_pool, dependency_handlers, dependency_vulnerability_handlers, deprecated_contracts_handlers,
+    deprecation_handlers, elasticsearch_handlers, error_logging, formal_verification_handlers,
     formal_verification_integration, gas_estimation_handlers, governance_handlers,
     graph_analysis_handlers, handlers, integrity, interoperability_handlers,
     marketplace::{
@@ -20,8 +19,7 @@ use crate::{
     partition_manager, patch_handlers, performance_handlers, plugin_marketplace_handlers,
     publisher_verification_handlers, query_analysis, query_monitor, recommendation_handlers,
     report_handlers, resource_handlers, search_postgres, security_scan_handlers,
-    snapshot_handlers,
-    signature_verification, similarity_handlers, simulation_handlers,
+    signature_verification, similarity_handlers, simulation_handlers, snapshot_handlers,
     state::AppState,
     state_monitor::handlers as state_monitor_handlers,
     stats, subscription_handlers, v1_contract_handlers, v1_search_handlers, v1_similar_handlers,
@@ -1160,6 +1158,9 @@ pub fn admin_routes() -> Router<AppState> {
             "/api/admin/audit-logs/cleanup",
             post(handlers::handle_retention_cleanup),
         )
+        // migration_routes() is already merged at the top level in
+        // application_routes() — merging it again here caused axum to panic
+        // at startup with "Overlapping method route" for /api/admin/migrations/:version.
         // Category management (issue #414) – admin-only write endpoints
         .route(
             "/api/admin/categories",
@@ -1221,9 +1222,11 @@ pub fn federation_routes() -> Router<AppState> {
 }
 
 pub fn websocket_routes() -> Router<AppState> {
-    // /ws/contracts is registered in contract_routes via contract_events::contracts_websocket.
-    // This function is retained so main.rs can call it without a merge conflict.
-    Router::new()
+    // The handler (contract_events::contracts_websocket) existed but was never
+    // actually mounted anywhere — the frontend's RealtimeProvider has been
+    // connecting to a route that 404s on every attempt, then reconnecting in
+    // a tight loop that exhausts the request rate limiter for the whole app.
+    Router::new().route("/ws/contracts", get(contract_events::contracts_websocket))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -17,7 +17,7 @@ pub async fn get_activity_feed(
     // 1. Build the main query
     let mut query_builder: QueryBuilder<sqlx::Postgres> = QueryBuilder::new(
         r#"
-        SELECT id, event_type, contract_id, user_id, metadata, created_at
+        SELECT id, event_type, contract_id, user_address, network, metadata, created_at
         FROM analytics_events
         WHERE 1=1
         "#,

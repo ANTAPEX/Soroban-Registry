@@ -33,8 +33,11 @@ export default function RealtimeProvider({ children }: RealtimeProviderProps) {
     // Request desktop notification permission on mount
     requestDesktopNotification();
 
-    // Connect WebSocket
-    wsService.connect().catch(console.error);
+    // Connect WebSocket. Failures are already logged (and retried with
+    // backoff) inside WebSocketService itself via console.warn — using
+    // console.error here would trigger Next.js's blocking dev-overlay on
+    // every reconnect attempt whenever no WS server is reachable.
+    wsService.connect().catch(() => {});
 
     // Handle connection
     const unsubscribeOpen = wsService.onOpen(() => {

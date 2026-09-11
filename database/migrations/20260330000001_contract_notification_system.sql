@@ -124,7 +124,11 @@ CREATE TABLE notification_delivery_logs (
     -- Timing
     sent_at TIMESTAMPTZ,
     delivered_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- webhook_delivery.rs updates status/response_code/etc. on this row as
+    -- delivery is retried, so it needs an updated_at like every other
+    -- mutable table here.
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_notification_delivery_logs_notification ON notification_delivery_logs(notification_id);

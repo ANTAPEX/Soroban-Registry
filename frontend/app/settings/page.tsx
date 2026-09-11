@@ -4,10 +4,19 @@ import Navbar from '@/components/Navbar';
 import { useTheme, Theme } from '@/hooks/useTheme';
 import { Sun, Moon, Monitor, Shield, Bell, User, Globe, Lock, Palette } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n/client';
+import { languages } from '@/lib/i18n/settings';
+
+const LANGUAGE_LABELS: Record<string, string> = {
+    en: 'English',
+    es: 'Español',
+    fr: 'Français',
+    ar: 'العربية',
+};
 
 export default function SettingsPage() {
     const { theme, setTheme } = useTheme();
-    const { t } = useTranslation('common');
+    const { t, i18n } = useTranslation('common');
+    const currentLng = i18n.resolvedLanguage || 'en';
 
     const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [
         { value: 'light', label: 'Light', icon: Sun },
@@ -104,7 +113,7 @@ export default function SettingsPage() {
                             </div>
                         </section>
 
-                        {/* Language Section (Mock) */}
+                        {/* Language Section */}
                         <section className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
                             <div className="px-6 py-5 border-b border-border">
                                 <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -114,11 +123,16 @@ export default function SettingsPage() {
                             </div>
                             <div className="p-6">
                                 <p className="text-sm text-muted-foreground mb-4">Select your preferred language for the interface.</p>
-                                <select className="w-full sm:w-64 bg-background border border-border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none">
-                                    <option>English (US)</option>
-                                    <option>Arabic</option>
-                                    <option>Spanish</option>
-                                    <option>French</option>
+                                <select
+                                    value={currentLng}
+                                    onChange={(e) => i18n.changeLanguage(e.target.value)}
+                                    className="w-full sm:w-64 bg-background border border-border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none"
+                                >
+                                    {languages.map((l) => (
+                                        <option key={l} value={l}>
+                                            {LANGUAGE_LABELS[l] || l}
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
                         </section>

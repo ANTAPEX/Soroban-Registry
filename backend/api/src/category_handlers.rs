@@ -270,6 +270,7 @@ pub async fn list_categories(
     let mut categories: Vec<CategoryResponse> =
         rows.into_iter().map(CategoryResponse::from).collect();
 
+    // Return categories with recommendations
     if let Some(sort) = params.sort_by {
         match sort.as_str() {
             "name" => categories.sort_by(|a, b| a.name.cmp(&b.name)),

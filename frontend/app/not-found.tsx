@@ -21,7 +21,7 @@ export default function NotFound() {
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link
             href="/contracts"
-            className="px-6 py-3 rounded-lg btn-glow text-primary-foreground font-medium"
+            className="px-6 py-3 rounded-lg btn-glow bg-primary text-primary-foreground font-medium"
           >
             Browse Contracts
           </Link>

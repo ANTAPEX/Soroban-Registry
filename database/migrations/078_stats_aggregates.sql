@@ -7,6 +7,8 @@
 -- earlier migration ever created it, so `mv_tag_stats` fails on a fresh DB with:
 -- relation "contract_tags" does not exist. Create the standard many-to-many
 -- junction here (idempotent) so the view builds and tag features work.
+-- (tags.color, also read by handlers.rs, is added separately in
+-- 20260602000000_add_tag_color.sql.)
 CREATE TABLE IF NOT EXISTS contract_tags (
     contract_id UUID NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
     tag_id UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
