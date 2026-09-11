@@ -48,7 +48,7 @@ export function buttonVariants({
     baseStyles,
     variantStyles[variant],
     sizeStyles[size],
-    lift && "hover:-translate-y-px",
+    lift && "motion-safe:hover:-translate-y-px",
     className,
   );
 }

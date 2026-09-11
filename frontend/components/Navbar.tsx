@@ -208,7 +208,7 @@ function PublishCta({ onClick, size = 'sm' }: { onClick?: () => void; size?: 'sm
         >
             Publish
             <span
-                className={`flex items-center justify-center rounded-full bg-primary text-primary-foreground flex-shrink-0 group-hover:scale-105 transition-transform ${
+                className={`flex items-center justify-center rounded-full bg-primary text-primary-foreground flex-shrink-0 motion-safe:group-hover:scale-105 transition-transform ${
                     isLg ? 'w-7 h-7' : 'w-6 h-6'
                 }`}
             >
@@ -307,7 +307,7 @@ export default function Navbar() {
 
                         {/* Logo — abacus mark + name as one lockup, Stellar-style */}
                         <Link href="/" className="group flex items-center gap-2.5 flex-shrink-0" aria-label="Soroban Registry home">
-                            <LogoMark className="w-8 h-8 transition-transform group-hover:scale-105" />
+                            <LogoMark className="w-8 h-8 transition-transform motion-safe:group-hover:scale-105" />
                             <span className="font-display text-lg font-bold text-foreground tracking-tight hidden sm:block">
                                 Soroban
                             </span>
@@ -366,12 +366,16 @@ export default function Navbar() {
                                                 href={href}
                                                 role="menuitem"
                                                 aria-current={isActive(href) ? 'page' : undefined}
-                                                className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-accent transition-colors"
+                                                className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${
+                                                    isActive(href) ? 'bg-accent' : 'hover:bg-accent'
+                                                }`}
                                             >
                                                 <span className="w-9 h-9 rounded-lg border-2 border-border-strong flex items-center justify-center flex-shrink-0">
                                                     <Icon className="w-4 h-4 text-primary" />
                                                 </span>
-                                                <span className="text-sm font-semibold text-foreground">{label}</span>
+                                                <span className={`text-sm font-semibold ${isActive(href) ? 'text-primary' : 'text-foreground'}`}>
+                                                    {label}
+                                                </span>
                                             </Link>
                                         ))}
                                     </div>
@@ -473,6 +477,7 @@ export default function Navbar() {
                     mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
                 }`}
                 aria-hidden={!mobileOpen}
+                inert={!mobileOpen}
             >
                 {/* Backdrop */}
                 <div

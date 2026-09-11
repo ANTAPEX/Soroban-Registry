@@ -11,9 +11,9 @@
 :root {
   --background: #ffffff;
   --foreground: #0a0a0a;
-  --primary: #8a6d1a;
+  --primary: #7a5f14;
   --primary-foreground: #ffffff;
-  --primary-gradient-end: #6b5313;
+  --primary-gradient-end: #5c4710;
   --secondary: #0a0a0a;
   --secondary-foreground: #ffffff;
   --accent: #fdf6e3;
@@ -23,12 +23,12 @@
   --border: #e4e4e0;
   --border-strong: #0a0a0a;
   --input: #f4f4f2;
-  --ring: #8a6d1a;
+  --ring: #7a5f14;
   --radius: 0.625rem;
   --card: #ffffff;
   --card-foreground: #0a0a0a;
   --surface: #ffffff;
-  --glow-primary: rgba(138, 109, 26, 0.35);
+  --glow-primary: rgba(122, 95, 20, 0.35);
   --glow-secondary: rgba(10, 10, 10, 0.1);
 }
 
