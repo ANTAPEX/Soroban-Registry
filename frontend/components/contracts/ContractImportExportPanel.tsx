@@ -67,6 +67,7 @@ const MAX_HISTORY_ITEMS = 50;
 const MAX_IMPORT_FILE_BYTES = 15 * 1024 * 1024;
 const REQUIRED_IMPORT_FIELDS: Array<keyof PublishRequest> = [
   "contract_id",
+  "wasm_hash",
   "name",
   "network",
   "publisher_address",
@@ -155,6 +156,7 @@ function normalizeRow(
   const normalized: ImportPreviewRow = {
     rowNumber,
     contract_id: (row.contract_id ?? "").toString().trim(),
+    wasm_hash: (row.wasm_hash ?? "").toString().trim(),
     name: (row.name ?? "").toString().trim(),
     description: (row.description ?? "").toString().trim() || undefined,
     network: (normalizedNetwork ?? "testnet") as Network,
@@ -467,6 +469,7 @@ export default function ContractImportExportPanel() {
         try {
           const request: PublishRequest = {
             contract_id: row.contract_id,
+            wasm_hash: row.wasm_hash,
             name: row.name,
             description: row.description,
             network: row.network,
@@ -791,8 +794,8 @@ export default function ContractImportExportPanel() {
             className="block w-full text-sm file:mr-4 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-primary-foreground file:cursor-pointer border border-border rounded-lg p-2"
           />
           <p className="text-xs text-muted-foreground mt-2">
-            Maximum file size: 15MB. Required fields: contract_id, name,
-            network, publisher_address, tags.
+            Maximum file size: 15MB. Required fields: contract_id, wasm_hash,
+            name, network, publisher_address, tags.
           </p>
 
           {importFileName && (

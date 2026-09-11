@@ -2,6 +2,21 @@
 -- Issue #526: Contract Statistics CLI Command
 -- Purpose: Pre-computed aggregates for fast statistics queries
 
+-- `contract_tags` (the contract<->tag join table) and `tags.color` are read
+-- throughout handlers.rs (tag filtering, tag listing on contract detail) and
+-- by mv_tag_stats below, but no earlier migration created either — 009 only
+-- created `tags` itself, with no join table and no color column.
+CREATE TABLE IF NOT EXISTS contract_tags (
+    contract_id UUID NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+    tag_id UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (contract_id, tag_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contract_tags_tag_id ON contract_tags(tag_id);
+
+ALTER TABLE tags ADD COLUMN IF NOT EXISTS color VARCHAR(20) NOT NULL DEFAULT '#6b7280';
+
 -- Create materialized view for contract statistics (refresh periodically)
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_contract_stats AS
 SELECT 
@@ -138,10 +153,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Grant permissions
-GRANT SELECT ON mv_contract_stats TO registry_user;
-GRANT SELECT ON mv_network_stats TO registry_user;
-GRANT SELECT ON mv_category_stats TO registry_user;
-GRANT SELECT ON mv_top_contracts TO registry_user;
-GRANT SELECT ON mv_monthly_growth TO registry_user;
-GRANT SELECT ON mv_tag_stats TO registry_user;
+-- Grant permissions (adjust as needed based on your security model;
+-- `registry_user` is not created by any migration, so left commented like 077)
+-- GRANT SELECT ON mv_contract_stats TO registry_user;
+-- GRANT SELECT ON mv_network_stats TO registry_user;
+-- GRANT SELECT ON mv_category_stats TO registry_user;
+-- GRANT SELECT ON mv_top_contracts TO registry_user;
+-- GRANT SELECT ON mv_monthly_growth TO registry_user;
+-- GRANT SELECT ON mv_tag_stats TO registry_user;

@@ -181,7 +181,12 @@ export function toComparableContract(
     versionCount: versions.length,
     abiMethods,
     isVerified,
-    tags: contract.tags,
+    // The backend returns tags as { id, name, color } objects (not plain
+    // strings, despite the Contract type's declared shape), so normalize
+    // here rather than rendering "[object Object]" wherever tags are joined.
+    tags: (contract.tags as unknown[]).map((tag) =>
+      typeof tag === "string" ? tag : (tag as { name: string }).name,
+    ),
     sourceCode,
     wasmHash: contract.wasm_hash,
     deploymentCount: contract.deployment_count ?? 0,

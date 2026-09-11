@@ -1,6 +1,6 @@
 -- Add verification_status column and verification_events audit trail
--- Add 'unverified' value to verification_status enum if it doesn't exist
-ALTER TYPE verification_status ADD VALUE IF NOT EXISTS 'unverified';
+-- ('unverified' enum value added in the prior migration — see 20260329092500,
+-- Postgres won't let it be used in the same transaction it's added in)
 
 -- Add columns to contracts
 ALTER TABLE contracts

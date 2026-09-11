@@ -3896,6 +3896,14 @@ pub async fn publish_contract(
     .await
     .map_err(|err| db_internal_error("upsert publisher", err))?;
 
+    // Commit now: everything below this point queries through `state.db`
+    // (a separate connection from `tx`), not the transaction, so leaving it
+    // open just meant the publisher upsert was always rolled back on drop
+    // and the contract insert below would fail its publisher_id FK check.
+    tx.commit()
+        .await
+        .map_err(|err| db_internal_error("commit publisher upsert", err))?;
+
     let wasm_hash = req.wasm_hash.clone();
     let network_key = req.network.to_string();
     let mut config_map = serde_json::Map::new();

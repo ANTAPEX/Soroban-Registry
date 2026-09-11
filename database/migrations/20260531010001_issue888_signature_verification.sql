@@ -10,7 +10,7 @@
 -- table names so the two coexist.
 
 -- ── Signing keys (deployer keys + certificate-chain authorities) ──────────────
-CREATE TABLE IF NOT EXISTS signing_keys (
+CREATE TABLE IF NOT EXISTS contract_signing_keys (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     -- Deterministic fingerprint: hex(sha256(algorithm || ':' || raw public key)).
     key_id        TEXT        NOT NULL UNIQUE,
@@ -37,9 +37,9 @@ CREATE TABLE IF NOT EXISTS signing_keys (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_signing_keys_owner       ON signing_keys (owner);
-CREATE INDEX IF NOT EXISTS idx_signing_keys_parent      ON signing_keys (parent_key_id);
-CREATE INDEX IF NOT EXISTS idx_signing_keys_status      ON signing_keys (status);
+CREATE INDEX IF NOT EXISTS idx_signing_keys_owner       ON contract_signing_keys (owner);
+CREATE INDEX IF NOT EXISTS idx_signing_keys_parent      ON contract_signing_keys (parent_key_id);
+CREATE INDEX IF NOT EXISTS idx_signing_keys_status      ON contract_signing_keys (status);
 
 -- ── Stored contract signatures ────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS contract_signatures (
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS contract_signatures (
     algorithm       TEXT        NOT NULL,
     -- Base64 signature bytes.
     signature       TEXT        NOT NULL,
-    -- Fingerprint of the signing key (joins signing_keys.key_id).
+    -- Fingerprint of the signing key (joins contract_signing_keys.key_id).
     key_id          TEXT        NOT NULL,
     -- Claimed signing time, and optional validity window.
     signed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -71,7 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_contract_signatures_key       ON contract_signatu
 CREATE INDEX IF NOT EXISTS idx_contract_signatures_subject   ON contract_signatures (subject_hash);
 
 -- ── Revocation list ───────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS signature_revocations (
+CREATE TABLE IF NOT EXISTS contract_signature_revocations (
     id            BIGSERIAL   PRIMARY KEY,
     -- Revoked key fingerprint (revokes the key and everything it signed).
     key_id        TEXT,
@@ -83,13 +83,13 @@ CREATE TABLE IF NOT EXISTS signature_revocations (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signature_revocations_key
-    ON signature_revocations (key_id) WHERE key_id IS NOT NULL;
+    ON contract_signature_revocations (key_id) WHERE key_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signature_revocations_sig
-    ON signature_revocations (signature_id) WHERE signature_id IS NOT NULL;
+    ON contract_signature_revocations (signature_id) WHERE signature_id IS NOT NULL;
 
-COMMENT ON TABLE signing_keys IS
+COMMENT ON TABLE contract_signing_keys IS
     'Deployer/CA keys for the contract signature verification system, incl. cert chains and rotation (issue #888).';
 COMMENT ON TABLE contract_signatures IS
     'Stored contract signatures with algorithm, validity window, and verification metadata (issue #888).';
-COMMENT ON TABLE signature_revocations IS
+COMMENT ON TABLE contract_signature_revocations IS
     'Revocation list for signing keys and individual signatures (issue #888).';

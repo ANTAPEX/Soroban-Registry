@@ -1,6 +1,17 @@
 -- Migration: 20260329000000_contract_clone_federation
 -- Features: #487 Contract Mirror/Clone, #499 Federated Contract Registry Protocol
 
+-- `auth_users` is referenced as an audit-column FK target by this migration
+-- and by the later security-scanning/notification migrations, but no
+-- migration ever creates it — there is no real user-accounts table or
+-- application code behind it (auth.rs authenticates from JWT claims, not a
+-- DB row). Stub it with just enough shape to satisfy those FKs.
+CREATE TABLE IF NOT EXISTS auth_users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ═══════════════════════════════════════════════════════════════════════════
 -- #487: Contract Clone/Mirror Support
 -- ═══════════════════════════════════════════════════════════════════════════

@@ -1064,7 +1064,9 @@ pub fn admin_routes() -> Router<AppState> {
             "/api/admin/audit-logs/cleanup",
             post(handlers::handle_retention_cleanup),
         )
-        .merge(migration_routes())
+        // migration_routes() is already merged at the top level in
+        // application_routes() — merging it again here caused axum to panic
+        // at startup with "Overlapping method route" for /api/admin/migrations/:version.
         // Category management (issue #414) – admin-only write endpoints
         .route(
             "/api/admin/categories",
@@ -1126,9 +1128,11 @@ pub fn federation_routes() -> Router<AppState> {
 }
 
 pub fn websocket_routes() -> Router<AppState> {
-    // /ws/contracts is registered in contract_routes via contract_events::contracts_websocket.
-    // This function is retained so main.rs can call it without a merge conflict.
-    Router::new()
+    // The handler (contract_events::contracts_websocket) existed but was never
+    // actually mounted anywhere — the frontend's RealtimeProvider has been
+    // connecting to a route that 404s on every attempt, then reconnecting in
+    // a tight loop that exhausts the request rate limiter for the whole app.
+    Router::new().route("/ws/contracts", get(contract_events::contracts_websocket))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

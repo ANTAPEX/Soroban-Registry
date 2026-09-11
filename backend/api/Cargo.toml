@@ -68,7 +68,7 @@ lazy_static = "1.4"
 wasmparser = { workspace = true }
 difference = "2.0"
 rust_decimal = { workspace = true }
-redis = { version = "0.25", features = ["tokio-rustls-comp", "json", "connection-manager", "tokio-comp"] }
+redis = { version = "0.28", features = ["tokio-rustls-comp", "json", "connection-manager", "tokio-comp"] }
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true, optional = true }
 async-graphql = { workspace = true }

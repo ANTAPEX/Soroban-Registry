@@ -73,6 +73,8 @@
     "contractId": "ID del Contrato",
     "contractIdPlaceholder": "nombre-del-contrato",
     "name": "Nombre",
+    "wasmHash": "Hash WASM",
+    "wasmHashPlaceholder": "Hash SHA-256 del archivo .wasm compilado",
     "version": "Versión",
     "versionPlaceholder": "1.2.3",
     "sourceUrl": "URL de la Fuente",

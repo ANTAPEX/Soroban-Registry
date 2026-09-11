@@ -9,6 +9,7 @@ import { useTranslation } from '@/lib/i18n/client';
 
 type Values = {
   contract_id: string;
+  wasm_hash: string;
   name: string;
   version: string;
   source_url?: string;
@@ -25,6 +26,7 @@ export default function PublishPage() {
   const { values, errors, handleChange, handleBlur, handleSubmit, setValues } = useFormValidation<Values>({
     initialValues: {
       contract_id: '',
+      wasm_hash: '',
       name: '',
       version: '0.1.0',
       source_url: '',
@@ -36,6 +38,7 @@ export default function PublishPage() {
     validate: (vals) => {
       const e: Partial<Record<keyof Values, string>> = {};
       if (validators.required(vals.contract_id)) e.contract_id = 'Contract id is required';
+      if (validators.required(vals.wasm_hash)) e.wasm_hash = 'WASM hash is required';
       if (validators.required(vals.name)) e.name = 'Name is required';
       const sem = validators.semver(vals.version);
       if (sem) e.version = sem;
@@ -49,6 +52,7 @@ export default function PublishPage() {
       try {
         await api.publishContract({
           contract_id: vals.contract_id,
+          wasm_hash: vals.wasm_hash,
           name: vals.name,
           description: vals.description,
           network: vals.network,
@@ -60,6 +64,7 @@ export default function PublishPage() {
         showSuccess(t('publish.success'));
         setValues({
           contract_id: '',
+          wasm_hash: '',
           name: '',
           version: '0.1.0',
           source_url: '',
@@ -92,6 +97,16 @@ export default function PublishPage() {
             onBlur={handleBlur}
             error={errors.contract_id}
             placeholder={t('publish.contractIdPlaceholder')}
+          />
+
+          <FormInput
+            label={t('publish.wasmHash')}
+            name="wasm_hash"
+            value={values.wasm_hash}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            error={errors.wasm_hash}
+            placeholder={t('publish.wasmHashPlaceholder')}
           />
 
           <FormInput

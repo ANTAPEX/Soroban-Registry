@@ -124,7 +124,11 @@ CREATE TABLE notification_delivery_logs (
     -- Timing
     sent_at TIMESTAMPTZ,
     delivered_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- webhook_delivery.rs updates status/response_code/etc. on this row as
+    -- delivery is retried, so it needs an updated_at like every other
+    -- mutable table here.
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_notification_delivery_logs_notification ON notification_delivery_logs(notification_id);
@@ -197,33 +201,12 @@ ALTER TABLE webhook_configurations
 -- Notification Templates
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- Templates for different notification types
-CREATE TABLE notification_templates (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    notification_type notification_type NOT NULL UNIQUE,
-    
-    -- Template content
-    subject_template VARCHAR(500) NOT NULL,
-    body_template TEXT NOT NULL,
-    template_variables TEXT[], -- List of supported variables
-    
-    -- Channel-specific templates
-    email_subject_template VARCHAR(500),
-    email_body_template TEXT,
-    webhook_payload_template JSONB,
-    push_title_template VARCHAR(200),
-    push_body_template TEXT,
-    
-    -- Localization
-    language VARCHAR(10) NOT NULL DEFAULT 'en',
-    
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_notification_templates_type ON notification_templates(notification_type);
-CREATE INDEX idx_notification_templates_active ON notification_templates(is_active);
+-- `notification_templates` already exists (created in 044_add_disaster_recovery_tables
+-- with columns name/subject/message_template/channel) and is the table
+-- notification_handlers.rs actually queries ("SELECT * FROM notification_templates
+-- WHERE name = $1"), matching the seed INSERT further down in this same file.
+-- The richer notification_type-keyed redefinition that used to be here was a
+-- duplicate that collided with it and was never read by any query — removed.
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Batch Notification Processing
