@@ -40,7 +40,7 @@ impl SourceStorageConfig {
         let s3_endpoint = env::var("SOURCE_STORAGE_ENDPOINT").ok();
 
         if matches!(backend, StorageBackend::S3 | StorageBackend::Gcs) && s3_bucket.is_none() {
-            return Err(RegistryError::InvalidInput(
+            return Err(RegistryError::invalid_input(
                 "SOURCE_STORAGE_BUCKET is required for S3/GCS backend".to_string(),
             ));
         }
@@ -74,11 +74,11 @@ impl SourceStorage {
                 .unwrap_or("us-east-1")
                 .to_string();
             let bucket = config.s3_bucket.clone().ok_or_else(|| {
-                RegistryError::InvalidInput("SOURCE_STORAGE_BUCKET is required".to_string())
+                RegistryError::invalid_input("SOURCE_STORAGE_BUCKET is required".to_string())
             })?;
 
             let credentials = s3::creds::Credentials::default()
-                .map_err(|e| RegistryError::Internal(format!("S3 credentials error: {}", e)))?;
+                .map_err(|e| RegistryError::internal(format!("S3 credentials error: {}", e)))?;
             let s3_region = if let Some(ep) = config.s3_endpoint.clone() {
                 s3::Region::Custom {
                     region: region.clone(),
@@ -91,7 +91,7 @@ impl SourceStorage {
                 }
             };
             let b = s3::Bucket::new(&bucket, s3_region, credentials)
-                .map_err(|e| RegistryError::Internal(format!("S3 bucket init error: {}", e)))?
+                .map_err(|e| RegistryError::internal(format!("S3 bucket init error: {}", e)))?
                 .with_path_style();
             Some(*b)
         } else {
@@ -140,7 +140,7 @@ impl SourceStorage {
             }
             StorageBackend::S3 | StorageBackend::Gcs => {
                 let bucket = self.s3_bucket_client.as_ref().ok_or_else(|| {
-                    RegistryError::Internal("S3 client not initialized".to_string())
+                    RegistryError::internal("S3 client not initialized".to_string())
                 })?;
 
                 let prefix = self
@@ -154,7 +154,7 @@ impl SourceStorage {
                     .put_object(&object_key, source_bytes)
                     .await
                     .map_err(|e| {
-                        RegistryError::Internal(format!(
+                        RegistryError::internal(format!(
                             "Failed to upload source artifact to S3/GCS: {}",
                             e
                         ))
@@ -176,15 +176,15 @@ impl SourceStorage {
             }
             "s3" | "gcs" => {
                 let bucket = self.s3_bucket_client.as_ref().ok_or_else(|| {
-                    RegistryError::Internal("S3/GCS bucket not initialized".to_string())
+                    RegistryError::internal("S3/GCS bucket not initialized".to_string())
                 })?;
 
                 let data = bucket.get_object(storage_key).await.map_err(|e| {
-                    RegistryError::Internal(format!("S3/GCS get_object failed: {}", e))
+                    RegistryError::internal(format!("S3/GCS get_object failed: {}", e))
                 })?;
                 Ok(data.to_vec())
             }
-            other => Err(RegistryError::InvalidInput(format!(
+            other => Err(RegistryError::invalid_input(format!(
                 "Unknown storage backend {}",
                 other
             ))),

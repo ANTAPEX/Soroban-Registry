@@ -54,6 +54,8 @@ base64 = { workspace = true }
 sha2 = { workspace = true }
 hmac = { workspace = true }
 hex = { workspace = true }
+# `log::LevelFilter` for sqlx ConnectOptions::log_slow_statements (slow-query logging).
+log = "0.4"
 # secp256k1 ECDSA verification for the contract signature system (#888).
 k256 = { version = "0.13", features = ["ecdsa"] }
 moka = { version = "0.12.13", features = ["future"] }

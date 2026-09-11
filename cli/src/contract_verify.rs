@@ -114,7 +114,7 @@ async fn verify_single_contract(
     if !no_cache {
         if let Ok(Some(cached)) = cache::get(address, network) {
             if !json {
-                println!("{} Loaded from cache", "◀".cyan());
+                println!("{} Loaded from cache", "[CACHE]".cyan());
             }
 
             let result = serde_json::from_value::<VerificationResult>(cached.result.clone())
@@ -218,7 +218,11 @@ async fn run_batch(
         println!("{}", "═".repeat(60).cyan());
         println!("  {}: {}", "Contracts".bold(), addresses.len());
         println!("  {}: {}", "Network".bold(), network.bright_blue());
-        println!("  {}: {}", "Strict Mode".bold(), if strict { "enabled" } else { "disabled" });
+        println!(
+            "  {}: {}",
+            "Strict Mode".bold(),
+            if strict { "enabled" } else { "disabled" }
+        );
         println!();
     }
 
@@ -237,12 +241,16 @@ async fn run_batch(
                 if let Ok(Some(cached)) = cache::get(address, network) {
                     let result = serde_json::from_value::<VerificationResult>(cached.result)
                         .unwrap_or_else(|_| VerificationResult::default());
-                    
+
                     batch_errors.extend(result.errors.clone());
                     batch_warnings.extend(result.warnings.clone());
-                    
+
                     if !json {
-                        let status = if result.is_verified { "✓".green() } else { "✗".red() };
+                        let status = if result.is_verified {
+                            "[OK]".green()
+                        } else {
+                            "[ERR]".red()
+                        };
                         println!("{}", status);
                     }
                     results.push((address.to_string(), result));
@@ -250,7 +258,7 @@ async fn run_batch(
             }
             Err(e) => {
                 if !json {
-                    println!("{}", "✗".red());
+                    println!("{}", "[ERR]".red());
                 }
                 batch_errors.push(format!("Failed to verify {}: {}", address, e));
             }
@@ -277,8 +285,24 @@ async fn run_batch(
     } else {
         println!();
         println!("{} Batch Results Summary", "═".repeat(60).cyan());
-        println!("  Verified: {}", results.iter().filter(|(_, r)| r.is_verified).count().to_string().green());
-        println!("  Unverified: {}", results.iter().filter(|(_, r)| !r.is_verified).count().to_string().red());
+        println!(
+            "  Verified: {}",
+            results
+                .iter()
+                .filter(|(_, r)| r.is_verified)
+                .count()
+                .to_string()
+                .green()
+        );
+        println!(
+            "  Unverified: {}",
+            results
+                .iter()
+                .filter(|(_, r)| !r.is_verified)
+                .count()
+                .to_string()
+                .red()
+        );
         if !batch_errors.is_empty() {
             println!("  Errors: {}", batch_errors.len().to_string().red());
         }
@@ -354,7 +378,7 @@ async fn fetch_contract(
             print_header();
             println!(
                 "{} Contract {} not found in the {} registry.",
-                "✗".red().bold(),
+                "[ERR]".red().bold(),
                 address.bright_black(),
                 network.bright_blue()
             );
@@ -723,12 +747,12 @@ fn print_human(result: &VerificationResult, detail: &Option<Value>) {
 
     // ── Verification status ──────────────────────────────────────────────────
     let (icon, status_label) = match result.verification_status.as_str() {
-        "verified" => ("✔".green().bold(), "VERIFIED".green().bold()),
+        "verified" => ("[OK]".green().bold(), "VERIFIED".green().bold()),
         "pending" | "processing" | "in_progress" => {
-            ("●".yellow().bold(), "PENDING".yellow().bold())
+            ("[WAIT]".yellow().bold(), "PENDING".yellow().bold())
         }
-        "failed" => ("✘".red().bold(), "FAILED".red().bold()),
-        _ => ("✘".red().bold(), "UNVERIFIED".red().bold()),
+        "failed" => ("[ERR]".red().bold(), "FAILED".red().bold()),
+        _ => ("[ERR]".red().bold(), "UNVERIFIED".red().bold()),
     };
 
     println!("  {} Verification Status: {}", icon, status_label);
@@ -740,14 +764,14 @@ fn print_human(result: &VerificationResult, detail: &Option<Value>) {
     if !result.errors.is_empty() {
         println!("\n  {}", "Errors".bold().red());
         for error in &result.errors {
-            println!("  {} {}", "✗".red().bold(), error);
+            println!("  {} {}", "[ERR]".red().bold(), error);
         }
     }
 
     if !result.warnings.is_empty() {
         println!("\n  {}", "Warnings".bold().yellow());
         for warning in &result.warnings {
-            println!("  {} {}", "⚠".yellow().bold(), warning);
+            println!("  {} {}", "[WARN]".yellow().bold(), warning);
         }
     }
 
@@ -821,8 +845,8 @@ fn print_human(result: &VerificationResult, detail: &Option<Value>) {
 
         let audit_passed = d["audit"]["passed"].as_bool();
         match audit_passed {
-            Some(true) => println!("  {} {}", "✔".green(), "Audit passed".green().bold()),
-            Some(false) => println!("  {} {}", "✘".red(), "Audit failed".red().bold()),
+            Some(true) => println!("  {} {}", "[OK]".green(), "Audit passed".green().bold()),
+            Some(false) => println!("  {} {}", "[ERR]".red(), "Audit failed".red().bold()),
             None => println!("  {}", "No audit record".dimmed()),
         }
 
@@ -845,13 +869,13 @@ fn print_human(result: &VerificationResult, detail: &Option<Value>) {
     if result.is_verified && scan_status != "critical" {
         println!(
             "  {} Contract {} is verified and safe to interact with.\n",
-            "✔".green().bold(),
+            "[OK]".green().bold(),
             result.address.bold()
         );
     } else if !result.is_verified {
         println!(
             "  {} Contract {} is NOT verified — proceed with caution.\n",
-            "⚠".yellow().bold(),
+            "[WARN]".yellow().bold(),
             result.address.bold()
         );
         println!(
@@ -862,8 +886,213 @@ fn print_human(result: &VerificationResult, detail: &Option<Value>) {
     } else {
         println!(
             "  {} Contract {} has security issues — review findings above.\n",
-            "✘".red().bold(),
+            "[ERR]".red().bold(),
             result.address.bold()
         );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Local pre-publish verification (#: contract verify --wasm <path>)
+//
+// Runs the same structural WASM checks the backend uses (shared::wasm::
+// validate_wasm) against a local artifact, so developers can catch problems
+// before publishing instead of relying on backend-only feedback.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Machine-readable result of a local `contract verify --wasm` run.
+#[derive(Debug, Serialize)]
+pub struct LocalVerificationReport {
+    pub path: String,
+    pub size_bytes: u64,
+    pub wasm_hash: String,
+    pub passed: bool,
+    pub is_soroban_contract: bool,
+    pub function_count: u32,
+    pub exported_functions: Vec<String>,
+    pub imported_functions: Vec<String>,
+    pub custom_sections: Vec<String>,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+/// A single pass/fail check line, with an optional actionable hint on failure.
+struct Check {
+    ok: bool,
+    label: String,
+    hint: Option<String>,
+}
+
+/// Verify a local WASM contract artifact before publishing.
+///
+/// Returns `Err` when verification fails so the process exits non-zero, which
+/// lets `contract verify --wasm ... ` be used as a CI gate.
+pub async fn run_local(wasm_path: &str, verbose: bool, json: bool) -> Result<()> {
+    use sha2::{Digest, Sha256};
+
+    log::debug!(
+        "contract verify (local) | wasm={} verbose={}",
+        wasm_path,
+        verbose
+    );
+
+    // 1. Read the file, with actionable errors for the common failure modes.
+    let path = std::path::Path::new(wasm_path);
+    if !path.exists() {
+        anyhow::bail!(
+            "WASM file not found: {}\n  → Pass the path to a compiled contract, e.g. \
+             target/wasm32-unknown-unknown/release/<contract>.wasm",
+            wasm_path
+        );
+    }
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("Failed to read WASM file at {}", wasm_path))?;
+    if bytes.is_empty() {
+        anyhow::bail!("WASM file is empty: {}", wasm_path);
+    }
+
+    // 2. Hash (this is the wasm_hash that would be published / matched on-chain).
+    let wasm_hash = hex::encode(Sha256::digest(&bytes));
+
+    // 3. Structural validation — identical to the server-side checks.
+    let validation = shared::wasm::validate_wasm(&bytes);
+
+    // 4. Build the ordered check list with actionable hints.
+    let mut checks = Vec::new();
+    checks.push(Check {
+        ok: validation.valid,
+        label: "Valid WebAssembly module".to_string(),
+        hint: (!validation.valid).then(|| {
+            "Ensure the file is a compiled WASM contract (build with `stellar contract build`)."
+                .to_string()
+        }),
+    });
+    checks.push(Check {
+        ok: validation.has_contract_spec,
+        label: format!(
+            "Soroban contract spec present ({})",
+            shared::wasm::CONTRACT_SPEC_SECTION
+        ),
+        hint: (!validation.has_contract_spec).then(|| {
+            "Not a Soroban contract: the contract spec (ABI) is missing. Build the contract with \
+             `stellar contract build` so the spec is embedded."
+                .to_string()
+        }),
+    });
+    checks.push(Check {
+        ok: validation.function_count > 0,
+        label: format!("Exports {} function(s)", validation.export_functions.len()),
+        hint: (validation.function_count == 0).then(|| {
+            "The module defines no functions; it cannot be a usable contract.".to_string()
+        }),
+    });
+
+    // Env metadata is advisory: warn but do not fail.
+    let env_meta_warning = (!validation.has_env_meta).then(|| {
+        format!(
+            "Missing {} section (SDK/interface metadata not embedded).",
+            shared::wasm::CONTRACT_ENV_META_SECTION
+        )
+    });
+
+    let hard_errors: Vec<String> = checks
+        .iter()
+        .filter(|c| !c.ok)
+        .map(|c| c.label.clone())
+        .chain(validation.errors.iter().cloned())
+        .collect();
+    let passed = hard_errors.is_empty();
+
+    let mut warnings = validation.warnings.clone();
+    warnings.extend(env_meta_warning);
+
+    // 5. Output.
+    if json {
+        let report = LocalVerificationReport {
+            path: wasm_path.to_string(),
+            size_bytes: bytes.len() as u64,
+            wasm_hash,
+            passed,
+            is_soroban_contract: validation.is_soroban_contract(),
+            function_count: validation.function_count,
+            exported_functions: validation.export_functions.clone(),
+            imported_functions: validation.import_functions.clone(),
+            custom_sections: validation.custom_sections.clone(),
+            errors: hard_errors,
+            warnings,
+        };
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        if !passed {
+            anyhow::bail!("local verification failed");
+        }
+        return Ok(());
+    }
+
+    println!("\n{}", "Local Contract Verification".bold().cyan());
+    println!("{}", "=".repeat(80).cyan());
+    println!("{:<12}{}", "File:".bold(), wasm_path);
+    println!("{:<12}{} bytes", "Size:".bold(), bytes.len());
+    println!("{:<12}{}", "WASM hash:".bold(), wasm_hash.bright_black());
+    println!("\n{}", "Checks:".bold());
+    for check in &checks {
+        if check.ok {
+            println!("  {} {}", "[OK]".green().bold(), check.label);
+        } else {
+            println!("  {} {}", "[ERR]".red().bold(), check.label.red());
+            if let Some(hint) = &check.hint {
+                println!("    {} {}", "→".yellow(), hint.yellow());
+            }
+        }
+    }
+    for warning in &warnings {
+        println!("  {} {}", "!".yellow().bold(), warning.yellow());
+    }
+
+    if verbose {
+        println!("\n{}", "Diagnostics:".bold());
+        println!("  {:<22}{}", "Function count:", validation.function_count);
+        println!("  {:<22}{}", "Table count:", validation.table_count);
+        println!("  {:<22}{} page(s)", "Memory:", validation.memory_pages);
+        println!(
+            "  {:<22}{}",
+            "Data section entries:", validation.data_section_size
+        );
+        println!(
+            "  {:<22}{}",
+            "Custom sections:",
+            if validation.custom_sections.is_empty() {
+                "(none)".to_string()
+            } else {
+                validation.custom_sections.join(", ")
+            }
+        );
+        if !validation.export_functions.is_empty() {
+            println!("  {}", "Exported functions:".bold());
+            for f in &validation.export_functions {
+                println!("    • {}", f);
+            }
+        }
+        if !validation.import_functions.is_empty() {
+            println!("  {}", "Imported host functions:".bold());
+            for f in &validation.import_functions {
+                println!("    • {}", f.bright_black());
+            }
+        }
+    }
+
+    println!();
+    if passed {
+        println!(
+            "{} contract is valid and ready to publish",
+            "[OK] PASS —".green().bold()
+        );
+        Ok(())
+    } else {
+        println!(
+            "{} {} error(s)",
+            "[ERR] FAIL —".red().bold(),
+            hard_errors.len()
+        );
+        anyhow::bail!("local verification failed");
     }
 }

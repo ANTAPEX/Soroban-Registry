@@ -28,7 +28,10 @@ pub async fn run(
         "list" => client.get(&base).send_with_retry().await,
         "check" => {
             let addr = address.context("`check` requires a contract ADDRESS")?;
-            client.get(format!("{}/{}", base, addr)).send_with_retry().await
+            client
+                .get(format!("{}/{}", base, addr))
+                .send_with_retry()
+                .await
         }
         "add" => {
             let addr = address.context("`add` requires a contract ADDRESS")?;
@@ -46,14 +49,22 @@ pub async fn run(
             }
             req.send_with_retry().await
         }
-        other => anyhow::bail!("unknown highlight action '{}' (use add|remove|list|check)", other),
+        other => anyhow::bail!(
+            "unknown highlight action '{}' (use add|remove|list|check)",
+            other
+        ),
     }
     .context("Failed to reach the registry API. Is the registry running?")?;
 
     let status = resp.status();
     let value: Value = resp.json().await.unwrap_or(Value::Null);
     if !status.is_success() {
-        anyhow::bail!("contract highlight {} failed ({}): {}", action, status, value);
+        anyhow::bail!(
+            "contract highlight {} failed ({}): {}",
+            action,
+            status,
+            value
+        );
     }
 
     if json {
@@ -63,28 +74,50 @@ pub async fn run(
 
     match action {
         "list" => {
-            let items = value.get("highlights").and_then(Value::as_array).cloned().unwrap_or_default();
+            let items = value
+                .get("highlights")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             if items.is_empty() {
                 println!("{}", "No highlighted contracts.".dimmed());
             } else {
                 println!("{}", "Highlighted contracts:".bold());
                 for it in items {
                     let addr = it.get("address").and_then(Value::as_str).unwrap_or("?");
-                    let since = it.get("highlightedAt").and_then(Value::as_str).unwrap_or("");
+                    let since = it
+                        .get("highlightedAt")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
                     println!("  {}  {}", addr.cyan(), since.dimmed());
                 }
             }
         }
         "check" => {
-            let on = value.get("highlighted").and_then(Value::as_bool).unwrap_or(false);
+            let on = value
+                .get("highlighted")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             println!(
                 "{} {}",
                 address.unwrap_or(""),
-                if on { "is highlighted".green() } else { "is not highlighted".dimmed() }
+                if on {
+                    "is highlighted".green()
+                } else {
+                    "is not highlighted".dimmed()
+                }
             );
         }
-        "add" => println!("{} highlighted {}", "✓".green().bold(), address.unwrap_or("")),
-        "remove" => println!("{} removed highlight for {}", "✓".green().bold(), address.unwrap_or("")),
+        "add" => println!(
+            "{} highlighted {}",
+            "✓".green().bold(),
+            address.unwrap_or("")
+        ),
+        "remove" => println!(
+            "{} removed highlight for {}",
+            "✓".green().bold(),
+            address.unwrap_or("")
+        ),
         _ => {}
     }
     Ok(())

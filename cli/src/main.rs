@@ -2,38 +2,49 @@
 
 mod analytics;
 mod analyze;
-mod auth;
+mod api_key;
 mod audit_command;
+mod auth;
 mod backup;
-mod batch_ops;
 mod batch_audit;
 mod batch_deploy;
 mod batch_export;
 mod batch_import;
 mod batch_migrate;
 mod batch_notify;
+mod batch_ops;
 mod batch_register;
 mod batch_update;
 mod batch_verify;
+mod cache;
 mod cached_http;
+mod category;
 mod cicd;
 mod codegen;
 mod commands;
 mod compare;
 mod completion;
 mod config;
-mod contract_deploy;
-mod contract_risk;
-mod contract_register;
-mod contract_update;
-mod api_key;
+mod contract_audit;
+mod contract_compatibility;
 mod contract_dependency;
+mod contract_dependency_graph;
+mod contract_deploy;
+mod contract_deprecate;
 mod contract_highlight;
 mod contract_interaction;
+mod contract_interfaces;
+mod contract_list;
+mod contract_provenance;
+mod contract_register;
+mod contract_risk;
+mod contract_search;
+mod contract_snapshot;
+mod contract_update;
 mod contract_verify;
+mod contract_verify_build;
 mod contracts;
 mod conversions;
-mod cache;
 mod coverage;
 mod dashboard;
 mod deploy;
@@ -55,6 +66,8 @@ mod package_signing;
 mod patch;
 mod plugins;
 mod profiler;
+mod publisher;
+mod registry;
 mod release_notes;
 mod shell;
 mod sla;
@@ -68,6 +81,12 @@ mod verification;
 mod version;
 mod webhook;
 mod wizard;
+
+mod diagnostic;
+mod output_format;
+mod search;
+mod search_pagination;
+mod snapshot;
 
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
@@ -129,7 +148,7 @@ pub enum Commands {
         /// Time period: 7d, 30d, 90d, or RFC3339 range start..end
         #[arg(long, default_value = "30d")]
         period: String,
-        /// Output format: table, json, csv
+        /// Output format: table, json, csv, yaml
         #[arg(long, default_value = "table")]
         format: String,
         /// Sort mode: value_desc, value_asc, key_asc, key_desc
@@ -214,15 +233,19 @@ pub enum Commands {
         #[arg(long, short, default_value = "0")]
         offset: usize,
 
-        /// Filter by network (mainnet, testnet, futurenet)
-        #[arg(long, short)]
-        network: Option<crate::config::Network>,
+        /// Filter by network (comma-separated: mainnet,testnet,futurenet). The
+        /// field is `networks`, not `network`: clap derives an arg id from the
+        /// field name, and the global `--network` (global = true) shares that
+        /// id, so a subcommand-local `network` field would collide with it and
+        /// panic trying to downcast the matched value.
+        #[arg(long)]
+        networks: Option<String>,
 
-        /// Filter by category
+        /// Filter by category (comma-separated for multiple: DeFi,NFT)
         #[arg(long, short)]
         category: Option<String>,
 
-        /// Output format (table, json, csv)
+        /// Output format (table, json, csv, yaml)
         #[arg(long, short, default_value = "table")]
         format: String,
     },
@@ -248,11 +271,14 @@ pub enum Commands {
         #[arg(long)]
         verified_only: bool,
 
-        /// Filter by network (comma-separated: mainnet,testnet,futurenet)
+        /// Filter by network (comma-separated: mainnet,testnet,futurenet).
+        /// The field is `networks`, not `network`: clap derives an arg id from
+        /// the field name, and the global `--network` (global = true) shares
+        /// that id, so clap would populate both from either flag.
         #[arg(long)]
-        network: Option<String>,
+        networks: Option<String>,
 
-        /// Filter by category
+        /// Filter by category (comma-separated: DeFi,NFT)
         #[arg(long)]
         category: Option<String>,
 
@@ -617,10 +643,6 @@ pub enum Commands {
         #[arg(long, default_value = "true")]
         coverage: bool,
 
-        /// Verbose output
-        #[arg(long, short)]
-        verbose: bool,
-
         /// Require coverage data and fail if unavailable
         #[arg(long)]
         require_coverage: bool,
@@ -678,6 +700,7 @@ pub enum Commands {
         action: SlaCommands,
     },
 
+    /// Read and edit persisted user configuration values
     Config {
         #[command(subcommand)]
         action: ConfigSubcommands,
@@ -687,6 +710,12 @@ pub enum Commands {
     Auth {
         #[command(subcommand)]
         action: AuthCommands,
+    },
+
+    /// Manage contract backups and disaster recovery
+    Backup {
+        #[command(subcommand)]
+        action: BackupCommands,
     },
 
     /// Inspect and modify contract state (dev/test mutation only)
@@ -713,11 +742,15 @@ pub enum Commands {
         post: bool,
     },
 
+    /// Scan a contract's dependencies for known vulnerabilities
     ScanDeps {
+        /// Contract address or registry UUID to scan
         #[arg(long)]
         contract_id: String,
+        /// Comma-separated dependency list to scan
         #[arg(long, default_value = ",")]
         dependencies: String,
+        /// Exit non-zero when a high-severity finding is reported
         #[arg(long, default_value_t = false)]
         fail_on_high: bool,
     },
@@ -1125,9 +1158,58 @@ pub enum Commands {
         action: EnvCommands,
     },
 
+    /// Publisher environment diagnostics
+    Publisher {
+        #[command(subcommand)]
+        action: PublisherCommands,
+    },
+
     /// External command (may be provided by an installed plugin)
     #[command(external_subcommand)]
     External(Vec<String>),
+
+    /// Manage signed offline registry snapshots (#1146)
+    Snapshot {
+        #[command(subcommand)]
+        action: SnapshotCommands,
+    },
+}
+
+/// Sub-commands for the `snapshot` group
+#[derive(Debug, Subcommand)]
+pub enum SnapshotCommands {
+    /// Export a signed offline registry snapshot
+    Export {
+        /// Output file path
+        #[arg(long, short = 'o')]
+        output: String,
+    },
+
+    /// Sign a registry snapshot
+    Sign {
+        /// Path to the snapshot JSON file
+        snapshot_file: String,
+
+        /// Path to the signing key (Ed25519 PEM or base64)
+        #[arg(long)]
+        key: String,
+    },
+
+    /// Verify a signed registry snapshot locally
+    Verify {
+        /// Path to the snapshot JSON file
+        snapshot_file: String,
+
+        /// Path to the trusted public key
+        #[arg(long)]
+        trust_key: String,
+    },
+
+    /// Inspect a registry snapshot metadata
+    Inspect {
+        /// Path to the snapshot JSON file
+        snapshot_file: String,
+    },
 }
 
 /// Sub-commands for the `network` group
@@ -1373,6 +1455,43 @@ pub enum AuthCommands {
         /// Token lifetime, e.g. 1h, 30m, 7d, or seconds
         #[arg(long)]
         expires: Option<String>,
+    },
+}
+
+/// Sub-commands for the `backup` group
+#[derive(Debug, Subcommand)]
+pub enum BackupCommands {
+    /// Create a new contract backup
+    Create {
+        /// Contract ID to back up
+        contract_id: String,
+        /// Include full contract state in backup
+        #[arg(long)]
+        include_state: bool,
+    },
+    /// List recent backups for a contract
+    List {
+        /// Contract ID
+        contract_id: String,
+    },
+    /// Restore a contract from a specific backup date
+    Restore {
+        /// Contract ID to restore
+        contract_id: String,
+        /// Backup date to restore from (YYYY-MM-DD)
+        backup_date: String,
+    },
+    /// Verify integrity of a specific backup
+    Verify {
+        /// Contract ID
+        contract_id: String,
+        /// Backup date to verify (YYYY-MM-DD)
+        backup_date: String,
+    },
+    /// Show backup statistics for a contract
+    Stats {
+        /// Contract ID
+        contract_id: String,
     },
 }
 
@@ -1750,9 +1869,261 @@ pub enum KeysCommands {
     },
 }
 
+/// Sub-commands for `contract category`.
+#[derive(Debug, Subcommand)]
+pub enum CategoryCommands {
+    /// List all categories with descriptions and contract counts
+    List {
+        /// Scope contract counts to a single network (mainnet | testnet | futurenet)
+        #[arg(long)]
+        network: Option<String>,
+
+        /// Output format for stdout: table, json, csv, yaml
+        #[arg(long, default_value = "table")]
+        format: String,
+
+        /// Also write the category list to a file: csv or json
+        #[arg(long)]
+        export: Option<String>,
+    },
+
+    /// Show detailed per-category statistics (counts, recent, trending)
+    Stats {
+        /// Scope statistics to a single network (mainnet | testnet | futurenet)
+        #[arg(long)]
+        network: Option<String>,
+
+        /// Output format for stdout: table, json, csv, yaml
+        #[arg(long, default_value = "table")]
+        format: String,
+
+        /// Also write the statistics to a file: csv or json
+        #[arg(long)]
+        export: Option<String>,
+    },
+}
+
 /// Sub-commands for the `contract` group (#522)
 #[derive(Debug, Subcommand)]
 pub enum ContractCommands {
+    /// List registered contracts, a page at a time
+    ///
+    /// Shows address, name, network, category and last update. JSON and CSV
+    /// carry no decoration, so they pipe cleanly into other tools.
+    ///
+    /// Examples:
+    ///   soroban-registry contract list
+    ///   soroban-registry contract list --limit 50 --offset 100
+    ///   soroban-registry contract list --networks testnet --category DeFi
+    ///   soroban-registry contract list --format json | jq '.contracts[].address'
+    ///   soroban-registry contract list --format csv > contracts.csv
+    #[command(verbatim_doc_comment)]
+    List {
+        /// Contracts per page (1-100)
+        #[arg(long, short, default_value_t = contract_list::DEFAULT_LIMIT)]
+        limit: usize,
+
+        /// Contracts to skip; use it with --limit to page through the registry
+        #[arg(long, short, default_value_t = 0)]
+        offset: usize,
+
+        /// Filter by network (comma-separated: mainnet,testnet,futurenet).
+        /// Named `networks` because the global `--network` owns that arg id.
+        #[arg(long)]
+        networks: Option<String>,
+
+        /// Filter by category (comma-separated: DeFi,NFT)
+        #[arg(long, short)]
+        category: Option<String>,
+
+        /// Output format: table, json or csv
+        #[arg(long, short, default_value = "table")]
+        format: String,
+    },
+
+    /// Search the registry, one page at a time or across every page
+    ///
+    /// Pagination is handled for you: `--all` walks pages until the result set
+    /// runs out or a safety bound is reached, and never loops on a bad
+    /// continuation token. Cursor and offset parameters cannot be combined.
+    ///
+    /// Usage: soroban-registry contract search <QUERY> [--all] [--max-items <N>]
+    ///        [--pagination <cursor|offset>] [--cursor <TOKEN> | --offset <N>]
+    Search {
+        /// Search query
+        query: String,
+
+        /// Filter by network (comma-separated: mainnet,testnet,futurenet)
+        #[arg(long)]
+        networks: Option<String>,
+
+        /// Filter by category (comma-separated: DeFi,NFT)
+        #[arg(long)]
+        category: Option<String>,
+
+        /// Filter by tag (comma-separated: defi,amm)
+        #[arg(long)]
+        tags: Option<String>,
+
+        /// Only show verified contracts
+        #[arg(long)]
+        verified_only: bool,
+
+        /// Results per page (1-100)
+        #[arg(long, default_value = "20")]
+        limit: u32,
+
+        /// Start at this row offset. Offset pagination only — cannot be
+        /// combined with --cursor.
+        #[arg(long, conflicts_with = "cursor")]
+        offset: Option<u64>,
+
+        /// Resume from a continuation token returned by a previous run. Cursor
+        /// pagination only — the token is opaque and must not be edited.
+        #[arg(long)]
+        cursor: Option<String>,
+
+        /// Pagination mode: cursor (stable, no skips or duplicates) or offset
+        /// (relevance ordered). Defaults to cursor for --all, offset otherwise.
+        #[arg(long, value_name = "MODE")]
+        pagination: Option<String>,
+
+        /// Fetch every page, up to --max-items / --max-pages
+        #[arg(long)]
+        all: bool,
+
+        /// Maximum items to fetch with --all (default 1000)
+        #[arg(long)]
+        max_items: Option<u64>,
+
+        /// Maximum pages to fetch with --all (default 100)
+        #[arg(long)]
+        max_pages: Option<u64>,
+
+        /// Output as JSON, including pagination metadata
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Export a signed, offline-verifiable snapshot of a contract (#1116)
+    ///
+    /// Captures metadata, verification status, dependency scan findings,
+    /// deprecation state and successor lineage as of now, signed by the
+    /// registry so it can be audited without a live API.
+    ///
+    /// Usage: soroban-registry contract snapshot <ID> --output <FILE>
+    Snapshot {
+        /// Contract UUID to snapshot
+        id: String,
+
+        /// File to write the signed snapshot to
+        #[arg(long, short = 'o')]
+        output: String,
+
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Verify a previously exported contract snapshot (#1116)
+    ///
+    /// Runs entirely offline unless --fetch-key is passed. Exits non-zero when
+    /// verification fails, so it can gate a compliance pipeline.
+    ///
+    /// Usage: soroban-registry contract verify-snapshot <FILE> [--expect-key <FP>]
+    VerifySnapshot {
+        /// Path to the snapshot file
+        file: String,
+
+        /// Registry key fingerprint to pin against. Without it, a valid result
+        /// proves only that the bundle is self-consistent.
+        #[arg(long)]
+        expect_key: Option<String>,
+
+        /// Fail if the snapshot is older than this many days
+        #[arg(long)]
+        max_age_days: Option<i64>,
+
+        /// Fetch the expected fingerprint from the registry instead of pinning
+        /// it locally. Requires network access.
+        #[arg(long)]
+        fetch_key: bool,
+
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Assess security and operational risks for a contract (#837)
+    ///
+    /// Usage: soroban-registry contract risk <address> [--network <n>] [--threshold <level>] [--json]
+    Risk {
+        /// On-chain contract address or registry UUID to assess
+        address: String,
+
+        /// Stellar network (mainnet | testnet | futurenet)
+        #[arg(long, default_value = "mainnet")]
+        network: String,
+
+        /// Exit with code 1 if overall risk level meets or exceeds this threshold
+        /// (low | medium | high | critical)
+        #[arg(long)]
+        threshold: Option<String>,
+
+        /// Output the risk report as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Deploy and register a new contract in the registry
+    ///
+    /// Usage: soroban-registry contract deploy <WASM_PATH> --name <NAME> --network <NETWORK>
+    ///        [--description <DESC>] [--category <CAT>] [--icon <ICON_PATH>]
+    ///        [--interactive] [--publisher <ADDRESS>] [--tags <TAGS>]
+    Deploy {
+        /// Path to the WASM binary file
+        wasm_path: String,
+
+        /// Contract name (human-readable)
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Contract description
+        #[arg(long)]
+        description: Option<String>,
+
+        /// Contract category (DeFi, Token, Oracle, NFT, Utility, Other)
+        #[arg(long)]
+        category: Option<String>,
+
+        /// Stellar network (mainnet | testnet | futurenet)
+        #[arg(long, default_value = "testnet")]
+        network: String,
+
+        /// Path to contract icon file (PNG, JPG, SVG)
+        #[arg(long)]
+        icon: Option<String>,
+
+        /// Enable interactive mode for guided deployment
+        #[arg(long)]
+        interactive: bool,
+
+        /// Publisher's Stellar address (if not set, uses default publisher)
+        #[arg(long)]
+        publisher: Option<String>,
+
+        /// Comma-separated list of tags for the contract
+        #[arg(long)]
+        tags: Option<String>,
+
+        /// Skip ABI extraction and deployment verification
+        #[arg(long)]
+        skip_abi: bool,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Register one or more contracts in the registry
     Register {
         /// Path to a YAML or JSON metadata file
@@ -1768,12 +2139,21 @@ pub enum ContractCommands {
         json: bool,
     },
 
-    /// Verify a deployed contract's authenticity against the on-chain registry
+    /// Verify a contract — a local WASM artifact before publishing, or a
+    /// deployed contract's authenticity against the on-chain registry.
     ///
-    /// Usage: soroban-registry contract verify <address> --network <network> [--json] [--strict] [--batch] [--no-cache]
+    /// Local:    soroban-registry contract verify --wasm <path> [--verbose] [--json]
+    /// On-chain: soroban-registry contract verify <address> --network <network> [--json] [--strict] [--batch] [--no-cache]
     Verify {
-        /// On-chain contract address to verify (or comma-separated list for batch verification)
-        address: String,
+        /// On-chain contract address to verify (or comma-separated list for batch
+        /// verification). Omit when using --wasm for local verification.
+        address: Option<String>,
+
+        /// Path to a local compiled WASM contract to verify before publishing.
+        /// Runs the same structural checks the backend uses, offline. In local
+        /// mode, pass the global -v/--verbose flag for detailed diagnostics.
+        #[arg(long)]
+        wasm: Option<String>,
 
         /// Stellar network (mainnet | testnet | futurenet)
         #[arg(long, default_value = "mainnet")]
@@ -1794,6 +2174,100 @@ pub enum ContractCommands {
         /// Skip cache and always fetch fresh data from registry
         #[arg(long)]
         no_cache: bool,
+    },
+
+    /// Derive and display a contract's deterministic interface fingerprint
+    /// (functions, types, events, errors) from a local compiled WASM
+    /// artifact.
+    ///
+    /// Usage: soroban-registry contract interfaces --wasm <path> [--json]
+    Interfaces {
+        /// Path to a local compiled WASM contract to inspect.
+        #[arg(long)]
+        wasm: String,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Display build-provenance metadata recorded for a contract, read from
+    /// a local manifest file.
+    ///
+    /// Usage: soroban-registry contract provenance --manifest <path> [--json]
+    Provenance {
+        /// Path to a local provenance manifest (JSON) to display.
+        #[arg(long)]
+        manifest: String,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Attempt to independently reproduce a contract's published WASM
+    /// artifact from source, and compare its hash against the expected
+    /// (registry-recorded) artifact hash.
+    ///
+    /// Usage: soroban-registry contract verify-build --manifest <path> --source-dir <dir> --expected-hash <hash> [--allow-toolchain-mismatch] [--json]
+    VerifyBuild {
+        /// Path to a local provenance manifest (JSON) describing the recorded build.
+        #[arg(long)]
+        manifest: String,
+
+        /// Directory containing the contract's source to rebuild.
+        #[arg(long)]
+        source_dir: String,
+
+        /// The registry-recorded WASM artifact hash to compare the rebuild against.
+        #[arg(long)]
+        expected_hash: String,
+
+        /// Proceed with the rebuild even if the locally installed rustc
+        /// version doesn't match the version recorded in provenance.
+        #[arg(long)]
+        allow_toolchain_mismatch: bool,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Structurally compare two local compiled WASM artifacts and classify
+    /// ABI changes as compatible, potentially breaking, breaking, or
+    /// unknown.
+    ///
+    /// Usage: soroban-registry contract compatibility --from <wasm> --to <wasm> [--strict] [--json] [--fail-on <level>]
+    Compatibility {
+        /// Path to the earlier/baseline compiled WASM contract.
+        #[arg(long)]
+        from: String,
+
+        /// Path to the newer/candidate compiled WASM contract.
+        #[arg(long)]
+        to: String,
+
+        /// Network passphrase associated with the `--from` artifact.
+        #[arg(long)]
+        from_network_passphrase: Option<String>,
+
+        /// Network passphrase associated with the `--to` artifact.
+        #[arg(long)]
+        to_network_passphrase: Option<String>,
+
+        /// Exit non-zero when changes at or above the --fail-on threshold
+        /// are found (default threshold: potentially_breaking).
+        #[arg(long)]
+        strict: bool,
+
+        /// Minimum severity that triggers a non-zero exit under --strict:
+        /// breaking | potential | unknown
+        #[arg(long, default_value = "potential")]
+        fail_on: String,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Display detailed information about a contract
@@ -1828,7 +2302,7 @@ pub enum ContractCommands {
         #[arg(long, default_value_t = 10)]
         top_n: usize,
 
-        /// Output format: table, json, csv
+        /// Output format: table, json, csv, yaml
         #[arg(long, default_value = "table")]
         format: String,
 
@@ -1907,15 +2381,106 @@ pub enum ContractCommands {
         json: bool,
     },
 
-    /// Analyze a contract's dependencies and relationships (#836)
+    /// Analyze a contract's dependencies and relationships (#836, #1008)
+    ///
+    /// Retrieves the full dependency graph: contracts this address depends on,
+    /// contracts that depend on it, and a recursive dependency tree.
+    ///
+    /// Use `--summary` for a compact view when dealing with large graphs.
+    /// Use `--format json` to get the raw API response for scripting.
     Dependency {
         /// On-chain contract address
         address: String,
-        /// Dependency tree depth
+        /// Dependency tree depth (0 = direct dependencies only)
         #[arg(long, default_value_t = 1)]
         depth: u32,
+        /// Output format: table, json, csv, yaml
+        #[arg(long, default_value = "table")]
+        format: String,
+        /// Compact summary mode: show aggregate counts without the full tree
+        #[arg(long)]
+        summary: bool,
+    },
+
+    /// List what a contract depends on (#1147)
+    ///
+    /// Usage: soroban-registry contract dependencies <ADDRESS> [--network <NET>]
+    ///        [--transitive] [--depth N] [--json]
+    ///
+    /// A bare contract address registered on more than one network is ambiguous;
+    /// pass --network to disambiguate.
+    Dependencies {
+        /// On-chain contract address or registry UUID
+        address: String,
+        /// Stellar network (mainnet | testnet | futurenet)
+        #[arg(long)]
+        network: Option<String>,
+        /// Walk the whole dependency closure, not just direct edges
+        #[arg(long)]
+        transitive: bool,
+        /// Maximum traversal depth (capped server-side)
+        #[arg(long)]
+        depth: Option<u32>,
+        /// Include on-chain call edges alongside declared ones
+        #[arg(long)]
+        include_telemetry: bool,
+        /// Print the registry response as JSON
         #[arg(long)]
         json: bool,
+    },
+
+    /// List what depends on a contract (#1147)
+    ///
+    /// Usage: soroban-registry contract dependents <ADDRESS> [--network <NET>]
+    ///        [--transitive] [--depth N] [--json]
+    Dependents {
+        /// On-chain contract address or registry UUID
+        address: String,
+        /// Stellar network (mainnet | testnet | futurenet)
+        #[arg(long)]
+        network: Option<String>,
+        /// Walk the whole dependent closure, not just direct edges
+        #[arg(long)]
+        transitive: bool,
+        /// Maximum traversal depth (capped server-side)
+        #[arg(long)]
+        depth: Option<u32>,
+        /// Include on-chain call edges alongside declared ones
+        #[arg(long)]
+        include_telemetry: bool,
+        /// Print the registry response as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Report direct and inherited risk across a contract's dependencies (#1147)
+    ///
+    /// Usage: soroban-registry contract dependency-risk <ADDRESS> [--network <NET>]
+    ///        [--depth N] [--fail-on low|medium|high|critical] [--json]
+    ///
+    /// Each finding carries the shortest dependency path that reaches it.
+    /// With --fail-on, exits 1 when the overall risk meets or exceeds the level.
+    DependencyRisk {
+        /// On-chain contract address or registry UUID
+        address: String,
+        /// Stellar network (mainnet | testnet | futurenet)
+        #[arg(long)]
+        network: Option<String>,
+        /// Maximum traversal depth (capped server-side)
+        #[arg(long)]
+        depth: Option<u32>,
+        /// Exit 1 when overall risk meets or exceeds this level
+        #[arg(long)]
+        fail_on: Option<String>,
+        /// Print the registry response as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// List and inspect contract categories
+    Category {
+        #[command(subcommand)]
+        action: CategoryCommands,
     },
 
     /// Update contract metadata after registration (#828)
@@ -2005,6 +2570,194 @@ pub enum ContractCommands {
         /// Directory for archive extraction (archive format only)
         #[arg(long, default_value = "./imported")]
         output_dir: String,
+    },
+
+    /// Rollback a deprecated contract to active state (#1091)
+    ///
+    /// Usage: soroban-registry contract rollback <ADDRESS> --reason <REASON> --private-key <KEY>
+    Rollback {
+        /// Contract address or registry UUID to rollback
+        address: String,
+
+        /// Human-readable reason for rollback
+        #[arg(long)]
+        reason: String,
+
+        /// Publisher's Ed25519 private key (base64-encoded)
+        #[arg(long)]
+        private_key: String,
+
+        /// Skip interactive confirmation
+        #[arg(long, short = 'y')]
+        yes: bool,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Detect drift between local lockfile and registry state (#1060)
+    ///
+    /// Compares a local `soroban-registry.lock.json` against the live registry
+    /// and reports added, removed, and changed contract metadata.
+    ///
+    /// Usage: soroban-registry contract audit [--lockfile PATH] [--fix] [--init --contracts a,b]
+    Audit {
+        /// Path to lockfile (default: soroban-registry.lock.json)
+        #[arg(long, default_value = "soroban-registry.lock.json")]
+        lockfile: String,
+
+        /// Auto-sync lockfile to match current registry state
+        #[arg(long)]
+        fix: bool,
+
+        /// Generate an initial lockfile from the given contract IDs
+        #[arg(long)]
+        init: bool,
+
+        /// Contract IDs for --init (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        contracts: Vec<String>,
+
+        /// Output format: text, json
+        #[arg(long, default_value = "text")]
+        format: String,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Deprecate a contract with publisher-signed authorization (#1091)
+    ///
+    /// Requires the publisher's Ed25519 private key to sign the deprecation
+    /// payload. The backend verifies the signature against the stored publisher
+    /// public key before applying the state change.
+    ///
+    /// Usage: soroban-registry contract deprecate <ADDRESS> --reason <REASON> --private-key <KEY>
+    Deprecate {
+        /// Contract address or registry UUID to deprecate
+        address: String,
+
+        /// Human-readable reason for deprecation
+        #[arg(long)]
+        reason: String,
+
+        /// Replacement contract ID for downstream migration
+        #[arg(long)]
+        replacement: Option<String>,
+
+        /// Publisher's Ed25519 private key (base64-encoded)
+        #[arg(long)]
+        private_key: String,
+
+        /// URL to a migration guide for consumers
+        #[arg(long)]
+        migration_guide: Option<String>,
+
+        /// Grace period in days before hard removal (default: 90)
+        #[arg(long, default_value_t = 90)]
+        grace_period_days: i32,
+
+        /// Skip interactive confirmation
+        #[arg(long, short = 'y')]
+        yes: bool,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Manage contract event notifications and alerts (#838)
+    Notification {
+        #[command(subcommand)]
+        action: NotificationCommands,
+    },
+}
+
+/// Sub-commands for `contract notification`
+#[derive(Debug, Subcommand)]
+pub enum NotificationCommands {
+    /// Subscribe to alerts for a contract address
+    Subscribe {
+        /// On-chain contract address
+        address: String,
+
+        /// Alert types (comma-separated): updates, audits, security, deployments
+        #[arg(long, default_value = "updates,security")]
+        alerts: String,
+
+        /// Notification channels (comma-separated): email, webhook, cli
+        #[arg(long, default_value = "cli")]
+        channels: String,
+
+        /// Notification frequency: instant, daily, weekly
+        #[arg(long, default_value = "instant")]
+        frequency: String,
+
+        /// Filter by networks (comma-separated, e.g. mainnet,testnet)
+        #[arg(long, default_value = "")]
+        networks: String,
+
+        /// Filter by categories (comma-separated, e.g. defi,token)
+        #[arg(long, default_value = "")]
+        categories: String,
+
+        /// Email address or webhook URL for the chosen channel
+        #[arg(long)]
+        target: Option<String>,
+    },
+
+    /// Unsubscribe from alerts for a contract address
+    Unsubscribe {
+        /// On-chain contract address
+        address: String,
+    },
+
+    /// List active notification rules
+    List {
+        /// Filter by contract address (omit to list all)
+        address: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Update an existing notification rule
+    Configure {
+        /// On-chain contract address
+        address: String,
+
+        /// New alert types (comma-separated)
+        #[arg(long)]
+        alerts: Option<String>,
+
+        /// New channels (comma-separated)
+        #[arg(long)]
+        channels: Option<String>,
+
+        /// New frequency: instant, daily, weekly
+        #[arg(long)]
+        frequency: Option<String>,
+
+        /// New network filter (comma-separated)
+        #[arg(long)]
+        networks: Option<String>,
+
+        /// New category filter (comma-separated)
+        #[arg(long)]
+        categories: Option<String>,
+
+        /// New email address or webhook URL
+        #[arg(long)]
+        target: Option<String>,
+    },
+
+    /// Send a test alert for a subscribed contract
+    Test {
+        /// On-chain contract address
+        address: String,
     },
 }
 
@@ -2141,6 +2894,19 @@ pub enum EnvCommands {
     Switch {
         /// Environment name to activate
         environment: String,
+    },
+}
+
+/// Sub-commands for the `publisher` group
+#[derive(Debug, Subcommand)]
+pub enum PublisherCommands {
+    /// Diagnose the local publishing environment (config, session, signing key, connectivity)
+    ///
+    /// Usage: soroban-registry publisher doctor [--json]
+    Doctor {
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -2320,77 +3086,6 @@ pub enum ProfileCommands {
         /// Export format: json | csv
         #[arg(long, default_value = "json")]
         format: String,
-    },
-
-    /// Assess security and operational risks for a contract (#837)
-    ///
-    /// Usage: soroban-registry contract risk <address> [--network <n>] [--threshold <level>] [--json]
-    Risk {
-        /// On-chain contract address or registry UUID to assess
-        address: String,
-
-        /// Stellar network (mainnet | testnet | futurenet)
-        #[arg(long, default_value = "mainnet")]
-        network: String,
-
-        /// Exit with code 1 if overall risk level meets or exceeds this threshold
-        /// (low | medium | high | critical)
-        #[arg(long)]
-        threshold: Option<String>,
-
-        /// Output the risk report as machine-readable JSON
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Deploy and register a new contract in the registry
-    ///
-    /// Usage: soroban-registry contract deploy <WASM_PATH> --name <NAME> --network <NETWORK>
-    ///        [--description <DESC>] [--category <CAT>] [--icon <ICON_PATH>]
-    ///        [--interactive] [--publisher <ADDRESS>] [--tags <TAGS>]
-    Deploy {
-        /// Path to the WASM binary file
-        wasm_path: String,
-
-        /// Contract name (human-readable)
-        #[arg(long)]
-        name: Option<String>,
-
-        /// Contract description
-        #[arg(long)]
-        description: Option<String>,
-
-        /// Contract category (DeFi, Token, Oracle, NFT, Utility, Other)
-        #[arg(long)]
-        category: Option<String>,
-
-        /// Stellar network (mainnet | testnet | futurenet)
-        #[arg(long, default_value = "testnet")]
-        network: String,
-
-        /// Path to contract icon file (PNG, JPG, SVG)
-        #[arg(long)]
-        icon: Option<String>,
-
-        /// Enable interactive mode for guided deployment
-        #[arg(long)]
-        interactive: bool,
-
-        /// Publisher's Stellar address (if not set, uses default publisher)
-        #[arg(long)]
-        publisher: Option<String>,
-
-        /// Comma-separated list of tags for the contract
-        #[arg(long)]
-        tags: Option<String>,
-
-        /// Skip ABI extraction and deployment verification
-        #[arg(long)]
-        skip_abi: bool,
-
-        /// Output results as machine-readable JSON
-        #[arg(long)]
-        json: bool,
     },
 }
 
@@ -2577,6 +3272,8 @@ async fn main() -> Result<()> {
         no_cache: cli.no_cache,
         verbose: cli.verbose,
     });
+    // The shared registry client picks up the same resolved timeout.
+    registry::init(cli.timeout);
 
     // ── Initialise logger ─────────────────────────────────────────────────────
     // -v counts; each level raises verbosity by one step.
@@ -2605,7 +3302,7 @@ pub async fn handle_command(cli: Cli) -> Result<()> {
         } => shell::run(&cli.api_url, shell_network).await,
         _ => {
             // ── Resolve network ───────────────────────────────────────────────────────
-            let cfg_network = config::resolve_network(cli.network.clone())?;
+            let cfg_network = config::resolve_network(cli.network.clone(), cli.profile.clone())?;
             let mut net_str = cfg_network.to_string();
             if net_str == "auto" {
                 net_str = "mainnet".to_string();
@@ -2745,15 +3442,15 @@ pub async fn dispatch_command(
                 }
                 PluginConfigCommands::Set { name, json } => {
                     plugins::set_plugin_config_json(&name, &json)?;
-                    println!("{} Updated config for {}", "✓".green(), name.bold());
+                    println!("{} Updated config for {}", "[OK]".green(), name.bold());
                 }
                 PluginConfigCommands::Disable { name } => {
                     plugins::set_plugin_enabled(&name, false)?;
-                    println!("{} Disabled {}", "✓".green(), name.bold());
+                    println!("{} Disabled {}", "[OK]".green(), name.bold());
                 }
                 PluginConfigCommands::Enable { name } => {
                     plugins::set_plugin_enabled(&name, true)?;
-                    println!("{} Enabled {}", "✓".green(), name.bold());
+                    println!("{} Enabled {}", "[OK]".green(), name.bold());
                 }
             },
         },
@@ -2771,7 +3468,7 @@ pub async fn dispatch_command(
         Commands::Search {
             query,
             verified_only,
-            network: filter_networks,
+            networks: filter_networks,
             category,
             sort,
             limit,
@@ -2916,15 +3613,19 @@ pub async fn dispatch_command(
         Commands::List {
             limit,
             offset,
-            network,
+            networks: filter_networks,
             category,
             format,
         } => {
+            let networks_vec: Vec<String> = filter_networks
+                .map(|n| n.split(',').map(|s| s.trim().to_string()).collect())
+                .unwrap_or_default();
             commands::contract_list(
                 &cli.api_url,
                 limit,
                 offset,
-                network.or(Some(cfg_network)),
+                Some(cfg_network),
+                networks_vec,
                 category,
                 &format,
             )
@@ -3365,7 +4066,11 @@ pub async fn dispatch_command(
         // ── User profile management (#841) ───────────────────────────────────
         Commands::Profile { action } => match action {
             ProfileCommands::View { address, json } => {
-                log::debug!("Command: profile view | address={:?} json={}", address, json);
+                log::debug!(
+                    "Command: profile view | address={:?} json={}",
+                    address,
+                    json
+                );
                 user_profile::view(&cli.api_url, address.as_deref(), json).await?;
             }
             ProfileCommands::Edit {
@@ -3389,11 +4094,7 @@ pub async fn dispatch_command(
                 .await?;
             }
             ProfileCommands::Update { field, value } => {
-                log::debug!(
-                    "Command: profile update | field={} value={}",
-                    field,
-                    value
-                );
+                log::debug!("Command: profile update | field={} value={}", field, value);
                 user_profile::update_field(&cli.api_url, &field, &value).await?;
             }
             ProfileCommands::ListContracts {
@@ -3408,8 +4109,14 @@ pub async fn dispatch_command(
                     limit,
                     format
                 );
-                user_profile::list_contracts(&cli.api_url, address.as_deref(), limit, &format, json)
-                    .await?;
+                user_profile::list_contracts(
+                    &cli.api_url,
+                    address.as_deref(),
+                    limit,
+                    &format,
+                    json,
+                )
+                .await?;
             }
             ProfileCommands::Export { address, format } => {
                 log::debug!(
@@ -3426,7 +4133,6 @@ pub async fn dispatch_command(
             test_command,
             junit,
             coverage,
-            verbose,
             require_coverage,
             coverage_threshold,
             setup_hook,
@@ -3442,7 +4148,9 @@ pub async fn dispatch_command(
                 test_command: test_command.as_deref(),
                 junit_output: junit.as_deref(),
                 show_coverage: coverage,
-                verbose,
+                // Verbosity comes from the global -v/--verbose flag; a local `--verbose`
+                // here collided with it and made every `test` invocation panic.
+                verbose: cli.verbose > 0,
                 require_coverage,
                 coverage_threshold,
                 setup_hook: setup_hook.as_deref(),
@@ -3618,8 +4326,38 @@ pub async fn dispatch_command(
                 auth::status(&cli.api_url).await?;
             }
             AuthCommands::Token { scopes, expires } => {
-                log::debug!("Command: auth token | scopes={:?} expires={:?}", scopes, expires);
+                log::debug!(
+                    "Command: auth token | scopes={:?} expires={:?}",
+                    scopes,
+                    expires
+                );
                 auth::token(&cli.api_url, scopes, expires.as_deref()).await?;
+            }
+        },
+        Commands::Backup { action } => match action {
+            BackupCommands::Create {
+                contract_id,
+                include_state,
+            } => {
+                backup::create_backup(&cli.api_url, &contract_id, include_state).await?;
+            }
+            BackupCommands::List { contract_id } => {
+                backup::list_backups(&cli.api_url, &contract_id).await?;
+            }
+            BackupCommands::Restore {
+                contract_id,
+                backup_date,
+            } => {
+                backup::restore_backup(&cli.api_url, &contract_id, &backup_date).await?;
+            }
+            BackupCommands::Verify {
+                contract_id,
+                backup_date,
+            } => {
+                backup::verify_backup(&cli.api_url, &contract_id, &backup_date).await?;
+            }
+            BackupCommands::Stats { contract_id } => {
+                backup::backup_stats(&cli.api_url, &contract_id).await?;
             }
         },
         Commands::State { action } => match action {
@@ -3900,6 +4638,77 @@ pub async fn dispatch_command(
         },
         // ── Contract verify command (#522) ───────────────────────────────────
         Commands::Contract { action } => match action {
+            ContractCommands::List {
+                limit,
+                offset,
+                networks,
+                category,
+                format,
+            } => {
+                log::debug!(
+                    "Command: contract list | limit={} offset={} networks={:?} category={:?} format={}",
+                    limit,
+                    offset,
+                    networks,
+                    category,
+                    format
+                );
+                contract_list::run(
+                    &cli.api_url,
+                    contract_list::ListOptions {
+                        limit,
+                        offset,
+                        networks,
+                        category,
+                        format,
+                    },
+                )
+                .await?;
+            }
+            ContractCommands::Search {
+                query,
+                networks,
+                category,
+                tags,
+                verified_only,
+                limit,
+                offset,
+                cursor,
+                pagination,
+                all,
+                max_items,
+                max_pages,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract search | query={:?} all={} limit={} offset={:?} cursor={} pagination={:?}",
+                    query,
+                    all,
+                    limit,
+                    offset,
+                    cursor.is_some(),
+                    pagination
+                );
+                contract_search::run(
+                    &cli.api_url,
+                    search_pagination::SearchOptions {
+                        query,
+                        networks,
+                        category,
+                        tags,
+                        verified_only,
+                        limit,
+                        offset,
+                        cursor,
+                        pagination,
+                        all,
+                        max_items,
+                        max_pages,
+                        json,
+                    },
+                )
+                .await?;
+            }
             ContractCommands::Register { file, batch, json } => {
                 log::debug!(
                     "Command: contract register | file={:?} batch={} json={}",
@@ -3912,22 +4721,123 @@ pub async fn dispatch_command(
             }
             ContractCommands::Verify {
                 address,
+                wasm,
                 network,
                 json,
                 strict,
                 batch,
                 no_cache,
             } => {
+                // Local verbosity is driven by the global -v/--verbose flag.
+                let verbose = cli.verbose > 0;
+                // Exactly one of --wasm (local) or <address> (on-chain) is required.
+                match (wasm, address) {
+                    (Some(_), Some(_)) => {
+                        anyhow::bail!(
+                            "Pass either a contract <address> (on-chain verification) or \
+                             --wasm <path> (local verification), not both."
+                        );
+                    }
+                    (Some(wasm_path), None) => {
+                        log::debug!(
+                            "Command: contract verify (local) | wasm={} verbose={} json={}",
+                            wasm_path,
+                            verbose,
+                            json
+                        );
+                        contract_verify::run_local(&wasm_path, verbose, json).await?;
+                    }
+                    (None, Some(address)) => {
+                        log::debug!(
+                            "Command: contract verify | address={} network={} json={} strict={} batch={} no_cache={}",
+                            address,
+                            network,
+                            json,
+                            strict,
+                            batch,
+                            no_cache
+                        );
+                        contract_verify::run(
+                            &cli.api_url,
+                            &address,
+                            &network,
+                            json,
+                            strict,
+                            batch,
+                            no_cache,
+                        )
+                        .await?;
+                    }
+                    (None, None) => {
+                        anyhow::bail!(
+                            "Provide a contract <address> to verify on-chain, or --wasm <path> \
+                             to verify a local artifact before publishing."
+                        );
+                    }
+                }
+            }
+            ContractCommands::Interfaces { wasm, json } => {
+                log::debug!("Command: contract interfaces | wasm={} json={}", wasm, json);
+                contract_interfaces::run_local(&wasm, json).await?;
+            }
+            ContractCommands::Provenance { manifest, json } => {
                 log::debug!(
-                    "Command: contract verify | address={} network={} json={} strict={} batch={} no_cache={}",
-                    address,
-                    network,
-                    json,
-                    strict,
-                    batch,
-                    no_cache
+                    "Command: contract provenance | manifest={} json={}",
+                    manifest,
+                    json
                 );
-                contract_verify::run(&cli.api_url, &address, &network, json, strict, batch, no_cache).await?;
+                contract_provenance::run_local(&manifest, json).await?;
+            }
+            ContractCommands::VerifyBuild {
+                manifest,
+                source_dir,
+                expected_hash,
+                allow_toolchain_mismatch,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract verify-build | manifest={} source_dir={} json={}",
+                    manifest,
+                    source_dir,
+                    json
+                );
+                contract_verify_build::run(
+                    &manifest,
+                    &source_dir,
+                    &expected_hash,
+                    allow_toolchain_mismatch,
+                    json,
+                )
+                .await?;
+            }
+            ContractCommands::Compatibility {
+                from,
+                to,
+                from_network_passphrase,
+                to_network_passphrase,
+                strict,
+                fail_on,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract compatibility | from={} to={} strict={} fail_on={} json={}",
+                    from,
+                    to,
+                    strict,
+                    fail_on,
+                    json
+                );
+                let fail_on = contract_compatibility::FailOn::parse(&fail_on)?;
+                contract_compatibility::run(
+                    &from,
+                    &to,
+                    from_network_passphrase,
+                    to_network_passphrase,
+                    strict,
+                    json,
+                    fail_on,
+                )
+                .await?;
             }
             ContractCommands::Details {
                 address,
@@ -3990,14 +4900,8 @@ pub async fn dispatch_command(
                     threshold,
                     json
                 );
-                contract_risk::run(
-                    &cli.api_url,
-                    &address,
-                    &network,
-                    threshold.as_deref(),
-                    json,
-                )
-                .await?;
+                contract_risk::run(&cli.api_url, &address, &network, threshold.as_deref(), json)
+                    .await?;
             }
             ContractCommands::Stats {
                 network,
@@ -4080,14 +4984,131 @@ pub async fn dispatch_command(
                 log::debug!("Command: contract interaction | address={}", address);
                 contract_interaction::run(&cli.api_url, &address, limit, json).await?;
             }
+            ContractCommands::Dependencies {
+                address,
+                network,
+                transitive,
+                depth,
+                include_telemetry,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract dependencies | address={} network={:?} transitive={}",
+                    address,
+                    network,
+                    transitive
+                );
+                let opts = contract_dependency_graph::GraphOptions {
+                    network,
+                    depth,
+                    transitive,
+                    include_telemetry,
+                    json,
+                };
+                contract_dependency_graph::dependencies(&cli.api_url, &address, &opts).await?;
+            }
+            ContractCommands::Dependents {
+                address,
+                network,
+                transitive,
+                depth,
+                include_telemetry,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract dependents | address={} network={:?} transitive={}",
+                    address,
+                    network,
+                    transitive
+                );
+                let opts = contract_dependency_graph::GraphOptions {
+                    network,
+                    depth,
+                    transitive,
+                    include_telemetry,
+                    json,
+                };
+                contract_dependency_graph::dependents(&cli.api_url, &address, &opts).await?;
+            }
+            ContractCommands::DependencyRisk {
+                address,
+                network,
+                depth,
+                fail_on,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract dependency-risk | address={} network={:?} fail_on={:?}",
+                    address,
+                    network,
+                    fail_on
+                );
+                let threshold = fail_on
+                    .as_deref()
+                    .map(contract_dependency_graph::Severity::parse)
+                    .transpose()?;
+                let opts = contract_dependency_graph::GraphOptions {
+                    network,
+                    depth,
+                    // Risk is only meaningful over the closure: a direct-only
+                    // report would omit exactly the inherited findings this
+                    // command exists to surface.
+                    transitive: true,
+                    include_telemetry: false,
+                    json,
+                };
+                let breached =
+                    contract_dependency_graph::risk(&cli.api_url, &address, &opts, threshold)
+                        .await?;
+                if breached {
+                    std::process::exit(1);
+                }
+            }
             ContractCommands::Dependency {
                 address,
                 depth,
-                json,
+                format,
+                summary,
             } => {
-                log::debug!("Command: contract dependency | address={} depth={}", address, depth);
-                contract_dependency::run(&cli.api_url, &address, depth, json).await?;
+                log::debug!(
+                    "Command: contract dependency | address={} depth={}",
+                    address,
+                    depth
+                );
+                let fmt = crate::output_format::validate_format(&format)
+                    .unwrap_or(crate::output_format::OutputFormat::Table);
+                contract_dependency::run(&cli.api_url, &address, depth, fmt, summary).await?;
             }
+            ContractCommands::Category { action } => match action {
+                CategoryCommands::List {
+                    network,
+                    format,
+                    export,
+                } => {
+                    log::debug!(
+                        "Command: contract category list | network={:?} format={}",
+                        network,
+                        format
+                    );
+                    let fmt = crate::output_format::validate_format(&format)?;
+                    category::list(&cli.api_url, network.as_deref(), fmt, export.as_deref())
+                        .await?;
+                }
+                CategoryCommands::Stats {
+                    network,
+                    format,
+                    export,
+                } => {
+                    log::debug!(
+                        "Command: contract category stats | network={:?} format={}",
+                        network,
+                        format
+                    );
+                    let fmt = crate::output_format::validate_format(&format)?;
+                    category::stats(&cli.api_url, network.as_deref(), fmt, export.as_deref())
+                        .await?;
+                }
+            },
             ContractCommands::Update {
                 address,
                 name,
@@ -4157,6 +5178,167 @@ pub async fn dispatch_command(
                     report_output,
                 };
                 crate::import::run(opts).await?;
+            }
+            ContractCommands::Audit {
+                lockfile,
+                fix,
+                init,
+                contracts,
+                format,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract audit | lockfile={} fix={} init={} contracts={:?}",
+                    lockfile,
+                    fix,
+                    init,
+                    contracts
+                );
+                let fmt = if json { "json" } else { &format };
+                contract_audit::run(&cli.api_url, &lockfile, fix, init, &contracts, fmt).await?;
+            }
+            ContractCommands::Snapshot { id, output, json } => {
+                log::debug!("Command: contract snapshot | id={} output={}", id, output);
+                contract_snapshot::run_export(&cli.api_url, &id, &output, json).await?;
+            }
+
+            ContractCommands::VerifySnapshot {
+                file,
+                expect_key,
+                max_age_days,
+                fetch_key,
+                json,
+            } => {
+                log::debug!("Command: contract verify-snapshot | file={}", file);
+                contract_snapshot::run_verify(
+                    &cli.api_url,
+                    &file,
+                    expect_key.as_deref(),
+                    max_age_days,
+                    fetch_key,
+                    json,
+                )
+                .await?;
+            }
+
+            ContractCommands::Deprecate {
+                address,
+                reason,
+                replacement,
+                private_key,
+                migration_guide,
+                grace_period_days,
+                yes,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract deprecate | address={} reason={} replacement={:?}",
+                    address,
+                    reason,
+                    replacement
+                );
+                contract_deprecate::run(
+                    &cli.api_url,
+                    &address,
+                    &reason,
+                    replacement.as_deref(),
+                    &private_key,
+                    migration_guide.as_deref(),
+                    grace_period_days,
+                    yes,
+                    json,
+                )
+                .await?;
+            }
+            ContractCommands::Rollback {
+                address,
+                reason,
+                private_key,
+                yes,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract rollback | address={} reason={}",
+                    address,
+                    reason
+                );
+                contract_deprecate::rollback(
+                    &cli.api_url,
+                    &address,
+                    &reason,
+                    &private_key,
+                    yes,
+                    json,
+                )
+                .await?;
+            }
+            ContractCommands::Notification { action } => {
+                /// Splits a comma-separated argument, dropping empty entries so
+                /// `--alerts ""` means "none" rather than one empty alert type.
+                fn split_list(value: &str) -> Vec<String> {
+                    value
+                        .split(',')
+                        .map(|item| item.trim().to_string())
+                        .filter(|item| !item.is_empty())
+                        .collect()
+                }
+
+                match action {
+                    NotificationCommands::Subscribe {
+                        address,
+                        alerts,
+                        channels,
+                        frequency,
+                        networks,
+                        categories,
+                        target,
+                    } => {
+                        log::debug!("Command: contract notification subscribe | address={address}");
+                        notification::subscribe(
+                            &address,
+                            split_list(&alerts),
+                            split_list(&channels),
+                            &frequency,
+                            split_list(&networks),
+                            split_list(&categories),
+                            target,
+                        )?;
+                    }
+                    NotificationCommands::Unsubscribe { address } => {
+                        log::debug!(
+                            "Command: contract notification unsubscribe | address={address}"
+                        );
+                        notification::unsubscribe(&address)?;
+                    }
+                    NotificationCommands::List { address, json } => {
+                        log::debug!("Command: contract notification list");
+                        notification::list(address.as_deref(), json)?;
+                    }
+                    NotificationCommands::Configure {
+                        address,
+                        alerts,
+                        channels,
+                        frequency,
+                        networks,
+                        categories,
+                        target,
+                    } => {
+                        log::debug!("Command: contract notification configure | address={address}");
+                        notification::configure(
+                            &address,
+                            alerts.as_deref().map(split_list),
+                            channels.as_deref().map(split_list),
+                            frequency,
+                            networks.as_deref().map(split_list),
+                            categories.as_deref().map(split_list),
+                            target,
+                        )?;
+                    }
+                    NotificationCommands::Test { address } => {
+                        log::debug!("Command: contract notification test | address={address}");
+                        notification::test_notification(&address)?;
+                    }
+                }
             }
         },
         Commands::ApiKey { action } => match action {
@@ -4346,6 +5528,10 @@ pub async fn dispatch_command(
                 publisher.as_deref(),
                 dry_run,
                 json,
+                // Documented defaults: None = sequential (1 at a time), no retry pass.
+                // `batch-register` exposes no flags for these yet.
+                None,
+                false,
             )
             .await?;
         }
@@ -4539,7 +5725,10 @@ pub async fn dispatch_command(
                 log::debug!("Command: cache optimize | json={}", json);
                 cache::optimize(json)?;
             }
-            CacheCommands::Export { format, include_stale } => {
+            CacheCommands::Export {
+                format,
+                include_stale,
+            } => {
                 log::debug!(
                     "Command: cache export | format={} include_stale={}",
                     format,
@@ -4623,9 +5812,70 @@ pub async fn dispatch_command(
                 env::switch_env(&environment)?;
             }
         },
+        Commands::Publisher { action } => match action {
+            PublisherCommands::Doctor { json } => {
+                log::debug!("Command: publisher doctor | json={}", json);
+                publisher::doctor(&cli.api_url, json).await?;
+            }
+        },
+        Commands::Snapshot { action } => match action {
+            SnapshotCommands::Export { output } => {
+                log::debug!("Command: snapshot export | output={}", output);
+                snapshot::export(&cli.api_url, &output).await?;
+            }
+            SnapshotCommands::Sign { snapshot_file, key } => {
+                log::debug!(
+                    "Command: snapshot sign | file={} key={}",
+                    snapshot_file,
+                    key
+                );
+                snapshot::sign(&snapshot_file, &key).await?;
+            }
+            SnapshotCommands::Verify {
+                snapshot_file,
+                trust_key,
+            } => {
+                log::debug!(
+                    "Command: snapshot verify | file={} trust_key={}",
+                    snapshot_file,
+                    trust_key
+                );
+                snapshot::verify(&snapshot_file, &trust_key).await?;
+            }
+            SnapshotCommands::Inspect { snapshot_file } => {
+                log::debug!("Command: snapshot inspect | file={}", snapshot_file);
+                snapshot::inspect(&snapshot_file).await?;
+            }
+        },
     }
 
     Ok(())
+}
+
+/// Runs `f` on a thread with a large stack and propagates its panics unchanged.
+///
+/// Clap's tree walkers -- `try_parse_from`, `Command::debug_assert`, and the
+/// `clap_complete` generators -- recurse over the entire command tree. This CLI has 60+
+/// top-level commands nested several levels deep, which in a debug build overflows the
+/// 2 MiB stack libtest allocates per test thread. Only tests need this: the shipped
+/// binary walks the same tree on the main thread, whose default stack is 8 MiB.
+///
+/// Panics are re-raised with `resume_unwind` so assertion failures keep their original
+/// message and location instead of surfacing as a generic join error.
+#[cfg(test)]
+pub(crate) fn with_large_stack<T, F>(f: F) -> T
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    const STACK_SIZE: usize = 16 * 1024 * 1024;
+
+    std::thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(f)
+        .expect("spawn large-stack test thread")
+        .join()
+        .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
 }
 
 #[cfg(test)]
@@ -4634,7 +5884,8 @@ mod verbose_flag_tests {
     use clap::Parser;
 
     fn parse(args: &[&str]) -> Cli {
-        Cli::try_parse_from(args).expect("CLI should parse")
+        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        with_large_stack(move || Cli::try_parse_from(args).expect("CLI should parse"))
     }
 
     #[test]
@@ -4675,8 +5926,10 @@ mod verbose_flag_tests {
 
     #[test]
     fn env_export_rejects_invalid_format() {
-        let err = Cli::try_parse_from(["soroban-registry", "env", "export", "--format", "invalid"])
-            .expect_err("CLI should reject invalid export format");
+        let err = with_large_stack(|| {
+            Cli::try_parse_from(["soroban-registry", "env", "export", "--format", "invalid"])
+                .expect_err("CLI should reject invalid export format")
+        });
 
         assert!(
             err.to_string().contains("possible values"),
@@ -4700,6 +5953,117 @@ mod verbose_flag_tests {
                 action: EnvCommands::Set { show_value, .. },
             } => assert!(show_value),
             _ => panic!("expected env set command"),
+        }
+    }
+}
+
+/// Guards against the regression this module was written for: a subcommand that exists as
+/// a module and a dispatch arm but was dropped from the command tree by a bad merge, and
+/// so silently disappears from `--help`. These tests introspect the clap tree rather than
+/// string-matching help output, so they fail on the definition rather than on its
+/// rendering.
+#[cfg(test)]
+mod command_tree_tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    /// `external_subcommand` variants are deliberately hidden and carry no help text, so
+    /// they are exempt from the checks below, as is anything explicitly marked hidden.
+    fn is_exempt(cmd: &clap::Command) -> bool {
+        cmd.is_hide_set() || cmd.get_name().is_empty()
+    }
+
+    #[test]
+    fn command_tree_is_valid() {
+        // Clap's own validator: catches duplicate names, conflicting short flags, and
+        // defaults that do not parse, across the whole tree.
+        with_large_stack(|| Cli::command().debug_assert());
+    }
+
+    #[test]
+    fn every_subcommand_has_help_text() {
+        fn check(cmd: &clap::Command, path: &str, missing: &mut Vec<String>) {
+            for sub in cmd.get_subcommands() {
+                if is_exempt(sub) {
+                    continue;
+                }
+                let full = format!("{path} {}", sub.get_name());
+                // `help` is generated by clap and carries no `about` of its own.
+                if sub.get_name() != "help" && sub.get_about().is_none() {
+                    missing.push(full.clone());
+                }
+                check(sub, &full, missing);
+            }
+        }
+
+        let missing = with_large_stack(|| {
+            let cmd = Cli::command();
+            let mut missing = Vec::new();
+            check(&cmd, "soroban-registry", &mut missing);
+            missing
+        });
+
+        assert!(
+            missing.is_empty(),
+            "these subcommands render with no description in --help: {missing:#?}"
+        );
+    }
+
+    #[test]
+    fn every_top_level_command_appears_in_help() {
+        let (names, help) = with_large_stack(|| {
+            let mut cmd = Cli::command();
+            let names: Vec<String> = cmd
+                .get_subcommands()
+                .filter(|sub| !is_exempt(sub))
+                .map(|sub| sub.get_name().to_string())
+                .collect();
+            let help = cmd.render_long_help().to_string();
+            (names, help)
+        });
+
+        assert!(
+            !names.is_empty(),
+            "the command tree reported no top-level subcommands"
+        );
+
+        let missing: Vec<&String> = names
+            .iter()
+            .filter(|name| !help.contains(name.as_str()))
+            .collect();
+
+        assert!(
+            missing.is_empty(),
+            "these commands are defined but absent from --help: {missing:#?}"
+        );
+    }
+
+    /// The three variants this branch restored after merges dropped them. Named
+    /// explicitly so a future regression points straight at the cause.
+    #[test]
+    fn restored_commands_are_reachable() {
+        for args in [
+            ["contract", "category"].as_slice(),
+            ["contract", "notification"].as_slice(),
+            ["publisher", "doctor"].as_slice(),
+        ] {
+            let args = args.to_vec();
+            let rendered = args.join(" ");
+            let found = with_large_stack(move || {
+                let mut cmd = Cli::command();
+                for part in &args {
+                    match cmd.find_subcommand(part) {
+                        Some(sub) => cmd = sub.clone(),
+                        None => return false,
+                    }
+                }
+                true
+            });
+
+            assert!(
+                found,
+                "`soroban-registry {rendered}` is not in the command tree"
+            );
         }
     }
 }

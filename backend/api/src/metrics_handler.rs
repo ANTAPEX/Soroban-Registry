@@ -64,6 +64,17 @@ mod tests {
             ai_service: None,
             state_monitor: None,
             rate_limit_state: Arc::new(RateLimitState::from_env()),
+            db_breaker: Arc::new(crate::db_resilience::CircuitBreaker::new(
+                3,
+                std::time::Duration::from_secs(10),
+            )),
+            db_queue: Arc::new(crate::db_resilience::DbQueue::new(
+                10,
+                10,
+                std::time::Duration::from_secs(1),
+            )),
+            feature_flags: Arc::new(crate::feature_flags::FeatureFlagManager::new()),
+            encryption: Arc::new(crate::crypto::EncryptionService::disabled()),
         }
     }
 
@@ -106,3 +117,4 @@ mod tests {
         assert!(text.contains("# TYPE"));
     }
 }
+// TODO: resource tracking metrics

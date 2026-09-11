@@ -19,6 +19,21 @@
 //!    gone. The one remaining fallible path (attaching response headers) logs
 //!    a warning instead of crashing.
 //!
+//! ## Write-endpoint protection
+//!
+//! Mutation endpoints (POST, PUT, PATCH, DELETE) consume more server resources
+//! and can cause irreversible state changes.  They are subject to a separate,
+//! tighter quota:
+//!
+//! - Anonymous write limit: 100 req/hour  (`RATE_LIMIT_WRITE_ANON_PER_HOUR`)
+//! - Authenticated write limit: 300 req/hour (`RATE_LIMIT_WRITE_AUTH_PER_HOUR`)
+//!
+//! ## Exempt paths
+//!
+//! Health probes (`/health*`), the Prometheus metrics scrape endpoint
+//! (`/metrics`), and internal admin flows (`/api/admin/*`) bypass the rate
+//! limiter so monitoring systems and operators are never blocked.
+//!
 //! ## Horizontal scaling note
 //!
 //! This rate limiter is **per-instance**.  When running multiple API replicas
@@ -30,6 +45,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     env,
     net::{IpAddr, SocketAddr},
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
 };
 
@@ -46,10 +62,14 @@ use axum::{
 use tokio::sync::Mutex;
 
 use crate::error::ApiError;
+use crate::metrics::RATE_LIMIT_BYPASS_TOTAL;
 
 // Issue #891: 1,000 requests per minute per IP/API key by default.
 const DEFAULT_ANON_LIMIT: u32 = 1_000;
 const DEFAULT_AUTH_LIMIT: u32 = 1_000;
+// Stricter default quotas for mutation (write) endpoints.
+const DEFAULT_WRITE_ANON_LIMIT: u32 = 100;
+const DEFAULT_WRITE_AUTH_LIMIT: u32 = 300;
 const DEFAULT_WINDOW_SECONDS: u64 = 60;
 #[allow(dead_code)]
 const DEFAULT_CONTRACTS_PAGE_SIZE: u32 = 50;
@@ -59,6 +79,28 @@ const ABI_ENDPOINT_LIMIT_PER_MINUTE: u32 = 1_000;
 #[allow(dead_code)]
 const ENDPOINT_LIMIT_ENV_PREFIX: &str = "RATE_LIMIT_ENDPOINT_";
 
+// Issue #1045: Per-endpoint tighter limits for publish and search.
+// Publish (POST /api/contracts) is the most expensive write — cap it hard.
+/// Default anonymous publish limit per window (5 publishes).
+const DEFAULT_PUBLISH_ANON_LIMIT: u32 = 5;
+/// Default authenticated publish limit per window (30 publishes).
+const DEFAULT_PUBLISH_AUTH_LIMIT: u32 = 30;
+/// Default anonymous search limit per window (100 queries).
+const DEFAULT_SEARCH_ANON_LIMIT: u32 = 100;
+/// Default authenticated search limit per window (500 queries).
+const DEFAULT_SEARCH_AUTH_LIMIT: u32 = 500;
+
+// Issue #1112: dedicated bucket for the dependency-scan re-scan trigger.
+// The endpoint requires contract ownership, so anonymous callers are always
+// rejected downstream by auth — this bucket exists to stop a compromised or
+// careless authenticated client from hammering the endpoint across many
+// contracts. It complements (does not replace) the per-contract cooldown
+// enforced in `dependency_vulnerability_handlers::trigger_dependency_scan`.
+/// Default anonymous dependency-rescan limit per window.
+const DEFAULT_RESCAN_ANON_LIMIT: u32 = 5;
+/// Default authenticated dependency-rescan limit per window.
+const DEFAULT_RESCAN_AUTH_LIMIT: u32 = 20;
+
 /// Issue #727 — tiered limits over the configured window.
 const FREE_TIER_LIMIT: u32 = 1_000;
 const PRO_TIER_LIMIT: u32 = 10_000;
@@ -66,6 +108,14 @@ const BURST_WINDOW_SECONDS: u64 = 60; // 1 minute burst window
 
 /// How often the background task sweeps for expired buckets.
 const EVICTION_INTERVAL: Duration = Duration::from_secs(5 * 60); // every 5 minutes
+
+// ── Bypass spike-detection (issue #1054) ─────────────────────────────────
+/// Number of bypass requests in the current minute-window that triggers a
+/// warning alert.  Configurable via `RATE_LIMIT_BYPASS_SPIKE_THRESHOLD`
+/// (default: 100 per minute).
+const DEFAULT_BYPASS_SPIKE_THRESHOLD: u64 = 100;
+/// Duration of the rolling window used to measure bypass spike rate.
+const BYPASS_SPIKE_WINDOW: Duration = Duration::from_secs(60);
 
 const HEADER_RATE_LIMIT_LIMIT: HeaderName = HeaderName::from_static("x-ratelimit-limit");
 const HEADER_RATE_LIMIT_REMAINING: HeaderName = HeaderName::from_static("x-ratelimit-remaining");
@@ -99,11 +149,30 @@ impl ApiTier {
     }
 }
 
+/// Paths that bypass rate limiting entirely.
+///
+/// Health probes must not be rate-limited so that load balancers and
+/// orchestrators always get a response.  The Prometheus scrape endpoint
+/// `/metrics` and internal admin APIs are also exempt.
+fn is_exempt_path(path: &str) -> bool {
+    path.starts_with("/health") || path == "/metrics" || path.starts_with("/api/admin/")
+}
+
 #[derive(Clone)]
 pub struct RateLimitState {
     config: std::sync::Arc<RateLimitConfig>,
     /// Shared bucket map — protected by a *tokio* Mutex so it is async-safe.
     buckets: std::sync::Arc<Mutex<HashMap<BucketKey, BucketState>>>,
+    // ── Bypass spike detection (issue #1054) ──────────────────────────────
+    /// Total bypass events recorded in the current rolling window.
+    bypass_window_count: std::sync::Arc<AtomicU64>,
+    /// Unix-millisecond timestamp of when the current spike-detection window
+    /// started.  Protected by a `tokio::sync::Mutex` so only one task resets
+    /// it at a time.
+    bypass_window_start_ms: std::sync::Arc<AtomicU64>,
+    /// Spike threshold (bypasses per minute).  Copied from config at
+    /// construction time so the hot path avoids an indirect through the Arc.
+    bypass_spike_threshold: u64,
 }
 
 /// Snapshot of quota usage for a client key (used by the /api/quota endpoint).
@@ -124,9 +193,16 @@ impl RateLimitState {
     }
 
     fn new(config: RateLimitConfig) -> Self {
+        let bypass_spike_threshold = env_u64(
+            "RATE_LIMIT_BYPASS_SPIKE_THRESHOLD",
+            DEFAULT_BYPASS_SPIKE_THRESHOLD,
+        );
         Self {
             config: std::sync::Arc::new(config),
             buckets: std::sync::Arc::new(Mutex::new(HashMap::new())),
+            bypass_window_count: std::sync::Arc::new(AtomicU64::new(0)),
+            bypass_window_start_ms: std::sync::Arc::new(AtomicU64::new(now_unix_millis())),
+            bypass_spike_threshold,
         }
     }
 
@@ -181,6 +257,47 @@ impl RateLimitState {
                 }
             }
         });
+    }
+
+    /// Record one bypass event and emit a warning if the rate exceeds the
+    /// configured spike threshold within the rolling 60-second window.
+    ///
+    /// This is intentionally lock-free (two `AtomicU64`s) so it cannot add
+    /// latency to the hot path even under heavy trusted-client traffic.
+    pub fn record_bypass_and_check_spike(&self, token_type: &str, token_identity: &str) {
+        let now_ms = now_unix_millis();
+        let window_start = self.bypass_window_start_ms.load(Ordering::Relaxed);
+        let window_age_ms = now_ms.saturating_sub(window_start);
+
+        if window_age_ms >= BYPASS_SPIKE_WINDOW.as_millis() as u64 {
+            // Window expired — reset.  Use compare-and-swap so only one thread
+            // resets; the rest simply proceed with the counter already at 0.
+            if self
+                .bypass_window_start_ms
+                .compare_exchange(window_start, now_ms, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+            {
+                self.bypass_window_count.store(1, Ordering::Relaxed);
+                return; // Fresh window; no spike possible yet.
+            }
+        }
+
+        let count = self.bypass_window_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+        if count >= self.bypass_spike_threshold {
+            // Emit a structured warning that AlertManager / log-based alerting
+            // can pick up.  We warn every time the counter crosses the threshold
+            // (not just once) so the spike remains visible in the log stream.
+            tracing::warn!(
+                bypass_count_in_window = count,
+                threshold = self.bypass_spike_threshold,
+                token_type,
+                token_identity,
+                window_seconds = BYPASS_SPIKE_WINDOW.as_secs(),
+                "RATE_LIMIT_BYPASS_SPIKE: trusted-client bypass volume exceeds threshold; \
+                 possible token leak or misconfiguration"
+            );
+        }
     }
 
     async fn check_request(
@@ -320,6 +437,12 @@ impl RateLimitState {
         let tier = extract_api_tier(request);
         let path = request.uri().path();
         let query = request.uri().query();
+        // Mutation requests get a separate, stricter bucket.
+        let is_write = matches!(
+            request.method().as_str(),
+            "POST" | "PUT" | "PATCH" | "DELETE"
+        );
+        let bucket_suffix = if is_write { "write" } else { "read" };
 
         if is_contract_abi_endpoint(request.method(), path) {
             return (
@@ -332,17 +455,131 @@ impl RateLimitState {
             );
         }
 
+        // Issue #1045: publish endpoint — POST /api/contracts.
+        // Use a dedicated, tighter bucket so publish spam is blocked independently
+        // of the general write quota and does not penalise other write endpoints.
+        if is_publish_endpoint(request.method(), path) {
+            if let Some(token) = extract_auth_token(request) {
+                let limit = self.config.publish_auth_limit;
+                let burst = self.config.burst_limit_for_limit(limit);
+                return (
+                    limit,
+                    burst,
+                    BucketKey {
+                        client_key: format!("publish:auth:{token}"),
+                    },
+                    tier,
+                );
+            }
+            let ip = extract_client_ip(request);
+            let limit = self.config.publish_anon_limit;
+            let burst = self.config.burst_limit_for_limit(limit);
+            return (
+                limit,
+                burst,
+                BucketKey {
+                    client_key: format!("publish:anon:{ip}"),
+                },
+                tier,
+            );
+        }
+
+        // Issue #1112: dependency re-scan trigger — POST /api/contracts/:id/dependency-scan.
+        // Dedicated bucket so re-scan spam does not consume the general write quota
+        // (or crowd out unrelated writes); pairs with the per-contract cooldown
+        // enforced in the handler itself.
+        if is_dependency_scan_endpoint(request.method(), path) {
+            if let Some(token) = extract_auth_token(request) {
+                let limit = self.config.rescan_auth_limit;
+                let burst = self.config.burst_limit_for_limit(limit);
+                return (
+                    limit,
+                    burst,
+                    BucketKey {
+                        client_key: format!("rescan:auth:{token}"),
+                    },
+                    tier,
+                );
+            }
+            let ip = extract_client_ip(request);
+            let limit = self.config.rescan_anon_limit;
+            let burst = self.config.burst_limit_for_limit(limit);
+            return (
+                limit,
+                burst,
+                BucketKey {
+                    client_key: format!("rescan:anon:{ip}"),
+                },
+                tier,
+            );
+        }
+
+        // Issue #1045: search/list endpoints — GET /api/contracts, /api/v1/contracts/search, etc.
+        // Dedicated bucket prevents aggressive scraping from consuming the general read quota.
+        if is_search_endpoint(request.method(), path) {
+            if let Some(token) = extract_auth_token(request) {
+                let limit = self.config.search_auth_limit;
+                let burst = self.config.burst_limit_for_limit(limit);
+                return (
+                    limit,
+                    burst,
+                    BucketKey {
+                        client_key: format!("search:auth:{token}"),
+                    },
+                    tier,
+                );
+            }
+            let ip = extract_client_ip(request);
+            // Scale down further for large page sizes (already-existing logic).
+            let base = self.config.search_anon_limit;
+            let limit = if let Some(page_size) =
+                contracts_page_size_rate_limit(request.method(), path, query)
+            {
+                scale_limit_by_page_size(base, page_size)
+            } else {
+                base
+            };
+            let burst = self.config.burst_limit_for_limit(limit);
+            return (
+                limit,
+                burst,
+                BucketKey {
+                    client_key: format!("search:anon:{ip}"),
+                },
+                tier,
+            );
+        }
+
         if let Some(token) = extract_auth_token(request) {
             let hourly = self
                 .config
                 .per_api_key_limit(&token)
                 .unwrap_or_else(|| self.config.hourly_limit_for_tier(&tier));
-            let burst = self.config.burst_limit_for_limit(hourly);
+            let auth_hourly = if is_write {
+                self.config.write_auth_limit.min(hourly)
+            } else {
+                hourly
+            };
+            let burst = self.config.burst_limit_for_limit(auth_hourly);
             return (
-                hourly,
+                auth_hourly,
                 burst,
                 BucketKey {
-                    client_key: format!("auth:{token}"),
+                    client_key: format!("auth:{bucket_suffix}:{token}"),
+                },
+                tier,
+            );
+        }
+
+        let ip = extract_client_ip(request);
+        if is_write {
+            let limit = self.config.write_anonymous_limit;
+            let burst = self.config.burst_limit_for_limit(limit);
+            return (
+                limit,
+                burst,
+                BucketKey {
+                    client_key: format!("anon:write:{ip}"),
                 },
                 tier,
             );
@@ -362,7 +599,7 @@ impl RateLimitState {
             hourly,
             burst,
             BucketKey {
-                client_key: format!("anon:{}", extract_client_ip(request)),
+                client_key: format!("anon:read:{ip}"),
             },
             tier,
         )
@@ -372,12 +609,24 @@ impl RateLimitState {
 struct RateLimitConfig {
     anonymous_limit: u32,
     auth_limit: u32,
+    write_anonymous_limit: u32,
+    write_auth_limit: u32,
     window: Duration,
     enterprise_limit: u32,
     burst_window: Duration,
     per_api_key_limits: HashMap<String, u32>,
     trusted_client_ips: HashSet<String>,
     trusted_api_keys: HashSet<String>,
+    /// Issue #1045: per-endpoint tighter limit for POST /api/contracts (publish).
+    publish_anon_limit: u32,
+    publish_auth_limit: u32,
+    /// Issue #1045: per-endpoint tighter limit for GET /api/v1/contracts/search
+    /// and GET /api/contracts (search/list).
+    search_anon_limit: u32,
+    search_auth_limit: u32,
+    /// Issue #1112: per-endpoint limit for POST /api/contracts/:id/dependency-scan.
+    rescan_anon_limit: u32,
+    rescan_auth_limit: u32,
 }
 
 impl RateLimitConfig {
@@ -393,6 +642,10 @@ impl RateLimitConfig {
             "RATE_LIMIT_AUTH_PER_MINUTE",
             DEFAULT_AUTH_LIMIT,
         );
+        // Write limits — stricter quota for mutation endpoints.
+        let write_anonymous_limit =
+            env_u32("RATE_LIMIT_WRITE_ANON_PER_HOUR", DEFAULT_WRITE_ANON_LIMIT);
+        let write_auth_limit = env_u32("RATE_LIMIT_WRITE_AUTH_PER_HOUR", DEFAULT_WRITE_AUTH_LIMIT);
         let window_seconds = env_u64("RATE_LIMIT_WINDOW_SECONDS", DEFAULT_WINDOW_SECONDS).max(1);
         // Issue #727: enterprise tier custom limit
         let enterprise_limit = env_u32("ENTERPRISE_RATE_LIMIT_PER_WINDOW", 100_000);
@@ -400,23 +653,67 @@ impl RateLimitConfig {
         let trusted_client_ips = parse_csv_set("RATE_LIMIT_TRUSTED_IPS");
         let trusted_api_keys = parse_csv_set("RATE_LIMIT_TRUSTED_API_KEYS");
 
+        // Issue #1045: per-endpoint tighter limits for publish and search.
+        let publish_anon_limit = env_u32(
+            "RATE_LIMIT_PUBLISH_ANON_PER_WINDOW",
+            DEFAULT_PUBLISH_ANON_LIMIT,
+        );
+        let publish_auth_limit = env_u32(
+            "RATE_LIMIT_PUBLISH_AUTH_PER_WINDOW",
+            DEFAULT_PUBLISH_AUTH_LIMIT,
+        );
+        let search_anon_limit = env_u32(
+            "RATE_LIMIT_SEARCH_ANON_PER_WINDOW",
+            DEFAULT_SEARCH_ANON_LIMIT,
+        );
+        let search_auth_limit = env_u32(
+            "RATE_LIMIT_SEARCH_AUTH_PER_WINDOW",
+            DEFAULT_SEARCH_AUTH_LIMIT,
+        );
+
+        // Issue #1112: per-endpoint limit for the dependency re-scan trigger.
+        let rescan_anon_limit = env_u32(
+            "RATE_LIMIT_RESCAN_ANON_PER_WINDOW",
+            DEFAULT_RESCAN_ANON_LIMIT,
+        );
+        let rescan_auth_limit = env_u32(
+            "RATE_LIMIT_RESCAN_AUTH_PER_WINDOW",
+            DEFAULT_RESCAN_AUTH_LIMIT,
+        );
+
         tracing::info!(
             anonymous_limit,
             auth_limit,
+            write_anonymous_limit,
+            write_auth_limit,
             window_seconds,
             enterprise_limit,
-            "Rate limiter configured (issue #891/#727: per-IP/API-key quotas)"
+            publish_anon_limit,
+            publish_auth_limit,
+            search_anon_limit,
+            search_auth_limit,
+            rescan_anon_limit,
+            rescan_auth_limit,
+            "Rate limiter configured (issue #891/#727/#1045/#1112: per-IP/API-key/endpoint quotas)"
         );
 
         Self {
             anonymous_limit,
             auth_limit,
+            write_anonymous_limit,
+            write_auth_limit,
             window: Duration::from_secs(window_seconds),
             enterprise_limit,
             burst_window: Duration::from_secs(BURST_WINDOW_SECONDS),
             per_api_key_limits,
             trusted_client_ips,
             trusted_api_keys,
+            publish_anon_limit,
+            publish_auth_limit,
+            search_anon_limit,
+            search_auth_limit,
+            rescan_anon_limit,
+            rescan_auth_limit,
         }
     }
 
@@ -425,12 +722,113 @@ impl RateLimitConfig {
         Self {
             anonymous_limit,
             auth_limit,
+            write_anonymous_limit: anonymous_limit / 10,
+            write_auth_limit: auth_limit / 3,
             window,
             enterprise_limit: 100_000,
             burst_window: Duration::from_secs(BURST_WINDOW_SECONDS),
             per_api_key_limits: HashMap::new(),
             trusted_client_ips: HashSet::new(),
             trusted_api_keys: HashSet::new(),
+            publish_anon_limit: DEFAULT_PUBLISH_ANON_LIMIT,
+            publish_auth_limit: DEFAULT_PUBLISH_AUTH_LIMIT,
+            search_anon_limit: DEFAULT_SEARCH_ANON_LIMIT,
+            search_auth_limit: DEFAULT_SEARCH_AUTH_LIMIT,
+            rescan_anon_limit: DEFAULT_RESCAN_ANON_LIMIT,
+            rescan_auth_limit: DEFAULT_RESCAN_AUTH_LIMIT,
+        }
+    }
+
+    #[cfg(test)]
+    fn for_tests_with_write(
+        anonymous_limit: u32,
+        auth_limit: u32,
+        write_anonymous_limit: u32,
+        write_auth_limit: u32,
+        window: Duration,
+    ) -> Self {
+        Self {
+            anonymous_limit,
+            auth_limit,
+            write_anonymous_limit,
+            write_auth_limit,
+            window,
+            enterprise_limit: 100_000,
+            burst_window: Duration::from_secs(BURST_WINDOW_SECONDS),
+            per_api_key_limits: HashMap::new(),
+            trusted_client_ips: HashSet::new(),
+            trusted_api_keys: HashSet::new(),
+            publish_anon_limit: DEFAULT_PUBLISH_ANON_LIMIT,
+            publish_auth_limit: DEFAULT_PUBLISH_AUTH_LIMIT,
+            search_anon_limit: DEFAULT_SEARCH_ANON_LIMIT,
+            search_auth_limit: DEFAULT_SEARCH_AUTH_LIMIT,
+            rescan_anon_limit: DEFAULT_RESCAN_ANON_LIMIT,
+            rescan_auth_limit: DEFAULT_RESCAN_AUTH_LIMIT,
+        }
+    }
+
+    /// Constructor used by publish/search endpoint tests with explicit per-endpoint limits.
+    #[cfg(test)]
+    fn for_tests_with_endpoint_limits(
+        anonymous_limit: u32,
+        auth_limit: u32,
+        write_anonymous_limit: u32,
+        write_auth_limit: u32,
+        publish_anon_limit: u32,
+        publish_auth_limit: u32,
+        search_anon_limit: u32,
+        search_auth_limit: u32,
+        window: Duration,
+    ) -> Self {
+        Self {
+            anonymous_limit,
+            auth_limit,
+            write_anonymous_limit,
+            write_auth_limit,
+            window,
+            enterprise_limit: 100_000,
+            burst_window: Duration::from_secs(BURST_WINDOW_SECONDS),
+            per_api_key_limits: HashMap::new(),
+            trusted_client_ips: HashSet::new(),
+            trusted_api_keys: HashSet::new(),
+            publish_anon_limit,
+            publish_auth_limit,
+            search_anon_limit,
+            search_auth_limit,
+            rescan_anon_limit: DEFAULT_RESCAN_ANON_LIMIT,
+            rescan_auth_limit: DEFAULT_RESCAN_AUTH_LIMIT,
+        }
+    }
+
+    /// Constructor used by dependency-rescan endpoint tests with explicit limits.
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    fn for_tests_with_rescan_limits(
+        anonymous_limit: u32,
+        auth_limit: u32,
+        write_anonymous_limit: u32,
+        write_auth_limit: u32,
+        rescan_anon_limit: u32,
+        rescan_auth_limit: u32,
+        window: Duration,
+    ) -> Self {
+        Self {
+            anonymous_limit,
+            auth_limit,
+            write_anonymous_limit,
+            write_auth_limit,
+            window,
+            enterprise_limit: 100_000,
+            burst_window: Duration::from_secs(BURST_WINDOW_SECONDS),
+            per_api_key_limits: HashMap::new(),
+            trusted_client_ips: HashSet::new(),
+            trusted_api_keys: HashSet::new(),
+            publish_anon_limit: DEFAULT_PUBLISH_ANON_LIMIT,
+            publish_auth_limit: DEFAULT_PUBLISH_AUTH_LIMIT,
+            search_anon_limit: DEFAULT_SEARCH_ANON_LIMIT,
+            search_auth_limit: DEFAULT_SEARCH_AUTH_LIMIT,
+            rescan_anon_limit,
+            rescan_auth_limit,
         }
     }
 
@@ -481,6 +879,32 @@ impl RateLimitConfig {
             })
             .unwrap_or(false)
     }
+
+    /// If the request matches a trusted bypass, returns `(token_type, masked_identity)`.
+    /// `token_type` is `"trusted_ip"` or `"trusted_api_key"`.
+    /// The identity is masked — only the first 4 chars of the key are shown —
+    /// so that tokens are not written verbatim to logs.
+    fn bypass_identity<B>(&self, request: &Request<B>) -> Option<(&'static str, String)> {
+        let client_ip = extract_client_ip(request);
+        if self.trusted_client_ips.contains(&client_ip) {
+            return Some(("trusted_ip", client_ip));
+        }
+
+        extract_auth_token(request).and_then(|token| {
+            let normalized = token
+                .strip_prefix("Bearer ")
+                .or_else(|| token.strip_prefix("ApiKey "))
+                .unwrap_or(&token)
+                .trim()
+                .to_string();
+            if self.trusted_api_keys.contains(&normalized) {
+                let masked = mask_token(&normalized);
+                Some(("trusted_api_key", masked))
+            } else {
+                None
+            }
+        })
+    }
 }
 
 #[derive(Hash, Eq, PartialEq)]
@@ -507,6 +931,42 @@ pub async fn rate_limit_middleware(
     next: Next,
 ) -> Response {
     if rate_limiter.config.is_whitelisted(&request) {
+        // ── Bypass audit trail (issue #1054) ──────────────────────────────
+        // Determine the bypass identity before consuming the request.
+        let (token_type, masked_identity) = rate_limiter
+            .config
+            .bypass_identity(&request)
+            .unwrap_or_else(|| ("unknown", "unknown".to_string()));
+
+        let client_ip = extract_client_ip(&request);
+        let method = request.method().as_str().to_owned();
+        let path = request.uri().path().to_owned();
+
+        // 1. Structured audit log entry — written to the tracing stream so it
+        //    ends up in whatever log sink the operator has configured (stdout,
+        //    OTLP, etc.).  The `audit_event = "rate_limit.bypass"` field makes
+        //    it easy to filter in Grafana / CloudWatch.
+        tracing::info!(
+            audit_event = "rate_limit.bypass",
+            token_type,
+            token_identity = %masked_identity,
+            client_ip = %client_ip,
+            method = %method,
+            path = %path,
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "Trusted-client rate-limit bypass: request passed without quota check"
+        );
+
+        // 2. Prometheus counter — increment the bypass metric with the
+        //    token_type label so dashboards can track volume over time.
+        RATE_LIMIT_BYPASS_TOTAL
+            .with_label_values(&[token_type])
+            .inc();
+
+        // 3. Spike detection — warn if bypass volume exceeds threshold within
+        //    the rolling window.
+        rate_limiter.record_bypass_and_check_spike(token_type, &masked_identity);
+
         return next.run(request).await;
     }
 
@@ -517,12 +977,29 @@ pub async fn rate_limit_middleware(
         .await;
 
     if !decision.allowed {
-        let mut response =
-            ApiError::rate_limited("Too many requests. Please retry after the indicated time.")
-                .with_details(serde_json::json!({
-                    "retry_after_seconds": decision.reset_seconds
-                }))
-                .into_response();
+        let is_write = is_write_method(request.method());
+        // Observability: surface throttle events so operators can spot abuse or
+        // accidental overload of public endpoints (issue #1005).
+        tracing::warn!(
+            client_ip = %extract_client_ip(&request),
+            tier = tier.as_str(),
+            limit_type = if is_write { "write" } else { "read" },
+            limit = decision.limit,
+            remaining = decision.remaining,
+            retry_after_seconds = decision.reset_seconds,
+            "Request throttled by rate limiter"
+        );
+        let detail = if is_write {
+            "Write quota exhausted. Reduce request frequency or wait for the window to reset."
+        } else {
+            "Too many requests. Please retry after the indicated time."
+        };
+        let mut response = ApiError::rate_limited(detail)
+            .with_details(serde_json::json!({
+                "retry_after_seconds": decision.reset_seconds,
+                "limit_type": if is_write { "write" } else { "read" }
+            }))
+            .into_response();
         attach_rate_limit_headers(&mut response, &decision);
         attach_tier_header(&mut response, &tier);
         response.headers_mut().insert(
@@ -658,7 +1135,6 @@ fn parse_ip_addr(raw: &str) -> Option<IpAddr> {
         .or_else(|| raw.parse::<SocketAddr>().ok().map(|addr| addr.ip()))
 }
 
-#[allow(dead_code)]
 fn is_write_method(method: &Method) -> bool {
     matches!(
         *method,
@@ -676,6 +1152,48 @@ fn contracts_page_size_rate_limit(method: &Method, path: &str, query: Option<&st
 
 fn is_contract_abi_endpoint(method: &Method, path: &str) -> bool {
     *method == Method::GET && path.starts_with("/api/v1/contracts/") && path.ends_with("/abi")
+}
+
+/// Issue #1045: Detect contract publish endpoint — POST /api/contracts.
+///
+/// This is the most resource-intensive write: it validates the WASM hash,
+/// writes metadata, emits events, and may trigger async verification.
+/// It gets its own tighter quota so a single IP cannot spam the registry.
+fn is_publish_endpoint(method: &Method, path: &str) -> bool {
+    *method == Method::POST && path == "/api/contracts"
+}
+
+/// Issue #1045: Detect contract search / list endpoints.
+///
+/// Covers:
+///  - GET /api/contracts                        (list/search)
+///  - GET /api/v1/contracts/search              (v1 full-text search)
+///  - GET /api/contracts/suggestions            (search autocomplete)
+///  - GET /api/v1/contracts/trending            (trending list)
+///
+/// These are read-heavy but can be abused for bulk scraping; a per-endpoint
+/// quota complements (but does not replace) the general read limit.
+fn is_search_endpoint(method: &Method, path: &str) -> bool {
+    if *method != Method::GET {
+        return false;
+    }
+    path == "/api/contracts"
+        || path == "/api/v1/contracts/search"
+        || path == "/api/contracts/suggestions"
+        || path == "/api/v1/contracts/trending"
+        || path == "/contracts"
+}
+
+/// Issue #1112: Detect the dependency-scan re-scan trigger endpoint —
+/// POST /api/contracts/:id/dependency-scan.
+///
+/// The GET variant of this path (fetching the scan report) is unrestricted
+/// read traffic and falls through to the general read/search limits; only
+/// the POST (which re-runs the scan) gets a dedicated write-style bucket.
+fn is_dependency_scan_endpoint(method: &Method, path: &str) -> bool {
+    *method == Method::POST
+        && path.starts_with("/api/contracts/")
+        && path.ends_with("/dependency-scan")
 }
 
 fn extract_page_size(query: Option<&str>) -> Option<u32> {
@@ -777,13 +1295,30 @@ fn ceil_duration_to_seconds(duration: Duration) -> u64 {
     }
 }
 
+/// Returns the current time as Unix milliseconds.  Used for the lock-free
+/// bypass spike-detection window.
+fn now_unix_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+/// Masks a token so that at most the first 4 characters are logged, followed
+/// by `***`.  This prevents full token values from appearing in structured
+/// logs while still giving operators enough context to correlate bypass events.
+fn mask_token(token: &str) -> String {
+    let visible_chars = 4.min(token.len());
+    format!("{}***", &token[..visible_chars])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use axum::{
         http::{Request, StatusCode},
         middleware,
-        routing::get,
+        routing::{get, post},
         Router,
     };
     use tower::Service;
@@ -1124,5 +1659,877 @@ mod tests {
         }
 
         assert_eq!(state.buckets.lock().await.len(), 0);
+    }
+
+    // ── Write endpoint protection tests ──────────────────────────────────────
+
+    fn test_app_with_write(read_limit: u32, write_limit: u32, window: Duration) -> Router<()> {
+        let limiter = RateLimitState::new(RateLimitConfig::for_tests_with_write(
+            read_limit,
+            read_limit,
+            write_limit,
+            write_limit,
+            window,
+        ));
+
+        Router::new()
+            .route("/read", get(|| async { "read" }))
+            .route("/write", post(|| async { "written" }))
+            .route("/health", get(|| async { "ok" }))
+            .route("/health/ready", get(|| async { "ok" }))
+            .route("/metrics", get(|| async { "# metrics" }))
+            .route("/api/admin/audit-logs", get(|| async { "[]" }))
+            .layer(middleware::from_fn_with_state(
+                limiter,
+                rate_limit_middleware,
+            ))
+    }
+
+    #[tokio::test]
+    async fn write_requests_use_tighter_limit_than_reads() {
+        // Read limit: 100, write limit: 2. After 2 POSTs the third is blocked.
+        // GETs should still be allowed up to the read limit.
+        let app = test_app_with_write(100, 2, Duration::from_secs(60));
+        let ip = "198.51.100.99";
+
+        // First two POSTs succeed.
+        for _ in 0..2 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/write")
+                    .method("POST")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "first two write requests should not be rate limited"
+            );
+        }
+
+        // Third POST is blocked.
+        let limited = call(
+            &app,
+            Request::builder()
+                .uri("/write")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(limited.headers().contains_key(RETRY_AFTER));
+
+        // GET requests are still within their separate read quota.
+        let read_response = call(
+            &app,
+            Request::builder()
+                .uri("/read")
+                .method("GET")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_ne!(read_response.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn write_limit_response_body_contains_limit_type_write() {
+        let app = test_app_with_write(100, 1, Duration::from_secs(60));
+        let ip = "203.0.113.55";
+
+        // Use up the single write slot.
+        call(
+            &app,
+            Request::builder()
+                .uri("/write")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        let response = call(
+            &app,
+            Request::builder()
+                .uri("/write")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["details"]["limit_type"], "write");
+    }
+
+    #[tokio::test]
+    async fn health_endpoint_is_not_rate_limited() {
+        // Very tight limits — both read and write — to verify health bypasses.
+        let app = test_app_with_write(1, 1, Duration::from_secs(60));
+        let ip = "192.0.2.1";
+
+        // Send many requests to /health; none should be rate limited.
+        for i in 0..20 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/health")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request {i} to /health should not be rate limited"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn health_ready_endpoint_is_exempt() {
+        let app = test_app_with_write(1, 1, Duration::from_secs(60));
+        let ip = "192.0.2.2";
+
+        for i in 0..5 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/health/ready")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request {i} to /health/ready should not be rate limited"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_is_exempt() {
+        let app = test_app_with_write(1, 1, Duration::from_secs(60));
+        let ip = "192.0.2.3";
+
+        for i in 0..5 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/metrics")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request {i} to /metrics should not be rate limited"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn admin_endpoint_is_exempt_from_rate_limiting() {
+        let app = test_app_with_write(1, 1, Duration::from_secs(60));
+        let ip = "192.0.2.4";
+
+        for i in 0..5 {
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri("/api/admin/audit-logs")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "request {i} to /api/admin/* should not be rate limited"
+            );
+        }
+    }
+
+    #[test]
+    fn is_exempt_path_recognises_health_metrics_and_admin() {
+        assert!(is_exempt_path("/health"));
+        assert!(is_exempt_path("/health/live"));
+        assert!(is_exempt_path("/health/ready"));
+        assert!(is_exempt_path("/health/detailed"));
+        assert!(is_exempt_path("/metrics"));
+        assert!(is_exempt_path("/api/admin/migrations/status"));
+        assert!(!is_exempt_path("/api/contracts"));
+        assert!(!is_exempt_path("/api/contracts/verify"));
+        assert!(!is_exempt_path("/api/publishers"));
+    }
+
+    // ── Issue #1045: per-endpoint publish / search limit tests ───────────────
+
+    /// Build an app with separate per-endpoint limits for publish and search.
+    fn test_app_endpoint_limits(
+        general_read: u32,
+        general_write: u32,
+        publish_anon: u32,
+        publish_auth: u32,
+        search_anon: u32,
+        search_auth: u32,
+        window: Duration,
+    ) -> Router<()> {
+        let config = RateLimitConfig::for_tests_with_endpoint_limits(
+            general_read,
+            general_read,
+            general_write,
+            general_write,
+            publish_anon,
+            publish_auth,
+            search_anon,
+            search_auth,
+            window,
+        );
+        let limiter = RateLimitState::new(config);
+        Router::new()
+            .route("/api/contracts", get(|| async { "list" }))
+            .route("/api/contracts", post(|| async { "published" }))
+            .route("/api/v1/contracts/search", get(|| async { "search" }))
+            .route(
+                "/api/contracts/suggestions",
+                get(|| async { "suggestions" }),
+            )
+            .route("/other", post(|| async { "other write" }))
+            .layer(middleware::from_fn_with_state(
+                limiter,
+                rate_limit_middleware,
+            ))
+    }
+
+    /// Burst spam on POST /api/contracts is blocked after the publish limit,
+    /// even though the general write quota is much higher.
+    #[tokio::test]
+    async fn publish_burst_traffic_blocked_at_publish_limit() {
+        // publish_anon=2, general_write=100 — only 2 publishes allowed.
+        let app = test_app_endpoint_limits(100, 100, 2, 20, 50, 200, Duration::from_secs(60));
+        let ip = "198.51.100.10";
+
+        for i in 0..2 {
+            let resp = call(
+                &app,
+                Request::builder()
+                    .uri("/api/contracts")
+                    .method("POST")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                resp.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "publish request {i} should be allowed"
+            );
+        }
+
+        // Third publish is blocked by the publish-specific limit.
+        let limited = call(
+            &app,
+            Request::builder()
+                .uri("/api/contracts")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            limited.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "third publish from same IP must be rate-limited"
+        );
+        assert!(
+            limited.headers().contains_key(RETRY_AFTER),
+            "429 response must include Retry-After header"
+        );
+    }
+
+    /// The 429 response for a publish request carries the standard rate-limit headers.
+    #[tokio::test]
+    async fn publish_429_response_has_rate_limit_headers() {
+        let app = test_app_endpoint_limits(100, 100, 1, 10, 50, 200, Duration::from_secs(60));
+        let ip = "203.0.113.20";
+
+        // Use up the single publish slot.
+        call(
+            &app,
+            Request::builder()
+                .uri("/api/contracts")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        let resp = call(
+            &app,
+            Request::builder()
+                .uri("/api/contracts")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(
+            resp.headers().contains_key(RETRY_AFTER),
+            "Retry-After header required on publish 429"
+        );
+        assert!(resp.headers().contains_key(HEADER_RATE_LIMIT_LIMIT));
+        assert!(resp.headers().contains_key(HEADER_RATE_LIMIT_REMAINING));
+        assert!(resp.headers().contains_key(HEADER_RATE_LIMIT_RESET));
+
+        // Verify the response body is well-formed JSON.
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let val: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(val["error_code"], "RATE_LIMITED");
+    }
+
+    /// Sustained publish abuse from a single IP is blocked while a second IP
+    /// is still allowed — limits are per-IP, not global.
+    #[tokio::test]
+    async fn sustained_publish_abuse_blocked_independent_of_other_ips() {
+        let app = test_app_endpoint_limits(200, 200, 3, 30, 100, 300, Duration::from_secs(60));
+        let abuser_ip = "10.0.0.1";
+        let normal_ip = "10.0.0.2";
+
+        // Abuser exhausts the publish limit.
+        for _ in 0..3 {
+            call(
+                &app,
+                Request::builder()
+                    .uri("/api/contracts")
+                    .method("POST")
+                    .header("x-forwarded-for", abuser_ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        }
+
+        // Abuser's 4th request is blocked.
+        let blocked = call(
+            &app,
+            Request::builder()
+                .uri("/api/contracts")
+                .method("POST")
+                .header("x-forwarded-for", abuser_ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            blocked.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "abuser should be blocked after 3 publishes"
+        );
+
+        // Normal IP's first publish still succeeds.
+        let normal = call(
+            &app,
+            Request::builder()
+                .uri("/api/contracts")
+                .method("POST")
+                .header("x-forwarded-for", normal_ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_ne!(
+            normal.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "other IPs must not be affected by abuser's publish limit"
+        );
+    }
+
+    /// Search endpoints GET /api/contracts and /api/v1/contracts/search
+    /// use the dedicated search bucket, not the general read bucket.
+    /// An IP that hits the search limit is still allowed on other GET endpoints.
+    #[tokio::test]
+    async fn search_limit_is_separate_from_general_read_limit() {
+        // search_anon=2, general_read=1000 — search gets its own tight quota.
+        let app = test_app_endpoint_limits(1000, 100, 5, 30, 2, 50, Duration::from_secs(60));
+        let ip = "192.0.2.5";
+
+        // Two search requests succeed.
+        for i in 0..2 {
+            let resp = call(
+                &app,
+                Request::builder()
+                    .uri("/api/contracts")
+                    .method("GET")
+                    .header("x-forwarded-for", ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                resp.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "search request {i} should succeed"
+            );
+        }
+
+        // Third search is blocked.
+        let limited = call(
+            &app,
+            Request::builder()
+                .uri("/api/contracts")
+                .method("GET")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            limited.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "third search request should be rate-limited"
+        );
+        assert!(
+            limited.headers().contains_key(RETRY_AFTER),
+            "search 429 must include Retry-After"
+        );
+    }
+
+    /// POST /api/contracts (publish) and GET /api/contracts (search) use
+    /// separate buckets, so exhausting one does not block the other.
+    #[tokio::test]
+    async fn publish_and_search_limits_are_independent_buckets() {
+        // publish_anon=1, search_anon=1 — each gets exactly one slot.
+        let app = test_app_endpoint_limits(100, 100, 1, 10, 1, 10, Duration::from_secs(60));
+        let ip = "198.51.100.50";
+
+        // Use up the publish slot.
+        call(
+            &app,
+            Request::builder()
+                .uri("/api/contracts")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        // Publish is now blocked.
+        let publish_blocked = call(
+            &app,
+            Request::builder()
+                .uri("/api/contracts")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(publish_blocked.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        // But search (GET) is still allowed — different bucket.
+        let search_ok = call(
+            &app,
+            Request::builder()
+                .uri("/api/contracts")
+                .method("GET")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_ne!(
+            search_ok.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "search bucket must be independent of publish bucket"
+        );
+    }
+
+    /// Authenticated clients get the separate, higher publish auth limit.
+    #[tokio::test]
+    async fn authenticated_publish_uses_auth_limit_not_anon() {
+        // publish_anon=1, publish_auth=5 — auth gets 5x the anon slot.
+        let app = test_app_endpoint_limits(100, 100, 1, 5, 50, 200, Duration::from_secs(60));
+        let ip = "203.0.113.30";
+
+        // Authenticated user should be allowed up to publish_auth_limit (5).
+        for i in 0..5 {
+            let resp = call(
+                &app,
+                Request::builder()
+                    .uri("/api/contracts")
+                    .method("POST")
+                    .header("x-forwarded-for", ip)
+                    .header("authorization", "Bearer publish-token-xyz")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_ne!(
+                resp.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "authenticated publish request {i} should be allowed"
+            );
+        }
+
+        // 6th publish is blocked.
+        let blocked = call(
+            &app,
+            Request::builder()
+                .uri("/api/contracts")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .header("authorization", "Bearer publish-token-xyz")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            blocked.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "6th authenticated publish must be blocked"
+        );
+    }
+
+    /// /api/v1/contracts/search uses the same search bucket as /api/contracts (GET).
+    #[tokio::test]
+    async fn v1_search_endpoint_shares_search_bucket() {
+        // search_anon=2: one request to /api/v1/contracts/search + one to /api/contracts (GET)
+        // exhausts the quota; a second v1 search is then blocked.
+        let app = test_app_endpoint_limits(1000, 100, 5, 30, 2, 100, Duration::from_secs(60));
+        let ip = "198.51.100.60";
+
+        // First request: /api/v1/contracts/search
+        let resp1 = call(
+            &app,
+            Request::builder()
+                .uri("/api/v1/contracts/search")
+                .method("GET")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_ne!(resp1.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        // Second request: /api/contracts (list)
+        let resp2 = call(
+            &app,
+            Request::builder()
+                .uri("/api/contracts")
+                .method("GET")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_ne!(resp2.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        // Third request: quota exhausted.
+        let resp3 = call(
+            &app,
+            Request::builder()
+                .uri("/api/v1/contracts/search")
+                .method("GET")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            resp3.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "search quota should be shared across search endpoints"
+        );
+        assert!(resp3.headers().contains_key(RETRY_AFTER));
+    }
+
+    /// Unit tests for the endpoint detection helpers.
+    #[test]
+    fn is_publish_endpoint_detects_post_api_contracts_only() {
+        assert!(is_publish_endpoint(&Method::POST, "/api/contracts"));
+        // Not publish: wrong method
+        assert!(!is_publish_endpoint(&Method::GET, "/api/contracts"));
+        assert!(!is_publish_endpoint(&Method::PUT, "/api/contracts"));
+        // Not publish: wrong path
+        assert!(!is_publish_endpoint(&Method::POST, "/api/contracts/abc"));
+        assert!(!is_publish_endpoint(&Method::POST, "/api/v1/contracts"));
+    }
+
+    // ── Issue #1112: dependency-scan re-scan trigger bucket tests ────────────
+
+    #[test]
+    fn is_dependency_scan_endpoint_detects_post_only() {
+        assert!(is_dependency_scan_endpoint(
+            &Method::POST,
+            "/api/contracts/11111111-1111-1111-1111-111111111111/dependency-scan"
+        ));
+        // Not rescan: wrong method (GET fetches the report, not a trigger).
+        assert!(!is_dependency_scan_endpoint(
+            &Method::GET,
+            "/api/contracts/11111111-1111-1111-1111-111111111111/dependency-scan"
+        ));
+        // Not rescan: unrelated suffix / path.
+        assert!(!is_dependency_scan_endpoint(
+            &Method::POST,
+            "/api/contracts/11111111-1111-1111-1111-111111111111/package-dependencies"
+        ));
+        assert!(!is_dependency_scan_endpoint(&Method::POST, "/api/contracts"));
+    }
+
+    /// Build an app with separate limits for the dependency-scan bucket.
+    fn test_app_rescan_limits(
+        general_write: u32,
+        rescan_anon: u32,
+        rescan_auth: u32,
+        window: Duration,
+    ) -> Router<()> {
+        let config = RateLimitConfig::for_tests_with_rescan_limits(
+            1000,
+            1000,
+            general_write,
+            general_write,
+            rescan_anon,
+            rescan_auth,
+            window,
+        );
+        let limiter = RateLimitState::new(config);
+        Router::new()
+            .route(
+                "/api/contracts/:id/dependency-scan",
+                post(|| async { "scanned" }),
+            )
+            .route("/other", post(|| async { "other write" }))
+            .layer(middleware::from_fn_with_state(
+                limiter,
+                rate_limit_middleware,
+            ))
+    }
+
+    /// A second re-scan-trigger request from the same client is blocked at
+    /// the dedicated rescan limit, independent of the much higher general
+    /// write quota.
+    ///
+    /// Uses a single-slot (limit=1) bucket rather than a larger number:
+    /// `burst_limit_for_limit` derives a *burst* (1-minute) cap from the
+    /// configured limit as `ceil(limit * 1.2 / 60)`, which only exceeds 1
+    /// once the configured limit is over 50 — so any smaller limit is, in
+    /// practice, a single-slot bucket within a rapid-fire test regardless of
+    /// the nominal value configured. limit=1 keeps the assertion unambiguous.
+    #[tokio::test]
+    async fn rescan_burst_traffic_blocked_at_rescan_limit() {
+        let app = test_app_rescan_limits(100, 1, 10, Duration::from_secs(60));
+        let ip = "198.51.100.90";
+        let path = "/api/contracts/22222222-2222-2222-2222-222222222222/dependency-scan";
+
+        let first = call(
+            &app,
+            Request::builder()
+                .uri(path)
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_ne!(
+            first.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "first rescan request should be allowed"
+        );
+
+        let limited = call(
+            &app,
+            Request::builder()
+                .uri(path)
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            limited.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "second rescan from same client must be rate-limited"
+        );
+        assert!(
+            limited.headers().contains_key(RETRY_AFTER),
+            "429 response must include Retry-After header"
+        );
+    }
+
+    /// The authenticated rescan bucket is keyed separately from the
+    /// anonymous one: exhausting the anonymous slot for an IP does not block
+    /// an authenticated request from that same IP, and the authenticated
+    /// bucket enforces its own limit independently.
+    #[tokio::test]
+    async fn authenticated_rescan_bucket_is_independent_of_anonymous_bucket() {
+        let app = test_app_rescan_limits(100, 1, 1, Duration::from_secs(60));
+        let ip = "203.0.113.77";
+        let path = "/api/contracts/33333333-3333-3333-3333-333333333333/dependency-scan";
+
+        // Exhaust the anonymous slot.
+        call(
+            &app,
+            Request::builder()
+                .uri(path)
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let anon_blocked = call(
+            &app,
+            Request::builder()
+                .uri(path)
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(anon_blocked.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        // An authenticated request from the same IP still succeeds — separate bucket.
+        let auth_ok = call(
+            &app,
+            Request::builder()
+                .uri(path)
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .header("authorization", "Bearer rescan-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_ne!(
+            auth_ok.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "authenticated rescan must not be blocked by the anonymous bucket"
+        );
+
+        // But the authenticated bucket enforces its own limit too.
+        let auth_blocked = call(
+            &app,
+            Request::builder()
+                .uri(path)
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .header("authorization", "Bearer rescan-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            auth_blocked.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "second authenticated rescan must be blocked once its slot is used"
+        );
+    }
+
+    /// The rescan bucket is independent of the general write bucket — spamming
+    /// rescan does not block unrelated writes and vice versa.
+    #[tokio::test]
+    async fn rescan_limit_independent_of_general_write_limit() {
+        let app = test_app_rescan_limits(100, 1, 10, Duration::from_secs(60));
+        let ip = "192.0.2.66";
+        let path = "/api/contracts/44444444-4444-4444-4444-444444444444/dependency-scan";
+
+        // Exhaust the anon rescan slot.
+        call(
+            &app,
+            Request::builder()
+                .uri(path)
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let rescan_blocked = call(
+            &app,
+            Request::builder()
+                .uri(path)
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(rescan_blocked.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        // An unrelated write endpoint is still available under the general quota.
+        let other_ok = call(
+            &app,
+            Request::builder()
+                .uri("/other")
+                .method("POST")
+                .header("x-forwarded-for", ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_ne!(
+            other_ok.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "general write bucket must be independent of the rescan bucket"
+        );
+    }
+
+    #[test]
+    fn is_search_endpoint_detects_correct_paths() {
+        assert!(is_search_endpoint(&Method::GET, "/api/contracts"));
+        assert!(is_search_endpoint(&Method::GET, "/api/v1/contracts/search"));
+        assert!(is_search_endpoint(
+            &Method::GET,
+            "/api/contracts/suggestions"
+        ));
+        assert!(is_search_endpoint(
+            &Method::GET,
+            "/api/v1/contracts/trending"
+        ));
+        // Not search: wrong method
+        assert!(!is_search_endpoint(&Method::POST, "/api/contracts"));
+        assert!(!is_search_endpoint(
+            &Method::DELETE,
+            "/api/v1/contracts/search"
+        ));
+        // Not search: unrelated paths
+        assert!(!is_search_endpoint(&Method::GET, "/api/contracts/abc"));
+        assert!(!is_search_endpoint(&Method::GET, "/api/publishers"));
     }
 }

@@ -34,7 +34,12 @@ impl From<CompletionShell> for Shell {
 /// Generate a completion script for the given shell.
 pub fn generate_script(shell: CompletionShell) {
     let mut cmd = crate::Cli::command();
-    generate(Shell::from(shell), &mut cmd, "soroban-registry", &mut io::stdout());
+    generate(
+        Shell::from(shell),
+        &mut cmd,
+        "soroban-registry",
+        &mut io::stdout(),
+    );
 }
 
 pub fn install_hint(shell: CompletionShell) -> &'static str {
@@ -64,12 +69,20 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
 
+    /// Generates a completion script off the main test thread; see
+    /// [`crate::with_large_stack`] for why the extra stack is required.
+    fn generate_on_large_stack(shell: Shell) -> String {
+        crate::with_large_stack(move || {
+            let mut cmd = crate::Cli::command();
+            let mut buf = Vec::new();
+            generate(shell, &mut cmd, "soroban-registry", &mut buf);
+            String::from_utf8(buf).expect("utf8")
+        })
+    }
+
     #[test]
     fn generated_bash_contains_root_command() {
-        let mut cmd = crate::Cli::command();
-        let mut buf = Vec::new();
-        generate(Shell::Bash, &mut cmd, "soroban-registry", &mut buf);
-        let script = String::from_utf8(buf).expect("utf8");
+        let script = generate_on_large_stack(Shell::Bash);
         assert!(script.contains("soroban-registry"));
         assert!(script.contains("search"));
         assert!(script.contains("compare"));
@@ -78,10 +91,7 @@ mod tests {
 
     #[test]
     fn generated_zsh_contains_contract_subcommands() {
-        let mut cmd = crate::Cli::command();
-        let mut buf = Vec::new();
-        generate(Shell::Zsh, &mut cmd, "soroban-registry", &mut buf);
-        let script = String::from_utf8(buf).expect("utf8");
+        let script = generate_on_large_stack(Shell::Zsh);
         assert!(script.contains("contract"));
     }
 }

@@ -64,7 +64,10 @@ pub async fn run_batch_import(
     let files = collect_import_files(input_dir)?;
 
     if files.is_empty() {
-        println!("{}", "No import files found (supported: .json, .csv, .tar.gz)".yellow());
+        println!(
+            "{}",
+            "No import files found (supported: .json, .csv, .tar.gz)".yellow()
+        );
         return Ok(());
     }
 
@@ -77,12 +80,7 @@ pub async fn run_batch_import(
             .unwrap_or("unknown");
 
         if !json_out {
-            print!(
-                "  [{}/{}] {} ... ",
-                idx + 1,
-                files.len(),
-                file_name.bold()
-            );
+            print!("  [{}/{}] {} ... ", idx + 1, files.len(), file_name.bold());
         }
 
         let opts = import::ImportOptions {
@@ -98,8 +96,7 @@ pub async fn run_batch_import(
             atomic,
             report_output: None,
         };
-        match import::run(opts).await
-        {
+        match import::run(opts).await {
             Ok(_) => {
                 results.push(ImportResult {
                     file: file_name.to_string(),
@@ -177,12 +174,15 @@ fn collect_import_files(input_dir: &str) -> Result<Vec<String>> {
         let path = entry.path();
 
         if path.is_file() {
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-            if matches!(ext, "json" | "csv") || path.file_name().and_then(|n| n.to_str()).map(|n| n.ends_with(".tar.gz")).unwrap_or(false) {
+            if matches!(ext, "json" | "csv")
+                || path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.ends_with(".tar.gz"))
+                    .unwrap_or(false)
+            {
                 files.push(path.to_string_lossy().to_string());
             }
         }

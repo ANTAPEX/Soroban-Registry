@@ -284,7 +284,10 @@ mod similar_tests {
     #[test]
     fn test_cache_ttl_is_6_hours() {
         let ttl_secs: u64 = 6 * 3_600;
-        assert_eq!(ttl_secs, 21_600, "similar contracts cache TTL must be 6 hours");
+        assert_eq!(
+            ttl_secs, 21_600,
+            "similar contracts cache TTL must be 6 hours"
+        );
     }
 
     #[test]
@@ -343,11 +346,7 @@ mod trending_tests {
         let invalid_windows = ["1d", "90d", "week", ""];
         for w in &invalid_windows {
             let known = ["24h", "7d", "30d"];
-            assert!(
-                !known.contains(w),
-                "'{}' should not be a valid window",
-                w
-            );
+            assert!(!known.contains(w), "'{}' should not be a valid window", w);
         }
     }
 

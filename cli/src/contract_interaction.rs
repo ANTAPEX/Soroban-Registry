@@ -41,8 +41,15 @@ pub async fn run(api_url: &str, address: &str, limit: u32, json: bool) -> Result
     println!("{} {}", "Interactions for".bold(), address.cyan());
 
     if let Some(total) = value.get("totalCalls").and_then(Value::as_u64) {
-        let success = value.get("successRate").and_then(Value::as_f64).unwrap_or(0.0);
-        println!("  total calls: {}   success rate: {:.1}%", total, success * 100.0);
+        let success = value
+            .get("successRate")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        println!(
+            "  total calls: {}   success rate: {:.1}%",
+            total,
+            success * 100.0
+        );
     }
 
     if let Some(recent) = value.get("recent").and_then(Value::as_array) {
@@ -53,14 +60,22 @@ pub async fn run(api_url: &str, address: &str, limit: u32, json: bool) -> Result
             let when = it.get("timestamp").and_then(Value::as_str).unwrap_or("");
             let ok = it.get("success").and_then(Value::as_bool).unwrap_or(true);
             let mark = if ok { "✓".green() } else { "✗".red() };
-            println!("    {} {}  {}  {}", mark, func, caller.dimmed(), when.dimmed());
+            println!(
+                "    {} {}  {}  {}",
+                mark,
+                func,
+                caller.dimmed(),
+                when.dimmed()
+            );
         }
     }
 
     if let Some(dist) = value.get("functionDistribution").and_then(Value::as_object) {
         println!("\n  {}", "Function call distribution:".bold());
-        let mut rows: Vec<(&String, u64)> =
-            dist.iter().map(|(k, v)| (k, v.as_u64().unwrap_or(0))).collect();
+        let mut rows: Vec<(&String, u64)> = dist
+            .iter()
+            .map(|(k, v)| (k, v.as_u64().unwrap_or(0)))
+            .collect();
         rows.sort_by(|a, b| b.1.cmp(&a.1));
         for (func, count) in rows {
             println!("    {:>6}  {}", count, func);

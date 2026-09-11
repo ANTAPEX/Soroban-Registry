@@ -373,7 +373,7 @@ pub async fn register_key(
 
     let key = sqlx::query_as::<_, SigningKey>(
         r#"
-        INSERT INTO contract_signing_keys
+        INSERT INTO signing_keys
             (key_id, owner, algorithm, public_key, parent_key_id, cert_signature,
              is_root, not_before, not_after, status, metadata)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10)
@@ -449,7 +449,7 @@ pub async fn rotate_key(
 
     let new_key = sqlx::query_as::<_, SigningKey>(
         r#"
-        INSERT INTO contract_signing_keys
+        INSERT INTO signing_keys
             (key_id, owner, algorithm, public_key, parent_key_id, cert_signature,
              is_root, not_before, not_after, status, metadata)
         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, 'active', $9)
@@ -471,7 +471,7 @@ pub async fn rotate_key(
     .map_err(|e| ApiError::internal_error("ROTATE_INSERT_ERROR", e.to_string()))?;
 
     sqlx::query(
-        "UPDATE contract_signing_keys SET status = 'rotated', rotated_to = $1 WHERE key_id = $2",
+        "UPDATE signing_keys SET status = 'rotated', rotated_to = $1 WHERE key_id = $2",
     )
     .bind(&new_key_id)
     .bind(&old_key_id)
@@ -507,7 +507,7 @@ pub async fn revoke_key(
 
     let revocation = sqlx::query_as::<_, Revocation>(
         r#"
-        INSERT INTO contract_signature_revocations (key_id, reason, revoked_by)
+        INSERT INTO signature_revocations (key_id, reason, revoked_by)
         VALUES ($1, $2, $3)
         ON CONFLICT (key_id) WHERE key_id IS NOT NULL
         DO UPDATE SET reason = EXCLUDED.reason, revoked_by = EXCLUDED.revoked_by, revoked_at = NOW()
@@ -521,7 +521,7 @@ pub async fn revoke_key(
     .await
     .map_err(|e| ApiError::internal_error("REVOKE_ERROR", e.to_string()))?;
 
-    sqlx::query("UPDATE contract_signing_keys SET status = 'revoked' WHERE key_id = $1")
+    sqlx::query("UPDATE signing_keys SET status = 'revoked' WHERE key_id = $1")
         .bind(&key_id)
         .execute(&state.db)
         .await
@@ -538,7 +538,7 @@ pub async fn list_revocations(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Revocation>>, ApiError> {
     let rows = sqlx::query_as::<_, Revocation>(
-        "SELECT * FROM contract_signature_revocations ORDER BY revoked_at DESC LIMIT 500",
+        "SELECT * FROM signature_revocations ORDER BY revoked_at DESC LIMIT 500",
     )
     .fetch_all(&state.db)
     .await
@@ -738,7 +738,7 @@ fn validate_public_key(alg: SignatureAlgorithm, pk: &[u8]) -> Result<(), ApiErro
 }
 
 async fn load_key(state: &AppState, key_id: &str) -> Result<Option<SigningKey>, ApiError> {
-    sqlx::query_as::<_, SigningKey>("SELECT * FROM contract_signing_keys WHERE key_id = $1")
+    sqlx::query_as::<_, SigningKey>("SELECT * FROM signing_keys WHERE key_id = $1")
         .bind(key_id)
         .fetch_optional(&state.db)
         .await
@@ -747,7 +747,7 @@ async fn load_key(state: &AppState, key_id: &str) -> Result<Option<SigningKey>, 
 
 async fn is_revoked(state: &AppState, key_id: &str) -> Result<bool, ApiError> {
     let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM contract_signature_revocations WHERE key_id = $1")
+        sqlx::query_scalar("SELECT COUNT(*) FROM signature_revocations WHERE key_id = $1")
             .bind(key_id)
             .fetch_one(&state.db)
             .await

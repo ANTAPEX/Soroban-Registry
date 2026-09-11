@@ -388,8 +388,15 @@ mod tests {
             relevance_score: None,
             organization_id: None,
             visibility: shared::VisibilityType::Public,
+            artifact_scan_status: "passed".into(),
+            artifact_scan_findings: serde_json::json!([]),
             current_version: None,
             usage_count: 0,
+            deprecated_at: None,
+            deprecation_reason: None,
+            replacement_contract_id: None,
+            is_deprecated: false,
+            deprecation_status: shared::DeprecationStatus::Active,
         }
     }
 

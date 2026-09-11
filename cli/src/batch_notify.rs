@@ -74,7 +74,10 @@ pub async fn run_batch_notify(
 
     let client = reqwest::Client::new();
     let response = client
-        .post(format!("{}/api/notifications/batch", api_url.trim_end_matches('/')))
+        .post(format!(
+            "{}/api/notifications/batch",
+            api_url.trim_end_matches('/')
+        ))
         .json(&payload)
         .send()
         .await
@@ -86,10 +89,7 @@ pub async fn run_batch_notify(
         anyhow::bail!("Batch notification failed with HTTP {}: {}", status, body);
     }
 
-    let accepted = body
-        .get("accepted")
-        .and_then(Value::as_u64)
-        .unwrap_or(0) as usize;
+    let accepted = body.get("accepted").and_then(Value::as_u64).unwrap_or(0) as usize;
     let failed = body.get("failed").and_then(Value::as_u64).unwrap_or(0) as usize;
     let recipients = body
         .get("recipients")
@@ -119,7 +119,10 @@ pub async fn run_batch_notify(
 
 fn validate_message_type(message_type: &str) -> Result<()> {
     anyhow::ensure!(
-        matches!(message_type, "info" | "warning" | "critical" | "action-required"),
+        matches!(
+            message_type,
+            "info" | "warning" | "critical" | "action-required"
+        ),
         "Invalid message type '{}'. Use info, warning, critical, or action-required",
         message_type
     );
@@ -140,10 +143,7 @@ fn normalize_channels(channels: Vec<String>) -> Result<Vec<String>> {
             "email" => "email",
             "in-app" | "inapp" => "in-app",
             "webhook" => "webhook",
-            other => anyhow::bail!(
-                "Invalid channel '{}'. Use email, in-app, or webhook",
-                other
-            ),
+            other => anyhow::bail!("Invalid channel '{}'. Use email, in-app, or webhook", other),
         };
         normalized.insert(mapped.to_string());
     }
@@ -237,7 +237,10 @@ fn parse_recipient_json(value: &Value) -> Result<Vec<NotificationRecipient>> {
     Ok(dedup_recipients(recipients))
 }
 
-async fn fetch_recipients_by_filter(api_url: &str, filter: &str) -> Result<Vec<NotificationRecipient>> {
+async fn fetch_recipients_by_filter(
+    api_url: &str,
+    filter: &str,
+) -> Result<Vec<NotificationRecipient>> {
     let mut url = Url::parse(&format!("{}/api/contracts", api_url.trim_end_matches('/')))
         .context("Invalid registry API URL")?;
     {

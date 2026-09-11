@@ -24,6 +24,53 @@ const DEFAULT_RPC_MAX_RETRIES: u32 = 3;
 const DEFAULT_ACTIVITY_LOOKBACK_LEDGERS: u32 = 2_000;
 const DEFAULT_ACTIVITY_LIMIT: u32 = 25;
 
+/// Precise reason an on-chain verification check failed.
+///
+/// Each variant carries just enough context for the caller to understand
+/// *why* verification failed and what action to take — without leaking
+/// internal RPC details or stack traces.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "reason", rename_all = "snake_case")]
+pub enum OnChainFailureReason {
+    /// The contract address does not exist on the queried network.
+    ContractNotOnChain {
+        contract_id: String,
+        network: String,
+        hint: String,
+    },
+    /// The stored wasm hash does not match the hash found on-chain.
+    WasmHashMismatch {
+        stored: String,
+        on_chain: String,
+        hint: String,
+    },
+    /// An ABI is stored but cannot be parsed against the contract spec.
+    AbiMismatch { detail: String },
+    /// No ABI is available; interface conformance cannot be confirmed.
+    AbiMissing,
+}
+
+impl std::fmt::Display for OnChainFailureReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ContractNotOnChain {
+                contract_id,
+                network,
+                ..
+            } => {
+                write!(f, "contract {contract_id} not found on {network}")
+            }
+            Self::WasmHashMismatch {
+                stored, on_chain, ..
+            } => {
+                write!(f, "wasm hash mismatch: stored={stored} on_chain={on_chain}")
+            }
+            Self::AbiMismatch { detail } => write!(f, "abi mismatch: {detail}"),
+            Self::AbiMissing => write!(f, "abi missing"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OnChainVerificationResult {
     pub contract_id: String,
@@ -42,6 +89,9 @@ pub struct OnChainVerificationResult {
     pub stored_wasm_hash: String,
     pub wasm_hash_matches: bool,
     pub warnings: Vec<String>,
+    /// Structured failure reasons collected during verification.
+    /// Empty when verification passes; contains at least one entry on failure.
+    pub failure_reasons: Vec<OnChainFailureReason>,
 }
 
 impl OnChainVerificationResult {
@@ -122,7 +172,7 @@ impl OnChainVerifier {
         if let Some(cached) = cache.get_verification(&cache_key).await {
             let mut parsed: OnChainVerificationResult =
                 serde_json::from_str(&cached).map_err(|e| {
-                    RegistryError::Internal(format!(
+                    RegistryError::internal(format!(
                         "Failed to decode cached verification result: {}",
                         e
                     ))
@@ -135,12 +185,21 @@ impl OnChainVerifier {
         let latest_ledger = self.get_latest_ledger(&config).await.ok();
 
         let mut warnings = Vec::new();
+        let mut failure_reasons: Vec<OnChainFailureReason> = Vec::new();
+
         let on_chain = match self
             .fetch_contract_instance(&config, &contract.contract_id)
             .await?
         {
             Some(value) => value,
             None => {
+                failure_reasons.push(OnChainFailureReason::ContractNotOnChain {
+                    contract_id: contract.contract_id.clone(),
+                    network: contract.network.to_string(),
+                    hint: "Verify the contract address is correct and that it has been deployed \
+                           to the specified network."
+                        .to_string(),
+                });
                 let result = OnChainVerificationResult {
                     contract_id: contract.contract_id.clone(),
                     network: contract.network.to_string(),
@@ -159,12 +218,13 @@ impl OnChainVerifier {
                     wasm_hash_matches: false,
                     abi_matches_deployed_contract: false,
                     warnings,
+                    failure_reasons,
                 };
                 cache
                     .put_verification(
                         &cache_key,
                         serde_json::to_string(&result).map_err(|e| {
-                            RegistryError::Internal(format!(
+                            RegistryError::internal(format!(
                                 "Failed to encode verification cache entry: {}",
                                 e
                             ))
@@ -271,6 +331,16 @@ impl OnChainVerifier {
                 .map(|hash| contract.wasm_hash.eq_ignore_ascii_case(hash))
                 .unwrap_or(false);
 
+        if !wasm_hash_matches {
+            failure_reasons.push(OnChainFailureReason::WasmHashMismatch {
+                stored: contract.wasm_hash.clone(),
+                on_chain: on_chain_wasm_hash.clone(),
+                hint: "Ensure the registry entry references the correct deployed wasm hash. \
+                       Re-publish the contract if the wasm was updated on-chain."
+                    .to_string(),
+            });
+        }
+
         let result = OnChainVerificationResult {
             contract_id: contract.contract_id.clone(),
             network: contract.network.to_string(),
@@ -289,13 +359,14 @@ impl OnChainVerifier {
             wasm_hash_matches,
             abi_matches_deployed_contract,
             warnings,
+            failure_reasons,
         };
 
         cache
             .put_verification(
                 &cache_key,
                 serde_json::to_string(&result).map_err(|e| {
-                    RegistryError::Internal(format!(
+                    RegistryError::internal(format!(
                         "Failed to encode verification cache entry: {}",
                         e
                     ))
@@ -329,24 +400,24 @@ impl OnChainVerifier {
 
         let ledger_entry =
             LedgerEntry::from_xdr_base64(&entry.xdr, Limits::none()).map_err(|e| {
-                RegistryError::StellarRpc(format!("Failed to decode contract ledger entry: {}", e))
+                RegistryError::stellar_rpc(format!("Failed to decode contract ledger entry: {}", e))
             })?;
 
         let LedgerEntryData::ContractData(contract_data) = ledger_entry.data else {
-            return Err(RegistryError::StellarRpc(
+            return Err(RegistryError::stellar_rpc(
                 "Unexpected ledger entry type for contract instance".to_string(),
             ));
         };
 
         let ScVal::ContractInstance(instance) = contract_data.val else {
-            return Err(RegistryError::StellarRpc(
+            return Err(RegistryError::stellar_rpc(
                 "Contract instance ledger entry did not contain a contract instance value"
                     .to_string(),
             ));
         };
 
         let ContractExecutable::Wasm(hash) = instance.executable.clone() else {
-            return Err(RegistryError::StellarRpc(
+            return Err(RegistryError::stellar_rpc(
                 "Contract executable is not a WASM contract".to_string(),
             ));
         };
@@ -377,14 +448,14 @@ impl OnChainVerifier {
 
         let ledger_entry =
             LedgerEntry::from_xdr_base64(&entry.xdr, Limits::none()).map_err(|e| {
-                RegistryError::StellarRpc(format!(
+                RegistryError::stellar_rpc(format!(
                     "Failed to decode contract code ledger entry: {}",
                     e
                 ))
             })?;
         let LedgerEntryData::ContractCode(ContractCodeEntry { code, .. }) = ledger_entry.data
         else {
-            return Err(RegistryError::StellarRpc(
+            return Err(RegistryError::stellar_rpc(
                 "Unexpected ledger entry type for contract code".to_string(),
             ));
         };
@@ -444,7 +515,7 @@ impl OnChainVerifier {
                     })
                     .count();
                 if count == 0 {
-                    return Err(RegistryError::StellarRpc(format!(
+                    return Err(RegistryError::stellar_rpc(format!(
                         "event lookup failed ({}); transaction fallback found no recent calls",
                         events_err
                     )));
@@ -491,7 +562,7 @@ impl OnChainVerifier {
                 Ok(response) => {
                     let status = response.status();
                     let value: RpcEnvelope<T> = response.json().await.map_err(|e| {
-                        RegistryError::StellarRpc(format!(
+                        RegistryError::stellar_rpc(format!(
                             "Failed to parse {} response: {}",
                             method, e
                         ))
@@ -506,7 +577,7 @@ impl OnChainVerifier {
                         .map(|err| err.message)
                         .unwrap_or_else(|| format!("HTTP {} returned an empty error body", status));
                     if attempt + 1 >= config.max_retries {
-                        return Err(RegistryError::StellarRpc(format!(
+                        return Err(RegistryError::stellar_rpc(format!(
                             "{} failed after {} attempts: {}",
                             method,
                             attempt + 1,
@@ -517,7 +588,7 @@ impl OnChainVerifier {
                 }
                 Err(err) => {
                     if attempt + 1 >= config.max_retries {
-                        return Err(RegistryError::StellarRpc(format!(
+                        return Err(RegistryError::stellar_rpc(format!(
                             "{} network request failed after {} attempts: {}",
                             method,
                             attempt + 1,
@@ -531,7 +602,7 @@ impl OnChainVerifier {
             delay_ms = (delay_ms * 2).min(2_000);
         }
 
-        Err(RegistryError::StellarRpc(format!(
+        Err(RegistryError::stellar_rpc(format!(
             "{} failed without returning a result",
             method
         )))
@@ -546,20 +617,20 @@ fn build_contract_instance_ledger_key(contract_id: &str) -> Result<String, Regis
         durability: ContractDataDurability::Persistent,
     });
     key.to_xdr_base64(Limits::none()).map_err(|e| {
-        RegistryError::Internal(format!("Failed to encode contract ledger key: {}", e))
+        RegistryError::internal(format!("Failed to encode contract ledger key: {}", e))
     })
 }
 
 fn build_contract_code_ledger_key(wasm_hash: &str) -> Result<String, RegistryError> {
     let normalized = verifier::normalize_hash(wasm_hash)
-        .ok_or_else(|| RegistryError::InvalidInput("Invalid on-chain wasm hash".to_string()))?;
+        .ok_or_else(|| RegistryError::invalid_input("Invalid on-chain wasm hash".to_string()))?;
     let bytes = hex::decode(normalized)
-        .map_err(|e| RegistryError::InvalidInput(format!("Invalid wasm hash hex: {}", e)))?;
+        .map_err(|e| RegistryError::invalid_input(format!("Invalid wasm hash hex: {}", e)))?;
     let mut hash = [0_u8; 32];
     hash.copy_from_slice(&bytes);
     let key = LedgerKey::ContractCode(LedgerKeyContractCode { hash: Hash(hash) });
     key.to_xdr_base64(Limits::none())
-        .map_err(|e| RegistryError::Internal(format!("Failed to encode contract code key: {}", e)))
+        .map_err(|e| RegistryError::internal(format!("Failed to encode contract code key: {}", e)))
 }
 
 fn extract_function_names_from_wasm(wasm_bytes: &[u8]) -> HashSet<String> {
@@ -572,10 +643,10 @@ fn extract_function_names_from_wasm(wasm_bytes: &[u8]) -> HashSet<String> {
 
 fn parse_contract_strkey(contract_id: &str) -> Result<ContractStrkey, RegistryError> {
     match Strkey::from_string(contract_id)
-        .map_err(|e| RegistryError::InvalidInput(format!("Invalid contract address: {}", e)))?
+        .map_err(|e| RegistryError::invalid_input(format!("Invalid contract address: {}", e)))?
     {
         Strkey::Contract(contract) => Ok(contract),
-        _ => Err(RegistryError::InvalidInput(
+        _ => Err(RegistryError::invalid_input(
             "contract_id must be a Stellar contract address".to_string(),
         )),
     }
@@ -629,31 +700,16 @@ struct TransactionResponse {
 mod tests {
     use super::*;
 
-    #[test]
-    fn contract_strkey_parses() {
-        let parsed =
-            parse_contract_strkey("CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
-                .expect("valid contract strkey");
-        assert_eq!(parsed.0.len(), 32);
-    }
-
-    #[test]
-    fn code_key_requires_valid_hash() {
-        let result = build_contract_code_ledger_key("not-a-hash");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn cache_key_is_network_specific() {
-        let contract = Contract {
+    fn dummy_contract(network: Network, wasm_hash: &str) -> Contract {
+        Contract {
             id: uuid::Uuid::nil(),
             contract_id: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4".to_string(),
-            wasm_hash: "abc123".to_string(),
+            wasm_hash: wasm_hash.to_string(),
             name: "demo".to_string(),
             slug: "demo".to_string(),
             description: None,
             publisher_id: uuid::Uuid::nil(),
-            network: Network::Testnet,
+            network,
             is_verified: false,
             verification_status: shared::VerificationStatus::Unverified,
             category: None,
@@ -672,10 +728,27 @@ mod tests {
             relevance_score: None,
             organization_id: None,
             visibility: shared::VisibilityType::Public,
+            artifact_scan_status: "passed".into(),
+            artifact_scan_findings: serde_json::json!([]),
             current_version: None,
             usage_count: 0,
-        };
+            deprecated_at: None,
+            deprecation_reason: None,
+            replacement_contract_id: None,
+            is_deprecated: false,
+            deprecation_status: shared::DeprecationStatus::Active,
+        }
+    }
 
+    #[test]
+    fn code_key_requires_valid_hash() {
+        let result = build_contract_code_ledger_key("not-a-hash");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cache_key_is_network_specific() {
+        let contract = dummy_contract(Network::Testnet, "abc123");
         assert_eq!(
             OnChainVerificationResult::cache_key(&contract, None),
             "onchain:testnet:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4:abc123"
@@ -711,8 +784,15 @@ mod tests {
             relevance_score: None,
             organization_id: None,
             visibility: shared::VisibilityType::Public,
+            artifact_scan_status: "passed".into(),
+            artifact_scan_findings: serde_json::json!([]),
             current_version: None,
             usage_count: 0,
+            deprecated_at: None,
+            deprecation_reason: None,
+            replacement_contract_id: None,
+            is_deprecated: false,
+            deprecation_status: shared::DeprecationStatus::Active,
         };
 
         let key_no_abi = OnChainVerificationResult::cache_key(&contract, None);

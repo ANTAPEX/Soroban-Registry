@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
@@ -96,10 +96,22 @@ pub fn run_batch_audit(
                     path: path.clone(),
                     risk_level,
                     total_findings: findings.len(),
-                    critical: findings.iter().filter(|f| f.severity == Severity::Critical).count(),
-                    high: findings.iter().filter(|f| f.severity == Severity::High).count(),
-                    medium: findings.iter().filter(|f| f.severity == Severity::Medium).count(),
-                    low: findings.iter().filter(|f| f.severity == Severity::Low).count(),
+                    critical: findings
+                        .iter()
+                        .filter(|f| f.severity == Severity::Critical)
+                        .count(),
+                    high: findings
+                        .iter()
+                        .filter(|f| f.severity == Severity::High)
+                        .count(),
+                    medium: findings
+                        .iter()
+                        .filter(|f| f.severity == Severity::Medium)
+                        .count(),
+                    low: findings
+                        .iter()
+                        .filter(|f| f.severity == Severity::Low)
+                        .count(),
                     recommendations,
                 };
 
@@ -198,18 +210,34 @@ fn run_audit_for_contract(contract_path: &str, profile: &str) -> Result<AuditRep
     let mut report = audit_command::run_to_report(contract_path)?;
 
     if profile == "basic" {
-        report.findings.retain(|f| {
-            f.severity == Severity::Critical || f.severity == Severity::High
-        });
+        report
+            .findings
+            .retain(|f| f.severity == Severity::Critical || f.severity == Severity::High);
     } else if profile == "comprehensive" {
         // Keep all findings (already included)
     }
 
     report.summary.total_findings = report.findings.len();
-    report.summary.critical = report.findings.iter().filter(|f| f.severity == Severity::Critical).count();
-    report.summary.high = report.findings.iter().filter(|f| f.severity == Severity::High).count();
-    report.summary.medium = report.findings.iter().filter(|f| f.severity == Severity::Medium).count();
-    report.summary.low = report.findings.iter().filter(|f| f.severity == Severity::Low).count();
+    report.summary.critical = report
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Critical)
+        .count();
+    report.summary.high = report
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::High)
+        .count();
+    report.summary.medium = report
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Medium)
+        .count();
+    report.summary.low = report
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Low)
+        .count();
 
     Ok(report)
 }
@@ -233,8 +261,7 @@ fn generate_recommendations(findings: &[AuditFinding], _profile: &str) -> Vec<St
 
     if findings.iter().any(|f| f.title.contains("panic")) {
         recommendations.push(
-            "Replace panic! paths with explicit error handling using Result types"
-                .to_string(),
+            "Replace panic! paths with explicit error handling using Result types".to_string(),
         );
     }
 
@@ -242,15 +269,14 @@ fn generate_recommendations(findings: &[AuditFinding], _profile: &str) -> Vec<St
         recommendations.push("Review and formally verify all unsafe code blocks".to_string());
     }
 
-    if findings
-        .iter()
-        .any(|f| f.title.contains("Authorization"))
-    {
-        recommendations.push("Ensure all state-modifying methods enforce authorization checks".to_string());
+    if findings.iter().any(|f| f.title.contains("Authorization")) {
+        recommendations
+            .push("Ensure all state-modifying methods enforce authorization checks".to_string());
     }
 
     if findings.iter().any(|f| f.title.contains("Arithmetic")) {
-        recommendations.push("Use checked arithmetic or add explicit overflow assumptions".to_string());
+        recommendations
+            .push("Use checked arithmetic or add explicit overflow assumptions".to_string());
     }
 
     if findings.iter().any(|f| f.title.contains("Wildcard")) {
@@ -260,7 +286,11 @@ fn generate_recommendations(findings: &[AuditFinding], _profile: &str) -> Vec<St
     recommendations
 }
 
-fn write_per_contract_reports(summary: &BatchAuditSummary, output_dir: &str, format: &str) -> Result<()> {
+fn write_per_contract_reports(
+    summary: &BatchAuditSummary,
+    output_dir: &str,
+    format: &str,
+) -> Result<()> {
     fs::create_dir_all(output_dir)
         .with_context(|| format!("Failed to create output directory: {}", output_dir))?;
 
@@ -343,7 +373,11 @@ fn emit_summary(summary: &BatchAuditSummary, json_out: bool) -> Result<()> {
 
         println!(
             "{} {} [{}] findings: {} (critical: {}, high: {}, medium: {}, low: {})",
-            if result.risk_level == "error" { "✗" } else { "◆" },
+            if result.risk_level == "error" {
+                "✗"
+            } else {
+                "◆"
+            },
             result.path.bold(),
             risk_color,
             result.total_findings,
@@ -387,7 +421,10 @@ fn format_as_markdown(summary: &BatchAuditSummary) -> String {
         "- **High-risk contracts**: {}\n",
         summary.high_risk_count
     ));
-    out.push_str(&format!("- **Total findings**: {}\n\n", summary.total_findings));
+    out.push_str(&format!(
+        "- **Total findings**: {}\n\n",
+        summary.total_findings
+    ));
 
     for result in &summary.results {
         out.push_str(&format!("## `{}`\n\n", result.path));

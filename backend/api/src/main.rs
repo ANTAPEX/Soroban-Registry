@@ -1,16 +1,17 @@
 #![warn(unused_imports)]
 
 use anyhow::Result;
-use axum::extract::{Request, State};
+use axum::extract::{MatchedPath, Request, State};
 use axum::http::StatusCode;
 use axum::middleware;
 use axum::response::Response;
 use prometheus::Registry;
 use sqlx::postgres::PgPoolOptions;
+use sqlx::ConnectOptions;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
@@ -34,7 +35,7 @@ use api::state_monitor::StateMonitorService;
 use api::validation;
 use api::webhook_delivery;
 
-async fn track_in_flight_middleware(
+async fn http_metrics_middleware(
     State(state): State<AppState>,
     req: Request,
     next: middleware::Next,
@@ -46,10 +47,41 @@ async fn track_in_flight_middleware(
             "Service is shutting down and temporarily unavailable",
         ));
     }
+    let method = req.method().as_str().to_owned();
+    // Use the matched route template (e.g. "/api/contracts/:id") rather than the
+    // concrete URI so per-id paths don't explode the metric label cardinality.
+    let path = req
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map(|p| p.as_str().to_owned())
+        .unwrap_or_else(|| req.uri().path().to_owned());
+    let request_size = content_length_bytes(req.headers());
+
     metrics::HTTP_IN_FLIGHT.inc();
+    let start = std::time::Instant::now();
     let res = next.run(req).await;
+    let elapsed = start.elapsed().as_secs_f64();
     metrics::HTTP_IN_FLIGHT.dec();
+
+    metrics::observe_http(&method, &path, res.status().as_u16(), elapsed);
+    if let Some(bytes) = request_size {
+        metrics::HTTP_REQUEST_SIZE
+            .with_label_values(&[&method])
+            .observe(bytes);
+    }
+    if let Some(bytes) = content_length_bytes(res.headers()) {
+        metrics::HTTP_RESPONSE_SIZE
+            .with_label_values(&[&method])
+            .observe(bytes);
+    }
     Ok(res)
+}
+
+fn content_length_bytes(headers: &axum::http::HeaderMap) -> Option<f64> {
+    headers
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<f64>().ok())
 }
 
 #[tokio::main]
@@ -64,25 +96,79 @@ async fn main() -> Result<()> {
         .map(|n| n.get())
         .unwrap_or(4);
 
-    let max_pool_size = std::env::var("DB_MAX_POOL_SIZE")
+    // Issue #876: Connection pool configuration
+    let min_pool_size: u32 = std::env::var("DB_MIN_POOL_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+
+    let max_pool_size: u32 = std::env::var("DB_MAX_POOL_SIZE")
         .ok()
         .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or((logical_cores * 2).max(10) as u32);
+        .unwrap_or_else(|| (logical_cores * 2).max(10) as u32)
+        .min(50); // hard cap per spec
+
+    let acquire_timeout_secs: u64 = std::env::var("DB_ACQUIRE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+
+    let idle_timeout_secs: u64 = std::env::var("DB_IDLE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(600); // 10 minutes
+
+    let max_lifetime_secs: u64 = std::env::var("DB_MAX_LIFETIME_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1800); // 30 minutes
+
+    let query_timeout_ms: u64 = std::env::var("DB_QUERY_TIMEOUT_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30000); // 30 seconds
+
+    let statement_cache_capacity: usize = std::env::var("DB_STATEMENT_CACHE_CAPACITY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(250);
+
+    let slow_query_threshold_ms: f64 = std::env::var("DB_SLOW_QUERY_THRESHOLD_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100.0);
 
     tracing::info!(
-        max_pool_size = max_pool_size,
-        logical_cores = logical_cores,
+        min_pool_size,
+        max_pool_size,
+        acquire_timeout_secs,
+        idle_timeout_secs,
+        max_lifetime_secs,
+        query_timeout_ms,
+        statement_cache_capacity,
+        slow_query_threshold_ms,
+        logical_cores,
         "Initializing database connection pool"
     );
 
-    let pool = PgPoolOptions::new()
-        .max_connections(max_pool_size)
-        .acquire_timeout(std::time::Duration::from_secs(30))
-        .connect_with(
-            config
-                .database_url
-                .parse::<sqlx::postgres::PgConnectOptions>()?,
+    // Prepared statement cache + query timeout (statement_timeout) per connection
+    let connect_options = config
+        .database_url
+        .parse::<sqlx::postgres::PgConnectOptions>()?
+        .statement_cache_capacity(statement_cache_capacity)
+        .log_slow_statements(
+            log::LevelFilter::Warn,
+            Duration::from_millis(slow_query_threshold_ms as u64),
         )
+        .options([("statement_timeout", query_timeout_ms)]);
+
+    let pool = PgPoolOptions::new()
+        .min_connections(min_pool_size)
+        .max_connections(max_pool_size)
+        .acquire_timeout(Duration::from_secs(acquire_timeout_secs))
+        .idle_timeout(Duration::from_secs(idle_timeout_secs))
+        .max_lifetime(Duration::from_secs(max_lifetime_secs))
+        .connect_with(connect_options)
         .await?;
 
     // Run migrations (skip if SKIP_MIGRATIONS=true, useful when migrations were applied manually)
@@ -111,6 +197,16 @@ async fn main() -> Result<()> {
 
     // Spawn the query-analysis flush + N+1 persistence task (Issue #887)
     api::query_analysis::spawn_query_analysis_task(pool.clone());
+
+    // Spawn the ownership-transfer expiry sweeper (Issue #1094). Expiry is also applied
+    // lazily on every read and write path; this is the backstop for transfers nobody
+    // looks at again.
+    api::ownership_transfer::spawn_ownership_transfer_expiry_task(pool.clone());
+
+    // Spawn the archival/retention sweeper (Issues #881, #1118). Applies every
+    // enabled archival policy on a daily cycle; previously only the admin
+    // trigger endpoint ran them.
+    api::archival::spawn_archival_task(pool.clone());
 
     // Create prometheus registry for metrics
     let registry = Registry::new();
@@ -195,8 +291,17 @@ async fn main() -> Result<()> {
         Duration::from_secs(2), // Ping every 2 seconds
         Duration::from_secs(1), // Timeout after 1 second
     );
-    // Initialize feature flags manager
-    let feature_flags = Arc::new(api::feature_flags::FeatureFlagManager::new());
+    // Initialize feature flags manager from configuration (#1007)
+    let flag_entries = api::config::parse_feature_flags(&config.feature_flags_json);
+    let feature_flags = Arc::new(api::feature_flags::FeatureFlagManager::from_config(
+        &flag_entries,
+    ));
+    if !flag_entries.is_empty() {
+        tracing::info!(
+            count = flag_entries.len(),
+            "Feature flags loaded from configuration"
+        );
+    }
 
     // Create app state
     let is_shutting_down = Arc::new(AtomicBool::new(false));
@@ -260,7 +365,28 @@ async fn main() -> Result<()> {
     webhook_delivery::spawn_webhook_delivery_task(pool.clone());
 
     // Spawn the background DB and cache monitoring task
-    db_monitoring::spawn_db_monitoring_task(pool.clone(), state.cache.clone());
+    let replication_monitor = match (
+        std::env::var("DATABASE_PRIMARY_URL"),
+        std::env::var("DATABASE_REPLICA_URL"),
+    ) {
+        (Ok(primary_url), Ok(replica_url)) => {
+            let lag_threshold_ms = std::env::var("DATABASE_REPLICATION_LAG_THRESHOLD_MS")
+                .ok()
+                .and_then(|value| value.parse::<i64>().ok())
+                .unwrap_or(100);
+            Some(api::db_monitoring::ReplicationMonitorConfig {
+                primary_url,
+                replica_url,
+                lag_threshold_ms,
+                check_interval: Duration::from_secs(5),
+            })
+        }
+        _ => None,
+    };
+    db_monitoring::spawn_db_monitoring_task(pool.clone(), state.cache.clone(), replication_monitor);
+
+    // Spawn query monitor: snapshots pg_stat_statements and logs slow queries (Issue #876)
+    api::query_monitor::spawn_query_monitor_task(pool.clone(), slow_query_threshold_ms);
 
     // Spawn the health monitor background task (Issue #333)
     let hm_state = state.clone();
@@ -283,6 +409,7 @@ async fn main() -> Result<()> {
 
     let web_security = WebSecurityConfig::from_env();
     let cors = web_security.build_cors_layer();
+    let https_config = api::security::HttpsConfig::from_env();
 
     // Build router
     let app = routes::application_routes(schema)
@@ -299,7 +426,7 @@ async fn main() -> Result<()> {
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            track_in_flight_middleware,
+            http_metrics_middleware,
         ))
         .layer(middleware::from_fn_with_state(
             (*rate_limit_state).clone(),
@@ -310,6 +437,10 @@ async fn main() -> Result<()> {
             api::security::csrf_and_origin_middleware,
         ))
         .layer(cors)
+        .layer(middleware::from_fn_with_state(
+            https_config,
+            api::security::https_enforcement_middleware,
+        ))
         .layer(middleware::from_fn(request_tracing::tracing_middleware))
         .with_state(state.clone());
 

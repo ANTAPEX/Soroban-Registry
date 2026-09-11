@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { createClient } from "redis";
+import { logger } from "../logger.js";
 
 const WINDOW_SECONDS = 60;
 const REDIS_TIMEOUT_MS = 5000;
@@ -83,7 +84,7 @@ export function createRateLimiterMiddleware(options: RateLimiterOptions = {}) {
 
   if (redisClient) {
     redisClient.on("error", (error) => {
-      console.warn("[rate-limiter] redis error, using fallback:", error);
+      logger.warn({ error }, "[rate-limiter] redis error, using fallback");
     });
   }
 
@@ -130,7 +131,7 @@ export function createRateLimiterMiddleware(options: RateLimiterOptions = {}) {
 
       const redisLatency = Date.now() - startedAt;
       if (redisLatency > SLOW_CALL_MS) {
-        console.warn(`[rate-limiter] slow redis call: ${redisLatency}ms`);
+        logger.warn({ redisLatency, thresholdMs: SLOW_CALL_MS }, "[rate-limiter] slow redis call");
       }
 
       if (weightedCount > maxRequestsPerMinute) {
@@ -140,7 +141,7 @@ export function createRateLimiterMiddleware(options: RateLimiterOptions = {}) {
 
       next();
     } catch (error) {
-      console.warn("[rate-limiter] redis timeout/failure, using fallback:", error);
+      logger.warn({ error }, "[rate-limiter] redis timeout/failure, using fallback");
       if (!inMemoryAllowRequest(fallbackKey, maxRequestsPerMinute)) {
         res.status(429).json({ error: "rate limit exceeded" });
         return;

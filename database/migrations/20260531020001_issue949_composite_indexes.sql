@@ -1,8 +1,11 @@
 -- Migration for #949 Composite Index Optimization
 --
--- Originally used CREATE INDEX CONCURRENTLY, which Postgres refuses to run
--- inside a transaction block — sqlx wraps every migration in one, so this
--- always failed. Dropped CONCURRENTLY; fine for a migration-time index build.
+-- CREATE INDEX CONCURRENTLY cannot run inside a transaction block, and sqlx wraps
+-- each migration in one, so the original CONCURRENTLY form failed with:
+--   CREATE INDEX CONCURRENTLY cannot run inside a transaction block
+-- CONCURRENTLY only exists to avoid locking a table under live production
+-- traffic; during a migration a plain CREATE INDEX is correct (and instant on an
+-- empty/small table). Dropped CONCURRENTLY so the migration applies.
 
 -- (network, category)
 CREATE INDEX IF NOT EXISTS idx_contracts_network_category ON contracts (network, category);

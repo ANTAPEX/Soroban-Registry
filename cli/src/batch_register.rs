@@ -164,8 +164,7 @@ pub async fn run_batch_register(
     let entries_snapshot: Vec<ResolvedEntry> = entries.iter().cloned().collect();
 
     // 8. Submit, collecting results
-    let mut summary =
-        register_all(api_url, entries, skipped_duplicates, json, concurrent).await?;
+    let mut summary = register_all(api_url, entries, skipped_duplicates, json, concurrent).await?;
 
     // 9. Optional retry pass
     if retry && summary.failed > 0 {
@@ -273,8 +272,8 @@ fn load_manifest(path: &str) -> Result<RegisterManifest> {
 }
 
 fn parse_csv_manifest(path: &str) -> Result<RegisterManifest> {
-    let mut reader =
-        csv::Reader::from_path(path).with_context(|| format!("Cannot open CSV manifest: {path}"))?;
+    let mut reader = csv::Reader::from_path(path)
+        .with_context(|| format!("Cannot open CSV manifest: {path}"))?;
     let mut contracts = Vec::new();
 
     for (i, result) in reader.deserialize::<CsvManifestEntry>().enumerate() {
@@ -308,14 +307,12 @@ fn parse_csv_manifest(path: &str) -> Result<RegisterManifest> {
 }
 
 fn parse_jsonl_manifest(path: &str) -> Result<RegisterManifest> {
-    let file =
-        File::open(path).with_context(|| format!("Cannot open JSONL manifest: {path}"))?;
+    let file = File::open(path).with_context(|| format!("Cannot open JSONL manifest: {path}"))?;
     let reader = BufReader::new(file);
     let mut contracts = Vec::new();
 
     for (line_no, line) in reader.lines().enumerate() {
-        let line =
-            line.with_context(|| format!("I/O error reading line {}", line_no + 1))?;
+        let line = line.with_context(|| format!("I/O error reading line {}", line_no + 1))?;
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with("//") {
             continue; // skip blank lines and comments

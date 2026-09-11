@@ -124,6 +124,47 @@ pub struct NotificationStore {
     pub rules: Vec<NotificationRule>,
 }
 
+fn validate_rule_config(rule: &NotificationRule) -> Result<()> {
+    if rule.channels.is_empty() {
+        anyhow::bail!(
+            "Notification rule for {} must include at least one channel (email, webhook, or cli)",
+            rule.address
+        );
+    }
+
+    if rule.alert_types.is_empty() {
+        anyhow::bail!(
+            "Notification rule for {} must include at least one alert type",
+            rule.address
+        );
+    }
+
+    let target = rule.channel_target.as_deref().map(str::trim);
+
+    if rule.channels.contains(&Channel::Email) && target.unwrap_or_default().is_empty() {
+        anyhow::bail!(
+            "Email notification channel for {} requires --target <email-address>",
+            rule.address
+        );
+    }
+
+    if rule.channels.contains(&Channel::Webhook) && target.unwrap_or_default().is_empty() {
+        anyhow::bail!(
+            "Webhook notification channel for {} requires --target <webhook-url>",
+            rule.address
+        );
+    }
+
+    Ok(())
+}
+
+fn validate_store_config(store: &NotificationStore) -> Result<()> {
+    for rule in &store.rules {
+        validate_rule_config(rule)?;
+    }
+    Ok(())
+}
+
 // ── Persistence ───────────────────────────────────────────────────────────────
 
 fn store_path() -> Option<PathBuf> {
@@ -139,7 +180,11 @@ fn load_store() -> Result<NotificationStore> {
     }
     let raw =
         fs::read_to_string(&path).with_context(|| format!("Failed to read {}", path.display()))?;
-    serde_json::from_str(&raw).with_context(|| format!("Failed to parse {}", path.display()))
+    let store: NotificationStore = serde_json::from_str(&raw)
+        .with_context(|| format!("Failed to parse {}", path.display()))?;
+    validate_store_config(&store)
+        .with_context(|| format!("Invalid notification configuration in {}", path.display()))?;
+    Ok(store)
 }
 
 fn save_store(store: &NotificationStore) -> Result<()> {
@@ -197,6 +242,8 @@ pub fn subscribe(
         channel_target,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
+
+    validate_rule_config(&rule)?;
 
     println!(
         "{} Subscribed to notifications for {}",
@@ -326,25 +373,29 @@ pub fn configure(
                 address
             )
         })?;
+    let mut updated_rule = rule.clone();
 
     if let Some(types) = alert_types {
-        rule.alert_types = types.iter().map(|s| s.parse()).collect::<Result<_>>()?;
+        updated_rule.alert_types = types.iter().map(|s| s.parse()).collect::<Result<_>>()?;
     }
     if let Some(ch) = channels {
-        rule.channels = ch.iter().map(|s| s.parse()).collect::<Result<_>>()?;
+        updated_rule.channels = ch.iter().map(|s| s.parse()).collect::<Result<_>>()?;
     }
     if let Some(freq) = frequency {
-        rule.frequency = freq.parse()?;
+        updated_rule.frequency = freq.parse()?;
     }
     if let Some(nets) = networks {
-        rule.networks = nets;
+        updated_rule.networks = nets;
     }
     if let Some(cats) = categories {
-        rule.categories = cats;
+        updated_rule.categories = cats;
     }
     if channel_target.is_some() {
-        rule.channel_target = channel_target;
+        updated_rule.channel_target = channel_target;
     }
+
+    validate_rule_config(&updated_rule)?;
+    *rule = updated_rule;
 
     save_store(&store)?;
     println!(
@@ -414,4 +465,57 @@ pub fn test_notification(address: &str) -> Result<()> {
 
     println!("{} Test notification dispatched.", "✓".green());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rule_with_channels(channels: Vec<Channel>, target: Option<&str>) -> NotificationRule {
+        NotificationRule {
+            id: "rule-1".to_string(),
+            address: "CCONTRACT".to_string(),
+            alert_types: vec![AlertType::Security],
+            channels,
+            frequency: Frequency::Instant,
+            networks: vec![],
+            categories: vec![],
+            channel_target: target.map(str::to_string),
+            created_at: "2026-06-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn cli_channel_does_not_require_target() {
+        let rule = rule_with_channels(vec![Channel::Cli], None);
+        validate_rule_config(&rule).unwrap();
+    }
+
+    #[test]
+    fn webhook_channel_requires_target() {
+        let rule = rule_with_channels(vec![Channel::Webhook], None);
+        let err = validate_rule_config(&rule).unwrap_err().to_string();
+
+        assert!(err.contains("Webhook notification channel"));
+        assert!(err.contains("--target <webhook-url>"));
+    }
+
+    #[test]
+    fn email_channel_requires_target() {
+        let rule = rule_with_channels(vec![Channel::Email], Some("   "));
+        let err = validate_rule_config(&rule).unwrap_err().to_string();
+
+        assert!(err.contains("Email notification channel"));
+        assert!(err.contains("--target <email-address>"));
+    }
+
+    #[test]
+    fn store_validation_rejects_missing_channels() {
+        let store = NotificationStore {
+            rules: vec![rule_with_channels(vec![], None)],
+        };
+        let err = validate_store_config(&store).unwrap_err().to_string();
+
+        assert!(err.contains("must include at least one channel"));
+    }
 }

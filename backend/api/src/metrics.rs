@@ -133,10 +133,14 @@ pub static DB_CONNECTIONS_IDLE: Lazy<IntGauge> =
     gauge!("db_connections_idle", "Idle DB connections");
 pub static DB_QUERY_ERRORS: Lazy<IntCounter> = counter!("db_query_errors_total", "DB query errors");
 // Issue #887: application-side query observation counters.
-pub static DB_QUERIES_OBSERVED: Lazy<IntCounter> =
-    counter!("db_queries_observed_total", "Queries observed by the app-side analyzer");
-pub static DB_SLOW_QUERIES: Lazy<IntCounter> =
-    counter!("db_slow_queries_total", "Queries exceeding the slow threshold");
+pub static DB_QUERIES_OBSERVED: Lazy<IntCounter> = counter!(
+    "db_queries_observed_total",
+    "Queries observed by the app-side analyzer"
+);
+pub static DB_SLOW_QUERIES: Lazy<IntCounter> = counter!(
+    "db_slow_queries_total",
+    "Queries exceeding the slow threshold"
+);
 pub static DB_TRANSACTIONS_TOTAL: Lazy<IntCounter> =
     counter!("db_transactions_total", "Total DB transactions");
 pub static DB_POOL_SIZE: Lazy<IntGauge> = gauge!("db_pool_size", "DB connection pool size");
@@ -159,6 +163,26 @@ pub static DB_POOL_UTILIZATION: Lazy<GaugeVec> = gauge_f64_vec!(
     "db_pool_utilization",
     "DB pool utilization ratio",
     &["pool"]
+);
+pub static DB_REPLICATION_LAG_MS: Lazy<IntGauge> = gauge!(
+    "db_replication_lag_ms",
+    "Replica replay lag in milliseconds"
+);
+pub static DB_REPLICATION_WAL_LAG_BYTES: Lazy<IntGauge> = gauge!(
+    "db_replication_wal_lag_bytes",
+    "Estimated WAL lag between the primary and replica in bytes"
+);
+pub static DB_REPLICATION_HEALTH: Lazy<IntGauge> = gauge!(
+    "db_replication_health",
+    "Replication health state (1=healthy, 0=unhealthy)"
+);
+pub static DB_REPLICATION_CHECKS_TOTAL: Lazy<IntCounter> = counter!(
+    "db_replication_checks_total",
+    "Replication health checks performed"
+);
+pub static DB_REPLICATION_CHECK_FAILURES_TOTAL: Lazy<IntCounter> = counter!(
+    "db_replication_check_failures_total",
+    "Replication health checks that failed"
 );
 pub static SEARCH_QUERY_DURATION: Lazy<HistogramVec> = histogram_vec!(
     "search_query_duration_seconds",
@@ -329,6 +353,16 @@ pub static PUBLISHERS_TOTAL: Lazy<IntGauge> =
 pub static PUBLISHER_REGISTRATIONS: Lazy<IntCounter> =
     counter!("publisher_registrations_total", "Publisher registrations");
 
+// ── Rate-Limit Bypass Audit (issue #1054) ───────────────────────────────────
+/// Counts every request that bypassed rate-limiting via a trusted-client token.
+/// The `token_type` label is either `"trusted_ip"` or `"trusted_api_key"` so
+/// operators can distinguish between the two bypass paths.
+pub static RATE_LIMIT_BYPASS_TOTAL: Lazy<IntCounterVec> = counter_vec!(
+    "rate_limit_bypass_total",
+    "Total requests that bypassed rate limiting via a trusted-client token",
+    &["token_type"]
+);
+
 pub fn register_all(r: &Registry) -> prometheus::Result<()> {
     r.register(Box::new(HTTP_REQUESTS_TOTAL.clone()))?;
     r.register(Box::new(HTTP_REQUEST_DURATION.clone()))?;
@@ -360,6 +394,11 @@ pub fn register_all(r: &Registry) -> prometheus::Result<()> {
     r.register(Box::new(DB_CONNECTION_WAIT_MS.clone()))?;
     r.register(Box::new(DB_POOL_TIMEOUTS.clone()))?;
     r.register(Box::new(DB_POOL_UTILIZATION.clone()))?;
+    r.register(Box::new(DB_REPLICATION_LAG_MS.clone()))?;
+    r.register(Box::new(DB_REPLICATION_WAL_LAG_BYTES.clone()))?;
+    r.register(Box::new(DB_REPLICATION_HEALTH.clone()))?;
+    r.register(Box::new(DB_REPLICATION_CHECKS_TOTAL.clone()))?;
+    r.register(Box::new(DB_REPLICATION_CHECK_FAILURES_TOTAL.clone()))?;
     r.register(Box::new(SEARCH_QUERY_DURATION.clone()))?;
     r.register(Box::new(SEARCH_SLOW_QUERIES.clone()))?;
 
@@ -408,6 +447,7 @@ pub fn register_all(r: &Registry) -> prometheus::Result<()> {
     r.register(Box::new(PATCHES_FAILED.clone()))?;
     r.register(Box::new(PUBLISHERS_TOTAL.clone()))?;
     r.register(Box::new(PUBLISHER_REGISTRATIONS.clone()))?;
+    r.register(Box::new(RATE_LIMIT_BYPASS_TOTAL.clone()))?;
     r.register(Box::new(JOB_QUEUE_DEPTH.clone()))?;
     r.register(Box::new(JOB_PROCESSING_DURATION.clone()))?;
     r.register(Box::new(JOB_FAILURES_TOTAL.clone()))?;
@@ -422,7 +462,6 @@ pub fn gather_metrics(r: &Registry) -> String {
     String::from_utf8(buf).unwrap_or_default()
 }
 
-#[allow(dead_code)]
 pub fn observe_http(method: &str, path: &str, status: u16, duration_secs: f64) {
     HTTP_REQUESTS_TOTAL
         .with_label_values(&[method, path, &status.to_string()])
@@ -432,7 +471,6 @@ pub fn observe_http(method: &str, path: &str, status: u16, duration_secs: f64) {
         .observe(duration_secs);
 }
 
-#[allow(dead_code)]
 pub fn observe_verification_latency(result: &str, duration_secs: f64) {
     VERIFICATION_LATENCY
         .with_label_values(&[result])

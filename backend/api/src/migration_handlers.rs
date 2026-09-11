@@ -94,10 +94,8 @@ pub struct RegisterMigrationRequest {
     pub down_sql: Option<String>,
 }
 
-// `Validatable` for `RegisterMigrationRequest` lives in
-// validation/handler_requests.rs alongside the rest of the centralized
-// request validators (it also handles `down_sql`, which this duplicate
-// didn't) — having it here too was a conflicting duplicate impl.
+// `impl Validatable for RegisterMigrationRequest` lives in
+// validation::handler_requests (the centralized location, issue #893).
 
 #[derive(Debug, Deserialize)]
 pub struct ApplyMigrationRequest {

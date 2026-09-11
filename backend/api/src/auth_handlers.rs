@@ -358,3 +358,4 @@ mod tests {
         assert_eq!(claims.sub, address);
     }
 }
+// TODO: structured audit logging

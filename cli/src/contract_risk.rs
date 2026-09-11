@@ -139,7 +139,11 @@ pub async fn run(
 
     // ── 6. Threshold check (non-zero exit if risk is at/above threshold) ──────
     if let Some(threshold_level) = threshold_level {
-        let actual: RiskLevel = report.risk_level.to_lowercase().parse().unwrap_or(RiskLevel::Low);
+        let actual: RiskLevel = report
+            .risk_level
+            .to_lowercase()
+            .parse()
+            .unwrap_or(RiskLevel::Low);
         if actual >= threshold_level {
             if !json {
                 eprintln!(
@@ -219,11 +223,7 @@ async fn fetch_contract(
 }
 
 /// Non-fatal — returns None when the endpoint is absent or returns an error.
-async fn fetch_detail(
-    client: &reqwest::Client,
-    api_url: &str,
-    contract: &Value,
-) -> Option<Value> {
+async fn fetch_detail(client: &reqwest::Client, api_url: &str, contract: &Value) -> Option<Value> {
     let id = contract["id"]
         .as_str()
         .or(contract["contract_id"].as_str())?;
@@ -238,11 +238,7 @@ async fn fetch_detail(
 }
 
 /// Non-fatal — returns empty vec when the endpoint is absent or returns an error.
-async fn fetch_dependencies(
-    client: &reqwest::Client,
-    api_url: &str,
-    address: &str,
-) -> Vec<Value> {
+async fn fetch_dependencies(client: &reqwest::Client, api_url: &str, address: &str) -> Vec<Value> {
     let url = format!("{}/api/contracts/{}/dependencies", api_url, address);
     log::debug!("GET {}", url);
     let res = match client.get(&url).send().await {
@@ -278,8 +274,12 @@ fn build_report(
             category: "verification".to_string(),
             severity: "medium".to_string(),
             title: "Unverified source code".to_string(),
-            description: "Contract source code has not been verified against the deployed bytecode.".to_string(),
-            remediation: Some("Publish and verify the source code in the Soroban Registry.".to_string()),
+            description:
+                "Contract source code has not been verified against the deployed bytecode."
+                    .to_string(),
+            remediation: Some(
+                "Publish and verify the source code in the Soroban Registry.".to_string(),
+            ),
         });
         score = score.saturating_add(20);
     }
@@ -290,8 +290,11 @@ fn build_report(
             category: "operational".to_string(),
             severity: "high".to_string(),
             title: "Contract is in maintenance mode".to_string(),
-            description: "Interactions with this contract may be restricted or unavailable.".to_string(),
-            remediation: Some("Check the registry for a status update or contact the publisher.".to_string()),
+            description: "Interactions with this contract may be restricted or unavailable."
+                .to_string(),
+            remediation: Some(
+                "Check the registry for a status update or contact the publisher.".to_string(),
+            ),
         });
         score = score.saturating_add(25);
     }
@@ -312,8 +315,11 @@ fn build_report(
             category: "reputation".to_string(),
             severity: "medium".to_string(),
             title: format!("Low registry health score ({})", health_score),
-            description: "Health score below 50 suggests this contract may have unresolved issues.".to_string(),
-            remediation: Some("Investigate the registry health score factors for this contract.".to_string()),
+            description: "Health score below 50 suggests this contract may have unresolved issues."
+                .to_string(),
+            remediation: Some(
+                "Investigate the registry health score factors for this contract.".to_string(),
+            ),
         });
         score = score.saturating_add(15);
     }
@@ -338,8 +344,12 @@ fn build_report(
                     category: "maintenance".to_string(),
                     severity: "low".to_string(),
                     title: format!("Contract not updated in over {} days", age_days),
-                    description: "No update in over a year — verify the contract is still supported.".to_string(),
-                    remediation: Some("Check the publisher's changelog or release history.".to_string()),
+                    description:
+                        "No update in over a year — verify the contract is still supported."
+                            .to_string(),
+                    remediation: Some(
+                        "Check the publisher's changelog or release history.".to_string(),
+                    ),
                 });
                 score = score.saturating_add(8);
             }
@@ -387,9 +397,18 @@ fn build_report(
                 let desc = f["description"].as_str().unwrap_or("").to_string();
 
                 let remediation = match sev {
-                    "critical" => Some("Address this critical vulnerability immediately before any further use.".to_string()),
-                    "high" => Some("Treat this as a high-priority fix before production deployment.".to_string()),
-                    "medium" => Some("Investigate and remediate this issue in the next release cycle.".to_string()),
+                    "critical" => Some(
+                        "Address this critical vulnerability immediately before any further use."
+                            .to_string(),
+                    ),
+                    "high" => Some(
+                        "Treat this as a high-priority fix before production deployment."
+                            .to_string(),
+                    ),
+                    "medium" => Some(
+                        "Investigate and remediate this issue in the next release cycle."
+                            .to_string(),
+                    ),
                     _ => None,
                 };
 
@@ -418,9 +437,20 @@ fn build_report(
 
         // High-privilege functions from ABI
         let privilege_keywords = [
-            "admin", "upgrade", "migrate", "set_admin", "transfer_ownership",
-            "pause", "unpause", "emergency", "selfdestruct", "destroy",
-            "initialize", "set_owner", "grant_role", "revoke_role",
+            "admin",
+            "upgrade",
+            "migrate",
+            "set_admin",
+            "transfer_ownership",
+            "pause",
+            "unpause",
+            "emergency",
+            "selfdestruct",
+            "destroy",
+            "initialize",
+            "set_owner",
+            "grant_role",
+            "revoke_role",
         ];
 
         if let Some(funcs) = d["abi"]["functions"].as_array() {
@@ -428,10 +458,7 @@ fn build_report(
             for func in funcs {
                 if let Some(name) = func["name"].as_str() {
                     let name_lower = name.to_lowercase();
-                    if privilege_keywords
-                        .iter()
-                        .any(|kw| name_lower.contains(kw))
-                    {
+                    if privilege_keywords.iter().any(|kw| name_lower.contains(kw)) {
                         priv_funcs.push(name.to_string());
                     }
                 }
@@ -456,16 +483,22 @@ fn build_report(
             category: "audit".to_string(),
             severity: "medium".to_string(),
             title: "Audit and scan data unavailable".to_string(),
-            description: "Could not retrieve verification details, security scan, or ABI from the registry.".to_string(),
-            remediation: Some("Ensure the registry API is reachable and retry. Manually audit before use.".to_string()),
+            description:
+                "Could not retrieve verification details, security scan, or ABI from the registry."
+                    .to_string(),
+            remediation: Some(
+                "Ensure the registry API is reachable and retry. Manually audit before use."
+                    .to_string(),
+            ),
         });
         score = score.saturating_add(15);
     }
 
     // ── Dependency vulnerability score ────────────────────────────────────────
-    let unverified_deps: Vec<&Value> = deps.iter().filter(|d| {
-        !d["is_verified"].as_bool().unwrap_or(false)
-    }).collect();
+    let unverified_deps: Vec<&Value> = deps
+        .iter()
+        .filter(|d| !d["is_verified"].as_bool().unwrap_or(false))
+        .collect();
     let dep_score: u32 = (unverified_deps.len() as u32 * 5).min(15);
 
     if !unverified_deps.is_empty() {
@@ -488,7 +521,10 @@ fn build_report(
                 deps.len(),
                 if deps.len() == 1 { "y" } else { "ies" }
             ),
-            remediation: Some("Ensure all dependencies are verified in the registry before production use.".to_string()),
+            remediation: Some(
+                "Ensure all dependencies are verified in the registry before production use."
+                    .to_string(),
+            ),
         });
         score = score.saturating_add(dep_score);
     }
@@ -516,19 +552,35 @@ fn build_recommendations(findings: &[RiskFinding], level: &RiskLevel) -> Vec<Str
     let has_sev = |sev: &str| findings.iter().any(|f| f.severity == sev);
 
     if has_sev("critical") {
-        recs.push("STOP: Do not integrate this contract. Resolve all critical vulnerabilities first.".to_string());
+        recs.push(
+            "STOP: Do not integrate this contract. Resolve all critical vulnerabilities first."
+                .to_string(),
+        );
     }
 
-    if has_category("audit") && findings.iter().any(|f| f.category == "audit" && f.title.contains("failed")) {
+    if has_category("audit")
+        && findings
+            .iter()
+            .any(|f| f.category == "audit" && f.title.contains("failed"))
+    {
         recs.push("Obtain and review the full audit report. Do not deploy until all issues are remediated.".to_string());
     }
 
-    if has_category("audit") && findings.iter().any(|f| f.category == "audit" && f.title.contains("No audit")) {
-        recs.push("Commission a third-party security audit before using this contract in production.".to_string());
+    if has_category("audit")
+        && findings
+            .iter()
+            .any(|f| f.category == "audit" && f.title.contains("No audit"))
+    {
+        recs.push(
+            "Commission a third-party security audit before using this contract in production."
+                .to_string(),
+        );
     }
 
     if has_category("verification") {
-        recs.push("Verify the contract's source code in the registry to increase trust.".to_string());
+        recs.push(
+            "Verify the contract's source code in the registry to increase trust.".to_string(),
+        );
     }
 
     if has_category("privilege") {
@@ -536,15 +588,24 @@ fn build_recommendations(findings: &[RiskFinding], level: &RiskLevel) -> Vec<Str
     }
 
     if has_category("dependency") {
-        recs.push("Audit unverified dependencies independently before relying on this contract.".to_string());
+        recs.push(
+            "Audit unverified dependencies independently before relying on this contract."
+                .to_string(),
+        );
     }
 
     if has_category("maintenance") {
-        recs.push("Contact the publisher to confirm the contract is still actively maintained.".to_string());
+        recs.push(
+            "Contact the publisher to confirm the contract is still actively maintained."
+                .to_string(),
+        );
     }
 
     if has_category("operational") {
-        recs.push("Monitor the contract's maintenance status before initiating any transactions.".to_string());
+        recs.push(
+            "Monitor the contract's maintenance status before initiating any transactions."
+                .to_string(),
+        );
     }
 
     if recs.is_empty() {
@@ -590,7 +651,11 @@ fn print_human(report: &RiskReport) {
     print_header();
 
     // ── Contract info ─────────────────────────────────────────────────────────
-    println!("  {}   {}", "Address:".bold(), report.address.bright_black());
+    println!(
+        "  {}   {}",
+        "Address:".bold(),
+        report.address.bright_black()
+    );
     println!("  {}   {}", "Network:".bold(), report.network.bright_blue());
     println!("  {}", "Assessed:".bold());
     println!("     {}", report.assessed_at.dimmed());
@@ -603,18 +668,12 @@ fn print_human(report: &RiskReport) {
             level.label().red().bold(),
             report.risk_score.to_string().red().bold(),
         ),
-        RiskLevel::High => (
-            level.label().red(),
-            report.risk_score.to_string().red(),
-        ),
+        RiskLevel::High => (level.label().red(), report.risk_score.to_string().red()),
         RiskLevel::Medium => (
             level.label().yellow(),
             report.risk_score.to_string().yellow(),
         ),
-        RiskLevel::Low => (
-            level.label().green(),
-            report.risk_score.to_string().green(),
-        ),
+        RiskLevel::Low => (level.label().green(), report.risk_score.to_string().green()),
     };
 
     println!(
@@ -636,7 +695,11 @@ fn print_human(report: &RiskReport) {
 
     // ── Findings ──────────────────────────────────────────────────────────────
     if report.findings.is_empty() {
-        println!("  {} {}", "✔".green(), "No risk findings detected.".green().bold());
+        println!(
+            "  {} {}",
+            "✔".green(),
+            "No risk findings detected.".green().bold()
+        );
     } else {
         println!("  {}", "Findings".bold().underline());
         println!();

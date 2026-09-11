@@ -263,6 +263,39 @@ export interface FormalVerificationReport {
   certificate?: ProofCertificate | null;
 }
 
+export interface PackageDependency {
+  id: string;
+  contract_id: string;
+  package_name: string;
+  version: string;
+  created_at: string;
+}
+
+export interface PackageDependencyInput {
+  package_name: string;
+  version: string;
+}
+
+export interface DependencyVulnerabilityFinding {
+  package_name: string;
+  version: string;
+  cve_id: string;
+  severity: string;
+  description?: string | null;
+  recommended_version?: string | null;
+}
+
+export type DependencyScanStatus = "not_scanned" | "clean" | "vulnerable";
+
+export interface DependencyScanReport {
+  contract_id: string;
+  status: DependencyScanStatus;
+  dependencies_scanned: number;
+  vulnerable_dependency_count: number;
+  last_scanned_at?: string | null;
+  findings: DependencyVulnerabilityFinding[];
+}
+
 export type InteroperabilityCapabilityKind = "bridge" | "adapter";
 
 export interface InteroperabilityProtocolMatch {
@@ -369,6 +402,7 @@ export interface Contract {
   review_count?: number;
   deployment_count?: number;
   interaction_count?: number;
+  favorites_count?: number;
   relevance_score?: number;
   // Image fields for contract logo/icon
   logo_url?: string;
@@ -381,6 +415,8 @@ export interface Contract {
   logical_id?: string;
   /** Per-network configs: { mainnet: {...}, testnet: {...} } */
   network_configs?: Record<Network, NetworkConfig>;
+  artifact_scan_status?: "pending" | "passed" | "quarantined";
+  artifact_scan_findings?: string[];
 }
 
 /** GET /contracts/:id response when ?network= is used (Issue #43) */
@@ -707,7 +743,7 @@ export interface MetricSeriesResponse {
   samples?: MetricSample[];
 }
 
-export type DeprecationStatus = "active" | "deprecated" | "retired";
+export type DeprecationStatus = "active" | "deprecated" | "superseded" | "retired";
 
 export type ReleaseNotesStatus = "draft" | "published";
 
@@ -769,8 +805,12 @@ export interface DeprecationInfo {
   replacement_contract_id?: string | null;
   migration_guide_url?: string | null;
   notes?: string | null;
+  deprecated_reason?: string | null;
+  grace_period_days?: number | null;
   days_remaining?: number | null;
   dependents_notified: number;
+  replacement_lineage?: string[];
+  warnings?: string[];
 }
 
 export interface LegacyStatsResponse extends StatsResponse {
@@ -780,6 +820,7 @@ export interface LegacyStatsResponse extends StatsResponse {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+const AUTH_TOKEN_KEY = "soroban_registry_token";
 const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
 
 const CATEGORY_SYNONYMS: Record<string, string> = {
@@ -931,15 +972,28 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const method = (options?.method || "GET").toUpperCase();
   const isMutating = MUTATING_METHODS.has(method);
 
+  const buildHeaders = (csrfToken?: string) => {
+    const headers = new Headers(options?.headers);
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+    if (!headers.has("Authorization") && typeof window !== "undefined") {
+      try {
+        const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+        if (token) headers.set("Authorization", `Bearer ${token}`);
+      } catch {
+        // Storage may be unavailable in hardened/private browsing contexts.
+      }
+    }
+    if (csrfToken) headers.set("x-csrf-token", csrfToken);
+    return headers;
+  };
+
   const doFetch = async (csrfToken?: string) =>
     fetch(url, {
       credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
-        ...(options?.headers || {}),
-      },
       ...options,
+      headers: buildHeaders(csrfToken),
     });
 
   let response: Response;
@@ -975,8 +1029,10 @@ export async function fetchContracts(
       page = 1,
       page_size = 20,
       network,
+      networks,
       verified_only,
       category,
+      categories,
       tags,
       sort_by,
       sort_order = "desc",
@@ -994,8 +1050,10 @@ export async function fetchContracts(
     }
 
     if (network) results = results.filter((c) => c.network === network);
+    if (networks?.length) results = results.filter((c) => networks.includes(c.network));
     if (verified_only) results = results.filter((c) => c.is_verified);
     if (category) results = results.filter((c) => c.category === category);
+    if (categories?.length) results = results.filter((c) => categories.includes(c.category ?? ""));
     if (tags && tags.length > 0)
       results = results.filter((c) => tags.some((t) => c.tags?.includes(t)));
 
@@ -1035,8 +1093,14 @@ export async function fetchContracts(
   const searchParams = new URLSearchParams();
   if (params.query) searchParams.set("query", params.query);
   if (params.network) searchParams.set("network", params.network);
+  if (params.networks?.length) {
+    params.networks.forEach((n) => searchParams.append("networks", n));
+  }
   if (params.verified_only) searchParams.set("verified_only", "true");
   if (params.category) searchParams.set("category", params.category);
+  if (params.categories?.length) {
+    params.categories.forEach((c) => searchParams.append("categories", c));
+  }
   if (params.tags?.length) params.tags.forEach((t) => searchParams.append("tags", t));
   if (params.page) searchParams.set("page", String(params.page));
   if (params.page_size) searchParams.set("page_size", String(params.page_size));
@@ -1483,6 +1547,62 @@ export async function fetchFormalVerificationResults(
   return [detail];
 }
 
+// ─── Dependency Vulnerability Scanning ────────────────────────────────────────
+
+export async function fetchDependencyScanReport(
+  contractId: string,
+): Promise<DependencyScanReport> {
+  if (USE_MOCKS) {
+    return {
+      contract_id: contractId,
+      status: "not_scanned",
+      dependencies_scanned: 0,
+      vulnerable_dependency_count: 0,
+      last_scanned_at: null,
+      findings: [],
+    };
+  }
+  return apiFetch<DependencyScanReport>(
+    `/api/contracts/${contractId}/dependency-scan`,
+  );
+}
+
+export async function triggerDependencyScan(
+  contractId: string,
+): Promise<DependencyScanReport> {
+  if (USE_MOCKS) {
+    return fetchDependencyScanReport(contractId);
+  }
+  return apiFetch<DependencyScanReport>(
+    `/api/contracts/${contractId}/dependency-scan`,
+    { method: "POST" },
+  );
+}
+
+export async function fetchPackageDependencies(
+  contractId: string,
+): Promise<PackageDependency[]> {
+  if (USE_MOCKS) {
+    return [];
+  }
+  return apiFetch<PackageDependency[]>(
+    `/api/contracts/${contractId}/package-dependencies`,
+  );
+}
+
+export async function declarePackageDependencies(
+  contractId: string,
+  dependencies: PackageDependencyInput[],
+): Promise<DependencyScanReport> {
+  return apiFetch<DependencyScanReport>(
+    `/api/contracts/${contractId}/package-dependencies`,
+    {
+      method: "POST",
+      body: JSON.stringify({ dependencies }),
+    },
+  );
+}
+
 // ─── Compatibility Testing ────────────────────────────────────────────────────
 
 export async function fetchCompatibilityMatrix(
@@ -1878,6 +1998,12 @@ export const api = {
   // Backward-compatible aliases for formal verification
   fetchFormalVerificationResults,
   getFormalVerificationResults: fetchFormalVerificationResults,
+  // Dependency vulnerability scanning
+  fetchDependencyScanReport,
+  getDependencyScanReport: fetchDependencyScanReport,
+  triggerDependencyScan,
+  fetchPackageDependencies,
+  declarePackageDependencies,
   // Backward-compatible aliases for compatibility testing
   fetchCompatibilityMatrix,
   getCompatibilityMatrix: fetchCompatibilityMatrix,

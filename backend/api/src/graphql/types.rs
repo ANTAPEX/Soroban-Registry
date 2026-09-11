@@ -36,6 +36,9 @@ pub struct ContractType {
     pub health_score: i32,
     pub visibility: VisibilityType,
     pub organization_id: Option<Uuid>,
+    pub is_deprecated: bool,
+    pub deprecation_status: String,
+    pub replacement_contract_id: Option<Uuid>,
 }
 
 #[Object]
@@ -78,6 +81,18 @@ impl ContractType {
     }
     async fn visibility(&self) -> VisibilityTypeGraphQL {
         self.visibility.clone().into()
+    }
+
+    async fn is_deprecated(&self) -> bool {
+        self.is_deprecated
+    }
+
+    async fn deprecation_status(&self) -> &str {
+        &self.deprecation_status
+    }
+
+    async fn replacement_contract_id(&self) -> Option<Uuid> {
+        self.replacement_contract_id
     }
 
     /// Resolve the publisher for this contract (uses DataLoader to avoid N+1)
@@ -123,7 +138,7 @@ impl ContractType {
     async fn audit_log(&self, ctx: &Context<'_>) -> Result<Vec<AuditLogType>> {
         let state = ctx.data::<AppState>()?;
         let logs: Vec<ContractAuditLog> = sqlx::query_as(
-            "SELECT * FROM contract_audit_log WHERE contract_id = $1 ORDER BY created_at DESC",
+            "SELECT * FROM contract_audit_log WHERE contract_id = $1 ORDER BY created_at DESC, id ASC",
         )
         .bind(self.id)
         .fetch_all(&state.db)
@@ -139,7 +154,7 @@ impl ContractType {
     ) -> Result<Vec<InteractionType>> {
         let state = ctx.data::<AppState>()?;
         let interactions: Vec<ContractInteraction> = sqlx::query_as(
-            "SELECT * FROM contract_interactions WHERE contract_id = $1 ORDER BY created_at DESC LIMIT $2",
+            "SELECT * FROM contract_interactions WHERE contract_id = $1 ORDER BY created_at DESC, id ASC LIMIT $2",
         )
         .bind(self.id)
         .bind(limit.unwrap_or(50))
@@ -191,6 +206,9 @@ impl From<Contract> for ContractType {
             health_score: c.health_score,
             visibility: c.visibility,
             organization_id: c.organization_id,
+            is_deprecated: c.is_deprecated,
+            deprecation_status: c.deprecation_status.as_str().to_string(),
+            replacement_contract_id: c.replacement_contract_id,
         }
     }
 }
@@ -335,7 +353,7 @@ impl PublisherType {
     async fn contracts(&self, ctx: &Context<'_>) -> Result<Vec<ContractType>> {
         let state = ctx.data::<AppState>()?;
         let contracts: Vec<Contract> = sqlx::query_as(
-            "SELECT * FROM contracts WHERE publisher_id = $1 ORDER BY created_at DESC",
+            "SELECT * FROM contracts WHERE publisher_id = $1 ORDER BY created_at DESC, id ASC",
         )
         .bind(self.id)
         .fetch_all(&state.db)
@@ -394,7 +412,7 @@ impl OrganizationType {
     async fn contracts(&self, ctx: &Context<'_>) -> Result<Vec<ContractType>> {
         let state = ctx.data::<AppState>()?;
         let contracts: Vec<Contract> = sqlx::query_as(
-            "SELECT * FROM contracts WHERE organization_id = $1 ORDER BY created_at DESC",
+            "SELECT * FROM contracts WHERE organization_id = $1 ORDER BY created_at DESC, id ASC",
         )
         .bind(self.id)
         .fetch_all(&state.db)

@@ -513,7 +513,7 @@ pub fn init_json_tracing() {
             .with_trace_config(trace_config)
             .with_exporter(
                 opentelemetry_otlp::new_exporter()
-                    .tonic()
+                    .http()
                     .with_endpoint(endpoint),
             )
             .install_batch(opentelemetry_sdk::runtime::Tokio)
@@ -522,7 +522,11 @@ pub fn init_json_tracing() {
                 let tracer = provider.tracer(service_name);
                 tracing_subscriber::registry()
                     .with(fmt_layer)
-                    .with(tracing_opentelemetry::layer().with_tracer(tracer).with_filter(make_env()))
+                    .with(
+                        tracing_opentelemetry::layer()
+                            .with_tracer(tracer)
+                            .with_filter(make_env()),
+                    )
                     .with(crate::query_analysis::capture_layer())
                     .init();
                 return;

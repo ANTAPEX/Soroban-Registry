@@ -1,14 +1,15 @@
 -- Migration: 20260329000000_contract_clone_federation
 -- Features: #487 Contract Mirror/Clone, #499 Federated Contract Registry Protocol
 
--- `auth_users` is referenced as an audit-column FK target by this migration
--- and by the later security-scanning/notification migrations, but no
--- migration ever creates it — there is no real user-accounts table or
--- application code behind it (auth.rs authenticates from JWT claims, not a
--- DB row). Stub it with just enough shape to satisfy those FKs.
+-- No migration in this repo ever creates the `auth_users` table, yet this
+-- migration (and 20260330000000 / 20260330000001) declare foreign keys against
+-- auth_users(id). On a fresh database that FK fails with:
+--   relation "auth_users" does not exist
+-- Create a minimal stub so the referencing constraints resolve. This is only an
+-- FK target (id) — the full auth/user schema is missing from the migration set
+-- and should be added properly as a follow-up.
 CREATE TABLE IF NOT EXISTS auth_users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email VARCHAR(255) UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

@@ -8,9 +8,23 @@
 -- that table is the Ed25519-only package-signing + transparency-log subsystem.
 -- This migration adds the broader verification system (#888) under distinct
 -- table names so the two coexist.
+--
+-- However, the #888 `signing_keys` table below is NOT actually distinct from the
+-- one created by migration 034_package_signing.sql, which already owns the name
+-- with an unrelated schema (publisher_id, key_fingerprint, is_active). Because
+-- the CREATE below uses IF NOT EXISTS, on a fresh database it silently binds to
+-- 034's table and the subsequent index on `owner` fails:
+--   column "owner" does not exist
+-- The backend's signature_verification.rs expects THIS migration's schema
+-- (key_id, owner, status, rotated_to), and 034's table has no backend consumers,
+-- so move 034's table (and its indexes) aside and let #888 own `signing_keys`.
+ALTER TABLE IF EXISTS signing_keys RENAME TO package_signing_keys;
+ALTER INDEX IF EXISTS idx_signing_keys_publisher_id RENAME TO idx_package_signing_keys_publisher_id;
+ALTER INDEX IF EXISTS idx_signing_keys_public_key    RENAME TO idx_package_signing_keys_public_key;
+ALTER INDEX IF EXISTS idx_signing_keys_is_active     RENAME TO idx_package_signing_keys_is_active;
 
 -- ── Signing keys (deployer keys + certificate-chain authorities) ──────────────
-CREATE TABLE IF NOT EXISTS contract_signing_keys (
+CREATE TABLE IF NOT EXISTS signing_keys (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     -- Deterministic fingerprint: hex(sha256(algorithm || ':' || raw public key)).
     key_id        TEXT        NOT NULL UNIQUE,
@@ -37,9 +51,9 @@ CREATE TABLE IF NOT EXISTS contract_signing_keys (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_signing_keys_owner       ON contract_signing_keys (owner);
-CREATE INDEX IF NOT EXISTS idx_signing_keys_parent      ON contract_signing_keys (parent_key_id);
-CREATE INDEX IF NOT EXISTS idx_signing_keys_status      ON contract_signing_keys (status);
+CREATE INDEX IF NOT EXISTS idx_signing_keys_owner       ON signing_keys (owner);
+CREATE INDEX IF NOT EXISTS idx_signing_keys_parent      ON signing_keys (parent_key_id);
+CREATE INDEX IF NOT EXISTS idx_signing_keys_status      ON signing_keys (status);
 
 -- ── Stored contract signatures ────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS contract_signatures (
@@ -53,7 +67,7 @@ CREATE TABLE IF NOT EXISTS contract_signatures (
     algorithm       TEXT        NOT NULL,
     -- Base64 signature bytes.
     signature       TEXT        NOT NULL,
-    -- Fingerprint of the signing key (joins contract_signing_keys.key_id).
+    -- Fingerprint of the signing key (joins signing_keys.key_id).
     key_id          TEXT        NOT NULL,
     -- Claimed signing time, and optional validity window.
     signed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -71,25 +85,32 @@ CREATE INDEX IF NOT EXISTS idx_contract_signatures_key       ON contract_signatu
 CREATE INDEX IF NOT EXISTS idx_contract_signatures_subject   ON contract_signatures (subject_hash);
 
 -- ── Revocation list ───────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS contract_signature_revocations (
-    id            BIGSERIAL   PRIMARY KEY,
-    -- Revoked key fingerprint (revokes the key and everything it signed).
-    key_id        TEXT,
-    -- Or a specific revoked signature.
-    signature_id  UUID,
-    reason        TEXT        NOT NULL DEFAULT '',
-    revoked_by    TEXT,
-    revoked_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Unlike signing_keys, signature_revocations already exists from migration 034
+-- AND is still used by the package-signing path (signing_handlers.rs inserts
+-- signature_id/revoked_by/reason), so it cannot be renamed aside. The original
+-- CREATE TABLE IF NOT EXISTS here silently bound to 034's table, which lacks the
+-- key_id column the #888 index and signature_verification.rs need, failing with:
+--   column "key_id" does not exist
+-- Augment the existing table with the key-based-revocation column instead so both
+-- the package-signing and #888 verification paths share it.
+-- 034 declared signature_id NOT NULL (with an FK to package_signatures) and
+-- revoked_by NOT NULL; the #888 key-based revocation path
+-- (signature_verification.rs's revoke_key) inserts rows with a NULL
+-- signature_id and, when the caller omits it, a NULL revoked_by too, which
+-- both violated those constraints. Relaxing them doesn't change the
+-- package-signing path's own behavior, since it always supplies both.
+ALTER TABLE signature_revocations ADD COLUMN IF NOT EXISTS key_id TEXT;
+ALTER TABLE signature_revocations ALTER COLUMN signature_id DROP NOT NULL;
+ALTER TABLE signature_revocations ALTER COLUMN revoked_by DROP NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signature_revocations_key
-    ON contract_signature_revocations (key_id) WHERE key_id IS NOT NULL;
+    ON signature_revocations (key_id) WHERE key_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signature_revocations_sig
-    ON contract_signature_revocations (signature_id) WHERE signature_id IS NOT NULL;
+    ON signature_revocations (signature_id) WHERE signature_id IS NOT NULL;
 
-COMMENT ON TABLE contract_signing_keys IS
+COMMENT ON TABLE signing_keys IS
     'Deployer/CA keys for the contract signature verification system, incl. cert chains and rotation (issue #888).';
 COMMENT ON TABLE contract_signatures IS
     'Stored contract signatures with algorithm, validity window, and verification metadata (issue #888).';
-COMMENT ON TABLE contract_signature_revocations IS
+COMMENT ON TABLE signature_revocations IS
     'Revocation list for signing keys and individual signatures (issue #888).';

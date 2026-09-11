@@ -245,15 +245,17 @@ async fn fetch_by_functionality(
     }
 
     // Fallback: same category, sorted by interaction count
-    fetch_by_category(state, contract_uuid, limit).await.map(|items| {
-        items
-            .into_iter()
-            .map(|mut i| {
-                i.similarity_type = "functionality".to_string();
-                i
-            })
-            .collect()
-    })
+    fetch_by_category(state, contract_uuid, limit)
+        .await
+        .map(|items| {
+            items
+                .into_iter()
+                .map(|mut i| {
+                    i.similarity_type = "functionality".to_string();
+                    i
+                })
+                .collect()
+        })
 }
 
 async fn fetch_by_network(
@@ -313,23 +315,21 @@ async fn fetch_by_network(
 
 async fn resolve_contract(state: &AppState, id: &str) -> ApiResult<Uuid> {
     if let Ok(uuid) = Uuid::parse_str(id) {
-        let exists: Option<Uuid> =
-            sqlx::query_scalar("SELECT id FROM contracts WHERE id = $1")
-                .bind(uuid)
-                .fetch_optional(&state.db)
-                .await
-                .map_err(|e| ApiError::internal(format!("db error: {e}")))?;
+        let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM contracts WHERE id = $1")
+            .bind(uuid)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| ApiError::internal(format!("db error: {e}")))?;
         return exists.ok_or_else(|| {
             ApiError::not_found("CONTRACT_NOT_FOUND", format!("contract {} not found", id))
         });
     }
 
-    let uuid: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM contracts WHERE contract_id = $1")
-            .bind(id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| ApiError::internal(format!("db error: {e}")))?;
+    let uuid: Option<Uuid> = sqlx::query_scalar("SELECT id FROM contracts WHERE contract_id = $1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(format!("db error: {e}")))?;
 
     uuid.ok_or_else(|| {
         ApiError::not_found("CONTRACT_NOT_FOUND", format!("contract {} not found", id))

@@ -1,12 +1,15 @@
 #![allow(dead_code)]
 
 use crate::net::RequestBuilderExt;
+use crate::output_format;
 use anyhow::{Context, Result};
 use colored::Colorize;
+use registry_client::ContractSearchParams;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_yaml;
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
@@ -72,13 +75,21 @@ pub fn profile(
             .context("Failed to serialize profile data")?;
         fs::write(output_path, profile_json)
             .with_context(|| format!("Failed to write profile output: {}", output_path))?;
-        println!("{} Profile output written to {}", "✓".green(), output_path);
+        println!(
+            "{} Profile output written to {}",
+            "[OK]".green(),
+            output_path
+        );
     }
 
     if let Some(flamegraph_path) = flamegraph {
         generate_flame_graph_file(&profile_data, flamegraph_path)
             .with_context(|| format!("Failed to generate flame graph at {}", flamegraph_path))?;
-        println!("{} Flame graph written to {}", "✓".green(), flamegraph_path);
+        println!(
+            "{} Flame graph written to {}",
+            "[OK]".green(),
+            flamegraph_path
+        );
     }
 
     if let Some(baseline_path) = compare {
@@ -120,6 +131,60 @@ pub fn profile(
     Ok(())
 }
 
+/// Split a repeatable filter flag into individual values, so
+/// `--category a,b` and `--category a --category b` produce the same list.
+/// Trims whitespace, drops blanks, and de-duplicates while preserving order.
+fn normalize_filter_values(values: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+
+    for value in values {
+        for part in value.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            if seen.insert(part.to_string()) {
+                normalized.push(part.to_string());
+            }
+        }
+    }
+
+    normalized
+}
+
+/// Normalize network filters to their canonical lowercase names, rejecting
+/// unknown values before any request is sent so invalid input fails clearly
+/// and locally instead of silently returning unfiltered results.
+fn normalize_network_filters(values: &[String]) -> Result<Vec<String>> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+
+    for value in normalize_filter_values(values) {
+        let canonical = Network::from_str(&value)?.to_string();
+        if seen.insert(canonical.clone()) {
+            normalized.push(canonical);
+        }
+    }
+
+    Ok(normalized)
+}
+
+/// Parse a comma-separated `--networks` value into the registry's network type.
+///
+/// Shared with `contract list` so every command validates network filters
+/// identically: unknown names fail here, locally, instead of being dropped
+/// server-side and silently returning unfiltered results.
+pub(crate) fn normalize_network_list(value: Option<&str>) -> Result<Vec<registry_client::Network>> {
+    let values: Vec<String> = value.into_iter().map(str::to_string).collect();
+    let normalized = normalize_network_filters(&values)?;
+    if normalized.is_empty() {
+        return Ok(Vec::new());
+    }
+    shared_networks(&normalized)
+}
+
+/// Split a comma-separated filter into trimmed, de-duplicated values.
+pub(crate) fn normalize_list_values(value: Option<&str>) -> Vec<String> {
+    normalize_filter_values(&value.into_iter().map(str::to_string).collect::<Vec<_>>())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn search(
     api_url: &str,
@@ -135,61 +200,54 @@ pub async fn search(
 ) -> Result<()> {
     let t0 = std::time::Instant::now();
 
-    let mut params: Vec<(&str, String)> = vec![
-        ("query", query.to_string()),
-        ("limit", limit.to_string()),
-        ("offset", offset.to_string()),
-    ];
+    // Normalize before sending so comma-separated and repeated flags produce an
+    // identical request, and unknown networks fail here rather than being
+    // silently dropped server-side.
+    let networks = normalize_network_filters(&networks)?;
+    let categories =
+        normalize_filter_values(&category.map(str::to_string).into_iter().collect::<Vec<_>>());
 
+    let mut params = ContractSearchParams {
+        query: Some(query.to_string()),
+        limit: Some(limit as i64),
+        offset: Some(offset as i64),
+        ..Default::default()
+    };
     if !networks.is_empty() {
-        params.push(("networks", networks.join(",")));
+        params.networks = Some(shared_networks(&networks)?);
     } else {
-        params.push(("network", network.to_string()));
+        params.network = shared_network(&network.to_string());
     }
-
     if verified_only {
-        params.push(("verified_only", "true".to_string()));
+        params.verified_only = Some(true);
+    }
+    if !categories.is_empty() {
+        params.categories = Some(categories.clone());
+    }
+    if let Some(sort) = sort {
+        params.sort_by = parse_sort_by(sort);
     }
 
-    if let Some(cat) = category {
-        params.push(("category", cat.to_string()));
-    }
-
-    if let Some(s) = sort {
-        params.push(("sort", s.to_string()));
-    }
-
-    let url = format!("{}/api/contracts", api_url);
-    let query: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
-    let (status, body) = crate::cached_http::cached_get(&url, &query)
+    let mut page = crate::registry::client(api_url)
+        .await?
+        .list_contracts(&params)
         .await
         .context("Failed to search contracts")?;
 
-    if !status.is_success() {
-        anyhow::bail!("Search request failed with status {status}");
+    if sort.is_some_and(|value| value.trim().eq_ignore_ascii_case("name")) {
+        page.items.sort_by(|a, b| a.name.cmp(&b.name));
     }
 
-    let data: serde_json::Value = serde_json::from_str(&body).context("Invalid search response")?;
-    let items = data["items"].as_array().context("Invalid response")?;
+    let items = &page.items;
 
     if json {
-        let contracts: Vec<serde_json::Value> = items
-            .iter()
-            .map(|c| -> Result<_> {
-                let contract_id = crate::conversions::as_str(&c["contract_id"], "contract_id")?;
-                Ok(serde_json::json!({
-                    "id":          contract_id.clone(),
-                    "name":        crate::conversions::as_str(&c["name"], "name")?,
-                    "is_verified": crate::conversions::as_bool(&c["is_verified"], "is_verified")?,
-                    "network":     crate::conversions::as_str(&c["network"], "network")?,
-                    "category":    c["category"].as_str().unwrap_or(""),
-                    "links": { "detail": format!("{}/contracts/{}", api_url, contract_id) },
-                }))
-            })
-            .collect::<Result<_, _>>()?;
+        let contracts: Vec<serde_json::Value> = items.iter().map(contract_json).collect();
         println!(
             "{}",
-            serde_json::to_string_pretty(&serde_json::json!({ "contracts": contracts }))?
+            serde_json::to_string_pretty(&serde_json::json!({
+                "contracts": contracts,
+                "count": contracts.len()
+            }))?
         );
         return Ok(());
     }
@@ -201,8 +259,8 @@ pub async fn search(
     if !networks.is_empty() {
         active_filters.push(format!("network: {}", networks.join(", ")));
     }
-    if let Some(cat) = category {
-        active_filters.push(format!("category: {}", cat));
+    if !categories.is_empty() {
+        active_filters.push(format!("category: {}", categories.join(", ")));
     }
     if verified_only {
         active_filters.push("verified only".to_string());
@@ -219,7 +277,7 @@ pub async fn search(
         println!("{}", "No contracts found matching your filters.".yellow());
         println!("\n{}", "Suggestions:".bold());
         println!("  • Try a broader search query");
-        if category.is_some() {
+        if !categories.is_empty() {
             println!("  • Remove the --category filter to see all contract types");
         }
         if !networks.is_empty() {
@@ -235,32 +293,34 @@ pub async fn search(
     // Compute visible column widths from raw data (before applying ANSI codes).
     let name_w = items
         .iter()
-        .filter_map(|c| c["name"].as_str())
-        .map(|s| s.chars().count())
+        .map(|contract| contract.name.chars().count())
         .max()
         .unwrap_or(0)
         .max("Name".len());
     let net_w = items
         .iter()
-        .filter_map(|c| c["network"].as_str())
-        .map(|s| s.chars().count())
+        .map(|contract| contract.network.to_string().chars().count())
         .max()
         .unwrap_or(0)
         .max("Network".len());
     let cat_w = items
         .iter()
-        .filter_map(|c| c["category"].as_str().filter(|s| !s.is_empty()))
-        .map(|s| s.chars().count())
+        .filter_map(|contract| {
+            contract
+                .category
+                .as_deref()
+                .filter(|value| !value.is_empty())
+        })
+        .map(|value| value.chars().count())
         .max()
         .unwrap_or(0)
         .max("Category".len());
-    // "○ Unverified" is the longest possible verified cell value (12 visible chars).
-    let ver_w = "○ Unverified".chars().count();
+    // "Unverified" is the longest possible verified cell value.
+    let ver_w = "Unverified".chars().count();
     let link_prefix = format!("{}/contracts/", api_url);
     let link_w = items
         .iter()
-        .filter_map(|c| c["contract_id"].as_str())
-        .map(|id| link_prefix.len() + id.len())
+        .map(|contract| link_prefix.len() + contract.contract_id.len())
         .max()
         .unwrap_or(0)
         .max("Links".len())
@@ -268,51 +328,79 @@ pub async fn search(
 
     let mut rows: Vec<Vec<String>> = Vec::new();
     for contract in items {
-        let name = crate::conversions::as_str(&contract["name"], "name")?;
-        let contract_id = crate::conversions::as_str(&contract["contract_id"], "contract_id")?;
-        let is_verified = crate::conversions::as_bool(&contract["is_verified"], "is_verified")?;
-        let net = crate::conversions::as_str(&contract["network"], "network")?;
-        let cat = contract["category"].as_str().unwrap_or("").to_string();
-        let link = format!("{}/contracts/{}", api_url, contract_id);
-
-        let name_cell = crate::table_format::highlight_match(&name, query);
-        let net_cell = net.bright_blue().to_string();
-        let cat_display = if cat.is_empty() {
-            "—".to_string()
+        let link = format!("{}/contracts/{}", api_url, contract.contract_id);
+        let verified = if contract.is_verified {
+            "Verified".green().to_string()
         } else {
-            cat
+            "Unverified".yellow().to_string()
         };
-        let cat_cell = crate::table_format::highlight_match(&cat_display, query);
-        let ver_cell = if is_verified {
-            "✓ Verified".green().to_string()
-        } else {
-            "○ Unverified".yellow().to_string()
-        };
-        let link_cell = link.bright_black().to_string();
 
-        rows.push(vec![name_cell, net_cell, cat_cell, ver_cell, link_cell]);
+        rows.push(vec![
+            // Highlight where the query matched, as the pre-client renderer did.
+            crate::table_format::highlight_match(&contract.name, query),
+            contract.network.to_string(),
+            crate::table_format::highlight_match(
+                contract.category.as_deref().unwrap_or_default(),
+                query,
+            ),
+            verified,
+            link,
+        ]);
     }
 
-    let col_widths = [name_w, net_w, cat_w, ver_w, link_w];
-    let headers = ["Name", "Network", "Category", "Verified", "Links"];
-    print!(
-        "{}",
-        crate::table_format::render_table(&headers, &col_widths, &rows)
+    println!(
+        "{:<name_w$}  {:<net_w$}  {:<cat_w$}  {:<ver_w$}  {:<link_w$}",
+        "Name".bold(),
+        "Network".bold(),
+        "Category".bold(),
+        "Verified".bold(),
+        "Links".bold(),
     );
 
-    let elapsed_ms = t0.elapsed().as_millis();
+    for (row, contract) in rows.iter().zip(items) {
+        // Highlighted cells carry ANSI codes, so pad them by visible width
+        // rather than by byte length.
+        let name_pad = " ".repeat(name_w.saturating_sub(contract.name.chars().count()));
+        let category = contract.category.as_deref().unwrap_or_default();
+        let cat_pad = " ".repeat(cat_w.saturating_sub(category.chars().count()));
+        let verified_visible = if contract.is_verified {
+            "Verified".chars().count()
+        } else {
+            "Unverified".chars().count()
+        };
+        let verified_pad = " ".repeat(ver_w.saturating_sub(verified_visible));
+
+        println!(
+            "{}{}  {:<net_w$}  {}{}  {}{}  {:<link_w$}",
+            row[0], name_pad, row[1], row[2], cat_pad, row[3], verified_pad, row[4],
+        );
+    }
+
     println!(
-        "\n{} {} result(s) for \"{}\"  |  {}ms\n",
-        "→".cyan(),
+        "\n{} {} result(s) of {} in {:.0}ms",
+        "Found".green().bold(),
         items.len(),
-        query.bold(),
-        elapsed_ms
+        page.total,
+        t0.elapsed().as_millis()
     );
+    println!();
 
     Ok(())
 }
 
-/// Analyze two contract versions or schema files for breaking changes.
+/// Map the CLI's `--sort` values onto the API's `sort_by`.
+///
+/// `name` has no server-side equivalent, so it is applied locally to the page
+/// that comes back rather than being sent and silently ignored.
+fn parse_sort_by(value: &str) -> Option<shared::models::SortBy> {
+    match value.trim().to_lowercase().as_str() {
+        "created" | "created_at" => Some(shared::models::SortBy::CreatedAt),
+        "updated" | "updated_at" => Some(shared::models::SortBy::UpdatedAt),
+        "relevance" => Some(shared::models::SortBy::Relevance),
+        _ => None,
+    }
+}
+
 pub async fn upgrade_analyze(
     api_url: &str,
     old_id: &str,
@@ -506,58 +594,66 @@ pub async fn publish(
         .await?;
     }
 
-    let client = crate::net::client();
-    let url = format!("{}/api/contracts", api_url);
+    let network = shared_network(&network.to_string()).ok_or_else(|| {
+        anyhow::anyhow!("Invalid network: {network}. Allowed values: mainnet, testnet, futurenet")
+    })?;
 
-    let mut payload = json!({
-        "contract_id": contract_id,
-        "name": name,
-        "description": description,
-        "network": network.to_string(),
-        "category": category,
-        "tags": tags,
-        "publisher_address": publisher,
-    });
-
-    if is_cicd {
-        payload["is_cicd"] = json!(true);
-    }
+    // `wasm_hash` is required by the API; the deploy and register flows compute
+    // it from the artifact. `publish` registers an already-deployed contract
+    // from metadata alone, so it sends the field empty as it always has.
+    let request = registry_client::PublishRequest {
+        contract_id: contract_id.to_string(),
+        wasm_hash: String::new(),
+        wasm_artifact_base64: None,
+        name: name.to_string(),
+        slug: None,
+        description: description.map(str::to_string),
+        network,
+        category: category.map(str::to_string),
+        tags,
+        source_url: None,
+        publisher_address: publisher.to_string(),
+        dependencies: Vec::new(),
+        is_cicd,
+    };
 
     println!("\n{}", "Publishing contract...".bold().cyan());
 
-    let response = client
-        .post(&url)
-        .json(&payload)
-        .send_with_retry()
+    // Publishing is not idempotent by itself, so the CLI supplies a key derived
+    // from the contract identity: a retried publish (or a re-run after a lost
+    // response) replays the original result instead of conflicting.
+    let idempotency_key = publish_idempotency_key(&request);
+    let contract = crate::registry::uncached_client(api_url)
+        .await?
+        .publish_contract(&request, Some(idempotency_key))
         .await
-        .context("Failed to publish contract")?;
+        .map_err(|err| anyhow::anyhow!("Failed to publish: {err}"))?;
 
-    if !response.status().is_success() {
-        let error_text = response.text().await?;
-        anyhow::bail!("Failed to publish: {}", error_text);
-    }
-
-    let contract: serde_json::Value = response.json().await?;
-
-    println!("{}", "✓ Contract published successfully!".green().bold());
-    println!(
-        "\n{}: {}",
-        "Name".bold(),
-        crate::conversions::as_str(&contract["name"], "name")?
-    );
-    println!(
-        "{}: {}",
-        "ID".bold(),
-        crate::conversions::as_str(&contract["contract_id"], "contract_id")?
-    );
+    println!("{}", "[OK] Contract published successfully!".green().bold());
+    println!("\n{}: {}", "Name".bold(), contract.name);
+    println!("{}: {}", "ID".bold(), contract.contract_id);
     println!(
         "{}: {}",
         "Network".bold(),
-        crate::conversions::as_str(&contract["network"], "network")?.bright_blue()
+        contract.network.to_string().bright_blue()
     );
     println!();
 
     Ok(())
+}
+
+/// A key that is stable for the same contract identity on the same network, so
+/// re-running `publish` after a dropped response does not register twice.
+fn publish_idempotency_key(request: &registry_client::PublishRequest) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(
+        format!(
+            "{}:{}:{}",
+            request.contract_id, request.network, request.publisher_address
+        )
+        .as_bytes(),
+    );
+    format!("cli-publish-{}", hex::encode(&digest[..16]))
 }
 
 fn detect_test_command(contract_dir: &Path) -> Option<String> {
@@ -739,7 +835,7 @@ pub async fn run_test_suite(options: TestSuiteOptions<'_>) -> Result<()> {
             .unwrap_or(0);
         println!(
             "{} Loaded mock config {} ({} service definitions)",
-            "✓".green(),
+            "[OK]".green(),
             mock_config,
             service_count
         );
@@ -795,7 +891,11 @@ pub async fn run_test_suite(options: TestSuiteOptions<'_>) -> Result<()> {
         });
         fs::write(report_output, serde_json::to_string_pretty(&report)?)
             .with_context(|| format!("Failed to write test report: {}", report_output))?;
-        println!("{} Test report written to {}", "✓".green(), report_output);
+        println!(
+            "{} Test report written to {}",
+            "[OK]".green(),
+            report_output
+        );
     }
 
     if let Some(profile_output) = options.profile_output {
@@ -807,7 +907,11 @@ pub async fn run_test_suite(options: TestSuiteOptions<'_>) -> Result<()> {
         });
         fs::write(profile_output, serde_json::to_string_pretty(&profile)?)
             .with_context(|| format!("Failed to write test profile: {}", profile_output))?;
-        println!("{} Test profile written to {}", "✓".green(), profile_output);
+        println!(
+            "{} Test profile written to {}",
+            "[OK]".green(),
+            profile_output
+        );
     }
 
     let teardown_result = if let Some(teardown_hook) = options.teardown_hook {
@@ -869,9 +973,9 @@ pub async fn run_contract_tests(
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     if output.status.success() {
-        println!("{} Tests passed in {:.2}s", "✓".green(), duration);
+        println!("{} Tests passed in {:.2}s", "[OK]".green(), duration);
     } else {
-        println!("{} Tests failed in {:.2}s", "✗".red(), duration);
+        println!("{} Tests failed in {:.2}s", "[ERR]".red(), duration);
 
         if !stdout.trim().is_empty() {
             println!("\n{}\n{}", "Test output:".bold(), stdout);
@@ -912,14 +1016,14 @@ pub async fn run_contract_tests(
                 } else {
                     println!(
                         "  {} Threshold met ({:.2}% >= {:.2}%)",
-                        "✓".green(),
+                        "[OK]".green(),
                         percent,
                         coverage_threshold
                     );
                 }
             }
         } else {
-            println!("  {} Coverage metrics unavailable.", "⚠".yellow());
+            println!("  {} Coverage metrics unavailable.", "[WARN]".yellow());
             if require_coverage {
                 anyhow::bail!(
                     "Coverage is required but could not be collected. Install cargo-tarpaulin or provide coverage-enabled test tooling."
@@ -988,38 +1092,47 @@ pub async fn contract_list(
     limit: usize,
     offset: usize,
     network: Option<crate::config::Network>,
+    networks: Vec<String>,
     category: Option<String>,
     format: &str,
 ) -> Result<()> {
-    let mut query: Vec<(&str, String)> = vec![
-        ("page_size", limit.to_string()),
-        ("page", ((offset / limit) + 1).to_string()),
-    ];
+    // Normalize before sending so comma-separated `--networks`/`--category` and
+    // the singular `--network` flag produce the same request shape as `search`,
+    // and unknown networks fail here rather than being silently dropped server-side.
+    let networks = normalize_network_filters(&networks)?;
+    let categories = normalize_filter_values(&category.into_iter().collect::<Vec<_>>());
 
-    if let Some(net) = network {
-        query.push(("network", net.to_string()));
+    let mut params = ContractSearchParams {
+        limit: Some(limit as i64),
+        offset: Some(offset as i64),
+        ..Default::default()
+    };
+    if !networks.is_empty() {
+        params.networks = Some(shared_networks(&networks)?);
+    } else if let Some(net) = network {
+        params.network = shared_network(&net.to_string());
     }
-    if let Some(cat) = category {
-        query.push(("category", cat));
+    if !categories.is_empty() {
+        params.categories = Some(categories.clone());
     }
 
-    let url = format!("{}/api/contracts", api_url.trim_end_matches('/'));
-    let (status, body) = crate::cached_http::cached_get(&url, &query)
+    let page = crate::registry::client(api_url)
+        .await?
+        .list_contracts(&params)
         .await
         .context("Failed to list contracts")?;
 
-    if !status.is_success() {
-        anyhow::bail!("API returned error: {status}");
-    }
-
-    let data: serde_json::Value =
-        serde_json::from_str(&body).context("Invalid list response")?;
-    let items = data["items"]
-        .as_array()
-        .context("Invalid response format")?;
+    let items = &page.items;
 
     if format == "json" {
-        println!("{}", serde_json::to_string_pretty(&data)?);
+        let contracts: Vec<serde_json::Value> = items.iter().map(contract_json).collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "contracts": contracts,
+                "count": contracts.len()
+            }))?
+        );
         return Ok(());
     }
 
@@ -1028,11 +1141,11 @@ pub async fn contract_list(
         for item in items {
             println!(
                 "{},{},{},{},{}",
-                item["contract_id"].as_str().unwrap_or(""),
-                item["name"].as_str().unwrap_or(""),
-                item["network"].as_str().unwrap_or(""),
-                item["is_verified"].as_bool().unwrap_or(false),
-                item["category"].as_str().unwrap_or("")
+                item.contract_id,
+                item.name,
+                item.network,
+                item.is_verified,
+                item.category.as_deref().unwrap_or("")
             );
         }
         return Ok(());
@@ -1057,10 +1170,7 @@ pub async fn contract_list(
     println!("{}", "-".repeat(100));
 
     for item in items {
-        let contract_id = item["contract_id"].as_str().unwrap_or("");
-        let name = item["name"].as_str().unwrap_or("");
-        let net = item["network"].as_str().unwrap_or("");
-        let verified = if item["is_verified"].as_bool().unwrap_or(false) {
+        let verified = if item.is_verified {
             "Yes".green()
         } else {
             "No".red()
@@ -1068,24 +1178,63 @@ pub async fn contract_list(
 
         println!(
             "{:<45} {:<25} {:<10} {:<10}",
-            contract_id,
-            name.truncate_str(23),
-            net,
+            item.contract_id,
+            item.name.truncate_str(23),
+            item.network.to_string(),
             verified
         );
     }
 
-    let total = data["total"].as_u64().unwrap_or(0);
     println!("{}", "-".repeat(100));
     println!(
         "Showing {}-{} of {} contracts",
         offset + 1,
         offset + items.len(),
-        total
+        page.total
     );
     println!();
 
     Ok(())
+}
+
+/// The JSON projection both `list` and `search` emit for a contract.
+fn contract_json(contract: &registry_client::Contract) -> serde_json::Value {
+    let tags: Vec<&str> = contract.tags.iter().map(|tag| tag.name.as_str()).collect();
+    serde_json::json!({
+        "id": contract.id.to_string(),
+        "name": contract.name,
+        "contract_id": contract.contract_id,
+        "network": contract.network.to_string(),
+        "category": contract.category.as_deref().unwrap_or(""),
+        "is_verified": contract.is_verified,
+        "health_score": contract.health_score,
+        "created_at": contract.created_at.to_rfc3339(),
+        "tags": tags,
+    })
+}
+
+/// Canonical network name to the registry's `Network`. Unknown values are
+/// rejected by `normalize_network_filters` before reaching here.
+fn shared_network(value: &str) -> Option<registry_client::Network> {
+    match value.trim().to_lowercase().as_str() {
+        "mainnet" => Some(registry_client::Network::Mainnet),
+        "testnet" => Some(registry_client::Network::Testnet),
+        "futurenet" => Some(registry_client::Network::Futurenet),
+        _ => None,
+    }
+}
+
+fn shared_networks(values: &[String]) -> Result<Vec<registry_client::Network>> {
+    values
+        .iter()
+        .map(|value| {
+            shared_network(value).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Invalid network: {value}. Allowed values: mainnet, testnet, futurenet"
+                )
+            })
+        })
+        .collect()
 }
 
 pub async fn contract_info(api_url: &str, id: &str) -> Result<()> {
@@ -1183,6 +1332,7 @@ pub async fn list(
         limit,
         0,
         Some(network),
+        Vec::new(),
         None,
         if json { "json" } else { "table" },
     )
@@ -1293,7 +1443,9 @@ pub async fn migrate(
         );
         println!(
             "{}",
-            "✓ Migration simulation complete (dry-run).".green().bold()
+            "[OK] Migration simulation complete (dry-run)."
+                .green()
+                .bold()
         );
         return Ok(());
     }
@@ -1422,7 +1574,7 @@ pub async fn export(
     })
     .await?;
 
-    println!("{}", "✓ Export complete!".green().bold());
+    println!("{}", "[OK] Export complete!".green().bold());
     println!(
         "  {}: {}",
         "Format".bold(),
@@ -1502,7 +1654,7 @@ pub async fn import(
 
     println!(
         "{}",
-        "✓ Import complete — integrity verified!".green().bold()
+        "[OK] Import complete — integrity verified!".green().bold()
     );
     println!(
         "  {}: {}",
@@ -1557,7 +1709,7 @@ pub async fn patch_create(
 
     let patch = PatchManager::create(api_url, version, hash, severity, rollout).await?;
 
-    println!("{}", "✓ Patch created!".green().bold());
+    println!("{}", "[OK] Patch created!".green().bold());
     println!("  {}: {}", "ID".bold(), patch.id);
     println!("  {}: {}", "Target Version".bold(), patch.target_version);
     println!(
@@ -1575,7 +1727,7 @@ pub async fn patch_create(
     if matches!(patch.severity, Severity::Critical | Severity::High) {
         println!(
             "  {} {}",
-            "⚠".red(),
+            "[WARN]".red(),
             format!(
                 "{} severity — immediate action recommended",
                 severity_colored(&patch.severity)
@@ -1627,7 +1779,7 @@ pub async fn trust_score(api_url: &str, contract_id: &str, network: Network) -> 
     println!("{}", "─".repeat(56));
 
     // ── Factor breakdown ──────────────────────────────────────────────────────
-    println!("\n  {} Factor Breakdown\n", "📊".bold());
+    println!("\n  {}\n", "Factor Breakdown".bold());
 
     if let Some(factors) = data["factors"].as_array() {
         for factor in factors {
@@ -1647,7 +1799,7 @@ pub async fn trust_score(api_url: &str, contract_id: &str, network: Network) -> 
     }
 
     // ── Weight documentation ──────────────────────────────────────────────────
-    println!("\n  {} Score Weights\n", "⚖️".bold());
+    println!("\n  {}\n", "Score Weights".bold());
     if let Ok(weights) = crate::conversions::as_object(&data["weights"], "weights") {
         for (k, v) in weights {
             let max_pts = crate::conversions::as_f64(v, "weight_value")?;
@@ -1668,7 +1820,7 @@ pub async fn patch_notify(api_url: &str, patch_id: &str) -> Result<()> {
 
     println!(
         "\n{} {} patch for version {}",
-        "⚠".bold(),
+        "[WARN]".bold(),
         severity_colored(&patch.severity),
         patch.target_version.bold()
     );
@@ -1703,7 +1855,7 @@ pub async fn patch_apply(api_url: &str, contract_id: &str, patch_id: &str) -> Re
 
     let audit = PatchManager::apply(api_url, contract_id, patch_id).await?;
 
-    println!("{}", "✓ Patch applied successfully!".green().bold());
+    println!("{}", "[OK] Patch applied successfully!".green().bold());
     println!("  {}: {}", "Contract".bold(), audit.contract_id);
     println!("  {}: {}", "Patch".bold(), audit.patch_id);
     println!("  {}: {}\n", "Applied At".bold(), audit.applied_at);
@@ -1826,7 +1978,7 @@ pub async fn run_tests(
     println!("\n{}", "Test Results:".bold().green());
     println!("{}", "=".repeat(80).cyan());
 
-    let status_icon = if result.passed { "✓" } else { "✗" };
+    let status_icon = if result.passed { "[OK]" } else { "[ERR]" };
 
     println!(
         "\n{} {} {} ({:.2}ms)",
@@ -1844,7 +1996,7 @@ pub async fn run_tests(
 
     println!("\n{}", "Step Results:".bold());
     for (i, step) in result.steps.iter().enumerate() {
-        let step_icon = if step.passed { "✓" } else { "✗" };
+        let step_icon = if step.passed { "[OK]" } else { "[ERR]" };
 
         println!(
             "  {}. {} {} ({:.2}ms)",
@@ -1877,16 +2029,16 @@ pub async fn run_tests(
         println!("  Coverage: {:.2}%", result.coverage.coverage_percent);
 
         if result.coverage.coverage_percent < 80.0 {
-            println!("  {} Low coverage detected!", "⚠".yellow());
+            println!("  {} Low coverage detected!", "[WARN]".yellow());
         }
     }
 
     let passed = result.passed;
     if let Some(junit_path) = junit_output {
-        test_framework::generate_junit_xml(&[result], Path::new(junit_path))?;
+        test_framework::generate_junit_xml(&[result.clone()], Path::new(junit_path))?;
         println!(
             "\n{} JUnit XML report exported to: {}",
-            "✓".green(),
+            "[OK]".green(),
             junit_path
         );
     }
@@ -1894,7 +2046,7 @@ pub async fn run_tests(
     if total_time.as_secs() > 5 {
         println!(
             "\n{} Test execution took {:.2}s (target: <5s)",
-            "⚠".yellow(),
+            "[WARN]".yellow(),
             total_time.as_secs_f64()
         );
     }
@@ -1945,6 +2097,115 @@ mod tests {
             .unwrap_or_default()
             .contains("Invalid migration response: missing id"));
     }
+
+    // ── Publish idempotency-key tests ───────────────────────────────────────
+
+    const VALID_CONTRACT_ID: &str = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+    // Strkeys are checksummed, so this is a real address rather than the contract id
+    // above with its leading character swapped.
+    const VALID_PUBLISHER: &str = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ";
+
+    fn publish_request(
+        contract_id: &str,
+        network: registry_client::Network,
+        publisher: &str,
+    ) -> registry_client::PublishRequest {
+        registry_client::PublishRequest {
+            contract_id: contract_id.to_string(),
+            wasm_hash: String::new(),
+            wasm_artifact_base64: None,
+            name: "My Contract".to_string(),
+            slug: None,
+            description: None,
+            network,
+            category: None,
+            tags: Vec::new(),
+            source_url: None,
+            publisher_address: publisher.to_string(),
+            dependencies: Vec::new(),
+            is_cicd: false,
+        }
+    }
+
+    #[test]
+    fn publish_idempotency_key_is_stable_for_same_identity() {
+        let key = super::publish_idempotency_key(&publish_request(
+            VALID_CONTRACT_ID,
+            registry_client::Network::Testnet,
+            VALID_PUBLISHER,
+        ));
+
+        assert!(key.starts_with("cli-publish-"), "unexpected key: {key}");
+        assert_eq!(
+            key,
+            super::publish_idempotency_key(&publish_request(
+                VALID_CONTRACT_ID,
+                registry_client::Network::Testnet,
+                VALID_PUBLISHER,
+            )),
+            "the same contract identity must always produce the same key"
+        );
+    }
+
+    /// The retry-replay guarantee depends on the key covering *only* the contract
+    /// identity: a re-run that edits metadata must still replay the original publish
+    /// rather than registering a second contract.
+    #[test]
+    fn publish_idempotency_key_ignores_non_identity_metadata() {
+        let base = publish_request(
+            VALID_CONTRACT_ID,
+            registry_client::Network::Testnet,
+            VALID_PUBLISHER,
+        );
+
+        let mut edited = base.clone();
+        edited.name = "Renamed Contract".to_string();
+        edited.description = Some("now with a description".to_string());
+        edited.category = Some("Token".to_string());
+        edited.tags = vec!["defi".to_string()];
+        edited.is_cicd = true;
+
+        assert_eq!(
+            super::publish_idempotency_key(&base),
+            super::publish_idempotency_key(&edited),
+            "metadata outside the contract identity must not change the key"
+        );
+    }
+
+    #[test]
+    fn publish_idempotency_key_separates_distinct_identities() {
+        let base = super::publish_idempotency_key(&publish_request(
+            VALID_CONTRACT_ID,
+            registry_client::Network::Testnet,
+            VALID_PUBLISHER,
+        ));
+
+        let other_network = super::publish_idempotency_key(&publish_request(
+            VALID_CONTRACT_ID,
+            registry_client::Network::Mainnet,
+            VALID_PUBLISHER,
+        ));
+        let other_publisher = super::publish_idempotency_key(&publish_request(
+            VALID_CONTRACT_ID,
+            registry_client::Network::Testnet,
+            "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        ));
+        let other_contract = super::publish_idempotency_key(&publish_request(
+            "CBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+            registry_client::Network::Testnet,
+            VALID_PUBLISHER,
+        ));
+
+        assert_ne!(base, other_network, "network must be part of the identity");
+        assert_ne!(
+            base, other_publisher,
+            "publisher must be part of the identity"
+        );
+        assert_ne!(
+            base, other_contract,
+            "contract id must be part of the identity"
+        );
+    }
 }
 pub fn incident_trigger(contract_id: &str, severity_str: &str) -> Result<()> {
     use crate::incident::{IncidentManager, IncidentSeverity};
@@ -1972,7 +2233,7 @@ pub fn incident_trigger(contract_id: &str, severity_str: &str) -> Result<()> {
     if mgr.is_halted(contract_id) {
         println!(
             "\n  {} {}",
-            "⚡ CIRCUIT BREAKER ENGAGED —".red().bold(),
+            "CIRCUIT BREAKER ENGAGED —".red().bold(),
             format!("contract {} is now halted", contract_id).red()
         );
     }
@@ -2082,7 +2343,7 @@ pub async fn config_set(
 
     println!(
         "{}",
-        "✓ Configuration published successfully!".green().bold()
+        "[OK] Configuration published successfully!".green().bold()
     );
     println!("  {}: {}", "Environment".bold(), environment);
     println!(
@@ -2182,7 +2443,9 @@ pub async fn config_rollback(
 
     println!(
         "{}",
-        "✓ Configuration rolled back successfully!".green().bold()
+        "[OK] Configuration rolled back successfully!"
+            .green()
+            .bold()
     );
     println!("  {}: {}", "Environment".bold(), environment);
     println!(
@@ -2779,7 +3042,7 @@ pub fn incident_update(incident_id_str: &str, state_str: &str) -> Result<()> {
     ) {
         println!(
             "\n  {} {}",
-            "✓".green(),
+            "[OK]".green(),
             "Circuit breaker cleared — registry interactions for this contract resumed.".green()
         );
     }
@@ -2834,7 +3097,7 @@ pub async fn scan_deps(
     let findings = crate::conversions::as_array(&report["findings"], "findings")?;
 
     if findings.is_empty() {
-        println!("{}", "✓ No vulnerabilities found!".green().bold());
+        println!("{}", "[OK] No vulnerabilities found!".green().bold());
         return Ok(());
     }
 
@@ -2884,6 +3147,7 @@ pub async fn scan_deps(
 #[cfg(test)]
 mod flamegraph_and_network_tests {
     use super::*;
+    use crate::profiler;
     use std::collections::HashMap;
     use std::fs;
     use std::time::Duration;
@@ -3109,7 +3373,7 @@ pub async fn validate_call(
     if valid {
         println!(
             "\n{} {}",
-            "✓".green().bold(),
+            "[OK]".green().bold(),
             "Call is valid!".green().bold()
         );
 
@@ -3135,12 +3399,16 @@ pub async fn validate_call(
                 println!("\n{}", "Warnings:".bold().yellow());
                 for warning in warnings {
                     let msg = crate::conversions::as_str(&warning["message"], "message")?;
-                    println!("  {} {}", "⚠".yellow(), msg);
+                    println!("  {} {}", "[WARN]".yellow(), msg);
                 }
             }
         }
     } else {
-        println!("\n{} {}", "✗".red().bold(), "Call is invalid!".red().bold());
+        println!(
+            "\n{} {}",
+            "[ERR]".red().bold(),
+            "Call is invalid!".red().bold()
+        );
 
         // Show errors
         if let Some(errors) = data["errors"].as_array() {
@@ -3153,13 +3421,13 @@ pub async fn validate_call(
                 if let Some(f) = field {
                     println!(
                         "  {} [{}] {}: {}",
-                        "✗".red(),
+                        "[ERR]".red(),
                         code.bright_black(),
                         f.bold(),
                         msg
                     );
                 } else {
-                    println!("  {} [{}] {}", "✗".red(), code.bright_black(), msg);
+                    println!("  {} [{}] {}", "[ERR]".red(), code.bright_black(), msg);
                 }
 
                 if let Some(expected) = error["expected"].as_str() {
@@ -3217,7 +3485,7 @@ pub async fn generate_bindings(
         fs::write(output_path, &bindings)?;
         println!(
             "\n{} {} bindings written to: {}",
-            "✓".green().bold(),
+            "[OK]".green().bold(),
             language,
             output_path
         );
@@ -3590,7 +3858,7 @@ pub fn doc(contract_path: &str, output: &str) -> Result<()> {
     );
 
     fs::write(output, content)?;
-    println!("{} Documentation saved to: {}", "✓".green(), output);
+    println!("{} Documentation saved to: {}", "[OK]".green(), output);
 
     Ok(())
 }
@@ -3720,7 +3988,7 @@ pub fn openapi(contract_path: &str, output: &str, format: &str) -> Result<()> {
             let yaml = contract_abi::to_yaml(&doc).map_err(|e| anyhow::anyhow!("{}", e))?;
             let yaml_path = output.trim_end_matches(".pdf").to_string() + ".yaml";
             fs::write(&yaml_path, &yaml)?;
-            println!("{} Wrote {}", "✓".green(), yaml_path);
+            println!("{} Wrote {}", "[OK]".green(), yaml_path);
             return Ok(());
         }
         _ => anyhow::bail!(
@@ -3729,7 +3997,7 @@ pub fn openapi(contract_path: &str, output: &str, format: &str) -> Result<()> {
         ),
     };
     fs::write(output, content)?;
-    println!("{} Documentation saved to: {}", "✓".green(), output);
+    println!("{} Documentation saved to: {}", "[OK]".green(), output);
     Ok(())
 }
 
@@ -3739,7 +4007,7 @@ pub fn sla_record(id: &str, uptime: f64, latency: f64, error_rate: f64) -> Resul
     println!("Uptime: {:.2}%", uptime);
     println!("Latency: {:.2}ms", latency);
     println!("Error Rate: {:.2}%", error_rate);
-    println!("{} SLA metrics recorded", "✓".green());
+    println!("{} SLA metrics recorded", "[OK]".green());
 
     Ok(())
 }
@@ -3775,7 +4043,7 @@ pub async fn snapshot_create(api_url: &str, contract_id: &str) -> Result<()> {
 
     let snapshot: serde_json::Value = response.json().await?;
 
-    println!("{}", "✓ Snapshot created successfully!".green().bold());
+    println!("{}", "[OK] Snapshot created successfully!".green().bold());
     println!(
         "  {}: {}",
         "ID".bold(),
@@ -3969,7 +4237,10 @@ pub async fn contract_stats(
     }
 
     let mut stats: serde_json::Value = response.json().await?;
-    if let Some(top) = stats.get_mut("top_contracts").and_then(serde_json::Value::as_array_mut) {
+    if let Some(top) = stats
+        .get_mut("top_contracts")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         top.truncate(top_n);
     }
 
@@ -3998,6 +4269,8 @@ pub async fn stats(
     format: &str,
     output: Option<&str>,
 ) -> Result<()> {
+    let fmt = output_format::validate_format(format).unwrap_or(output_format::OutputFormat::Table);
+
     let client = crate::net::client();
     let url = format!("{}/api/stats?timeframe={}", api_url, timeframe);
 
@@ -4017,16 +4290,19 @@ pub async fn stats(
     let stats: serde_json::Value = response.json().await?;
 
     // Format output
-    let output_str = match format {
-        "json" => serde_json::to_string_pretty(&stats)?,
-        "yaml" => serde_yaml::to_string(&stats)?,
-        "table" => format_stats_table(&stats),
-        _ => anyhow::bail!("Invalid format: {}. Use table, json, or yaml", format),
+    let output_str = match fmt {
+        output_format::OutputFormat::Json => serde_json::to_string_pretty(&stats)?,
+        output_format::OutputFormat::Yaml => serde_yaml::to_string(&stats)?,
+        output_format::OutputFormat::Table => format_stats_table(&stats),
+        output_format::OutputFormat::Csv => {
+            let flat = serde_json::json!([stats]);
+            output_format::render_csv(&flat)?
+        }
     };
 
     if let Some(path) = output {
         fs::write(path, &output_str)?;
-        println!("{} Stats written to {}", "✓".green(), path);
+        println!("{} Stats written to {}", "[OK]".green(), path);
     } else {
         println!("{}", output_str);
     }
@@ -4155,7 +4431,10 @@ fn format_stats_csv(stats: &serde_json::Value) -> Result<String> {
         }
     }
 
-    if let Some(networks) = stats.get("network_stats").and_then(serde_json::Value::as_array) {
+    if let Some(networks) = stats
+        .get("network_stats")
+        .and_then(serde_json::Value::as_array)
+    {
         for network in networks {
             writer.write_record([
                 "network",
@@ -4190,14 +4469,21 @@ fn format_stats_csv(stats: &serde_json::Value) -> Result<String> {
         }
     }
 
-    if let Some(top) = stats.get("top_contracts").and_then(serde_json::Value::as_array) {
+    if let Some(top) = stats
+        .get("top_contracts")
+        .and_then(serde_json::Value::as_array)
+    {
         for contract in top {
             writer.write_record([
                 "top_contract",
                 contract
                     .get("name")
                     .and_then(serde_json::Value::as_str)
-                    .or_else(|| contract.get("contract_id").and_then(serde_json::Value::as_str))
+                    .or_else(|| {
+                        contract
+                            .get("contract_id")
+                            .and_then(serde_json::Value::as_str)
+                    })
                     .unwrap_or("unknown"),
                 &contract
                     .get("interaction_count")

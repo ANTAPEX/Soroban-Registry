@@ -32,11 +32,14 @@ fn options() -> HttpCacheOptions {
     CACHE_OPTS.get().copied().unwrap_or_default()
 }
 
+/// The per-invocation cache settings, for callers that do their own fetching —
+/// e.g. the shared registry client's cache hook in [`crate::registry`].
+pub fn cache_options() -> HttpCacheOptions {
+    options()
+}
+
 /// Perform a GET request, returning cached body when available.
-pub async fn cached_get(
-    url: &str,
-    query: &[(&str, String)],
-) -> Result<(StatusCode, String)> {
+pub async fn cached_get(url: &str, query: &[(&str, String)]) -> Result<(StatusCode, String)> {
     let opts = options();
     let cache_key = cache::http_cache_key(url, query);
 
@@ -45,7 +48,7 @@ pub async fn cached_get(
             if opts.verbose >= 1 {
                 eprintln!(
                     "{} cache hit (expires in {}s): {}",
-                    "◀".cyan(),
+                    "[CACHE]".cyan(),
                     entry.expires_in().unwrap_or(0),
                     truncate_key(&cache_key)
                 );
@@ -56,7 +59,11 @@ pub async fn cached_get(
             log::debug!("Cache miss: {}", cache_key);
         }
     } else if opts.verbose >= 1 {
-        eprintln!("{} cache bypassed: {}", "↷".yellow(), truncate_key(&cache_key));
+        eprintln!(
+            "{} cache bypassed: {}",
+            "[CACHE]".yellow(),
+            truncate_key(&cache_key)
+        );
     }
 
     let client = crate::net::client();
@@ -73,7 +80,11 @@ pub async fn cached_get(
     if !opts.no_cache && status.is_success() {
         cache::set_http_entry(&cache_key, &body)?;
         if opts.verbose >= 1 {
-            eprintln!("{} cached response: {}", "▶".cyan(), truncate_key(&cache_key));
+            eprintln!(
+                "{} cached response: {}",
+                "[CACHE]".cyan(),
+                truncate_key(&cache_key)
+            );
         }
     }
 

@@ -68,7 +68,10 @@ pub fn parse_network_map(raw: &[String]) -> Result<HashMap<String, String>> {
             .with_context(|| format!("invalid --network-map '{}'; expected from=to", item))?;
         let from = from.trim().to_ascii_lowercase();
         let to = to.trim().to_ascii_lowercase();
-        anyhow::ensure!(!from.is_empty() && !to.is_empty(), "network-map keys cannot be empty");
+        anyhow::ensure!(
+            !from.is_empty() && !to.is_empty(),
+            "network-map keys cannot be empty"
+        );
         map.insert(from, to);
     }
     Ok(map)
@@ -197,7 +200,11 @@ pub async fn run(opts: ImportOptions<'_>) -> Result<()> {
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("unknown");
-        if ext == "gz" || ext == "tar" { "archive" } else { ext }
+        if ext == "gz" || ext == "tar" {
+            "archive"
+        } else {
+            ext
+        }
     });
 
     let started = Instant::now();
@@ -240,7 +247,11 @@ pub async fn run(opts: ImportOptions<'_>) -> Result<()> {
                 "{}",
                 "✓ Import complete — integrity verified!".green().bold()
             );
-            println!("  {}: {}", "Contract".bold(), manifest.contract_id.bright_black());
+            println!(
+                "  {}: {}",
+                "Contract".bold(),
+                manifest.contract_id.bright_black()
+            );
             println!("  {}: {}", "Name".bold(), manifest.name);
             if let Some(n) = opts.network_flag {
                 println!("  {}: {}", "Network".bold(), n.bright_blue());
@@ -322,7 +333,9 @@ fn parse_csv(path: &Path) -> Result<Vec<ImportPayload>> {
             tags,
             wasm_hash: row.wasm_hash,
             source_url: row.source_url,
-            publisher_address: row.publisher_address.unwrap_or_else(|| "Unknown".to_string()),
+            publisher_address: row
+                .publisher_address
+                .unwrap_or_else(|| "Unknown".to_string()),
         });
     }
 
@@ -411,9 +424,16 @@ async fn run_bulk_import(
             for e in &errors {
                 eprintln!("  {} {}", "✗".red(), e);
             }
-            bail!("Validation failed with {} error(s). Fix the input file and retry.", errors.len());
+            bail!(
+                "Validation failed with {} error(s). Fix the input file and retry.",
+                errors.len()
+            );
         }
-        println!("{} All {} records passed validation.", "✓".green(), records.len());
+        println!(
+            "{} All {} records passed validation.",
+            "✓".green(),
+            records.len()
+        );
     }
 
     // 3. Print header
@@ -447,7 +467,10 @@ async fn run_bulk_import(
             );
         }
         println!();
-        println!("{}", "✓ Dry-run complete. No data was written.".yellow().bold());
+        println!(
+            "{}",
+            "✓ Dry-run complete. No data was written.".yellow().bold()
+        );
         return Ok(());
     }
 
@@ -472,11 +495,7 @@ async fn run_bulk_import(
         );
         let _ = std::io::stdout().flush();
 
-        let response = client
-            .post(&post_url)
-            .json(payload)
-            .send_with_retry()
-            .await;
+        let response = client.post(&post_url).json(payload).send_with_retry().await;
 
         let result = match response {
             Ok(resp) => {
@@ -535,21 +554,20 @@ async fn run_bulk_import(
 
     // 8. Write report file if requested
     if let Some(ref report_path) = opts.report_output {
-        let json = serde_json::to_string_pretty(&summary)
-            .context("Failed to serialise import summary")?;
+        let json =
+            serde_json::to_string_pretty(&summary).context("Failed to serialise import summary")?;
         fs::write(report_path, &json)
             .with_context(|| format!("Failed to write report to {}", report_path))?;
-        println!(
-            "  {} Report written to {}",
-            "→".cyan(),
-            report_path.bold()
-        );
+        println!("  {} Report written to {}", "→".cyan(), report_path.bold());
     }
 
     // 9. Return error if any failures occurred (non-atomic)
     let failed = summary.failed;
     if failed > 0 {
-        bail!("Import completed with {} failure(s). See summary above.", failed);
+        bail!(
+            "Import completed with {} failure(s). See summary above.",
+            failed
+        );
     }
 
     Ok(())
@@ -640,7 +658,12 @@ async fn rollback_imported(results: &[ImportResult], client: &reqwest::Client, a
                 );
             }
             Err(e) => {
-                eprintln!("  {} {} rollback error: {}", "✗".red(), result.contract_id, e);
+                eprintln!(
+                    "  {} {} rollback error: {}",
+                    "✗".red(),
+                    result.contract_id,
+                    e
+                );
             }
         }
     }
@@ -661,10 +684,22 @@ fn build_summary(
         atomic: opts.atomic,
         on_duplicate: opts.on_duplicate.to_string(),
         total: results.len(),
-        imported: results.iter().filter(|r| r.status == ImportStatus::Imported).count(),
-        skipped: results.iter().filter(|r| r.status == ImportStatus::Skipped).count(),
-        updated: results.iter().filter(|r| r.status == ImportStatus::Updated).count(),
-        failed: results.iter().filter(|r| r.status == ImportStatus::Failed).count(),
+        imported: results
+            .iter()
+            .filter(|r| r.status == ImportStatus::Imported)
+            .count(),
+        skipped: results
+            .iter()
+            .filter(|r| r.status == ImportStatus::Skipped)
+            .count(),
+        updated: results
+            .iter()
+            .filter(|r| r.status == ImportStatus::Updated)
+            .count(),
+        failed: results
+            .iter()
+            .filter(|r| r.status == ImportStatus::Failed)
+            .count(),
         duration_ms,
         results: results.to_vec(),
     }
@@ -672,7 +707,10 @@ fn build_summary(
 
 fn print_summary(s: &ImportSummary) {
     println!();
-    println!("{}", "─── Import Summary ───────────────────────────────────".cyan());
+    println!(
+        "{}",
+        "─── Import Summary ───────────────────────────────────".cyan()
+    );
     println!("  {:<16} {}", "Total records:".bold(), s.total);
     println!(
         "  {:<16} {}",
@@ -722,7 +760,9 @@ fn print_summary(s: &ImportSummary) {
     if s.failed == 0 {
         println!(
             "{}",
-            "✓ Import complete — all records processed successfully!".green().bold()
+            "✓ Import complete — all records processed successfully!"
+                .green()
+                .bold()
         );
     } else {
         println!(

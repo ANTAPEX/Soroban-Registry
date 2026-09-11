@@ -201,12 +201,15 @@ ALTER TABLE webhook_configurations
 -- Notification Templates
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- `notification_templates` already exists (created in 044_add_disaster_recovery_tables
--- with columns name/subject/message_template/channel) and is the table
--- notification_handlers.rs actually queries ("SELECT * FROM notification_templates
--- WHERE name = $1"), matching the seed INSERT further down in this same file.
--- The richer notification_type-keyed redefinition that used to be here was a
--- duplicate that collided with it and was never read by any query — removed.
+-- NOTE: `notification_templates` is already created by migration
+-- 044_add_disaster_recovery_tables.sql with columns
+-- (name, subject, message_template, channel). Re-creating it here failed with
+-- "relation \"notification_templates\" already exists", and the definition that
+-- previously lived here declared an entirely different, unused schema (the seed
+-- INSERT further down, the backend in notification_handlers.rs, and migration
+-- 069 all use the 044 columns). The duplicate CREATE TABLE and its indexes on
+-- columns that don't exist in the 044 table have been removed; this migration
+-- now reuses the existing table (see the seed INSERT below).
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Batch Notification Processing

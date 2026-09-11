@@ -116,11 +116,7 @@ fn simulate_deployment(
     Ok(())
 }
 
-pub fn deploy_to_network(
-    wasm: &str,
-    network: &str,
-    signer: &str,
-) -> Result<String> {
+pub fn deploy_to_network(wasm: &str, network: &str, signer: &str) -> Result<String> {
     let mut args = vec![
         "contract",
         "deploy",

@@ -14,10 +14,20 @@ fn base(api_url: &str) -> String {
 }
 
 /// `soroban-registry api-key create [--expires <when>] [--scopes a,b,c] [--json]`
-pub async fn create(api_url: &str, expires: Option<&str>, scopes: Option<&str>, json: bool) -> Result<()> {
+pub async fn create(
+    api_url: &str,
+    expires: Option<&str>,
+    scopes: Option<&str>,
+    json: bool,
+) -> Result<()> {
     let client = crate::net::client();
     let scope_list: Vec<String> = scopes
-        .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+        .map(|s| {
+            s.split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect()
+        })
         .unwrap_or_default();
 
     let body = json!({ "expires": expires, "scopes": scope_list });
@@ -41,7 +51,10 @@ pub async fn create(api_url: &str, expires: Option<&str>, scopes: Option<&str>, 
     println!("{} API key created", "✓".green().bold());
     if let Some(key) = value.get("key").and_then(Value::as_str) {
         println!("  key:     {}", key.yellow());
-        println!("  {}", "store this now — it will not be shown again".dimmed());
+        println!(
+            "  {}",
+            "store this now — it will not be shown again".dimmed()
+        );
     }
     if let Some(id) = value.get("id").and_then(Value::as_str) {
         println!("  id:      {}", id);
@@ -70,7 +83,11 @@ pub async fn list(api_url: &str, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&value)?);
         return Ok(());
     }
-    let keys = value.get("keys").and_then(Value::as_array).cloned().unwrap_or_default();
+    let keys = value
+        .get("keys")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     if keys.is_empty() {
         println!("{}", "No API keys.".dimmed());
         return Ok(());
@@ -78,12 +95,25 @@ pub async fn list(api_url: &str, json: bool) -> Result<()> {
     println!("{}", "API keys:".bold());
     for k in keys {
         let id = k.get("id").and_then(Value::as_str).unwrap_or("?");
-        let scopes = k.get("scopes").and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(","))
+        let scopes = k
+            .get("scopes")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
             .unwrap_or_default();
         let status = k.get("status").and_then(Value::as_str).unwrap_or("active");
-        let last_used = k.get("lastUsedAt").and_then(Value::as_str).unwrap_or("never");
-        println!("  {}  [{}]  scopes=[{}]  last_used={}", id, status, scopes, last_used);
+        let last_used = k
+            .get("lastUsedAt")
+            .and_then(Value::as_str)
+            .unwrap_or("never");
+        println!(
+            "  {}  [{}]  scopes=[{}]  last_used={}",
+            id, status, scopes, last_used
+        );
     }
     Ok(())
 }
@@ -94,7 +124,10 @@ pub async fn delete(api_url: &str, id: &str, revoke_only: bool, json: bool) -> R
     let url = format!("{}/{}", base(api_url), id);
     let resp = if revoke_only {
         // Revoke disables the key but keeps the audit record.
-        client.post(format!("{}/revoke", url)).send_with_retry().await
+        client
+            .post(format!("{}/revoke", url))
+            .send_with_retry()
+            .await
     } else {
         client.delete(&url).send_with_retry().await
     }
@@ -103,12 +136,25 @@ pub async fn delete(api_url: &str, id: &str, revoke_only: bool, json: bool) -> R
     let status = resp.status();
     if !status.is_success() {
         let value: Value = resp.json().await.unwrap_or(Value::Null);
-        anyhow::bail!("api-key {} failed ({}): {}", if revoke_only { "revoke" } else { "delete" }, status, value);
+        anyhow::bail!(
+            "api-key {} failed ({}): {}",
+            if revoke_only { "revoke" } else { "delete" },
+            status,
+            value
+        );
     }
     if json {
-        println!("{}", json!({ "id": id, "action": if revoke_only { "revoked" } else { "deleted" } }));
+        println!(
+            "{}",
+            json!({ "id": id, "action": if revoke_only { "revoked" } else { "deleted" } })
+        );
     } else {
-        println!("{} API key {} {}", "✓".green().bold(), id, if revoke_only { "revoked" } else { "deleted" });
+        println!(
+            "{} API key {} {}",
+            "✓".green().bold(),
+            id,
+            if revoke_only { "revoked" } else { "deleted" }
+        );
     }
     Ok(())
 }

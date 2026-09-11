@@ -69,7 +69,7 @@ pub struct CategoryRow {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CategoryResponse {
     pub id: String,
     pub name: String,
@@ -196,8 +196,8 @@ pub struct CategoryRecommendation {
 
 #[derive(Debug, Deserialize)]
 pub struct CategoryQuery {
-    network: Option<String>,
-    sort_by: Option<String>,
+    pub network: Option<String>,
+    pub sort_by: Option<String>,
 }
 
 #[utoipa::path(
@@ -241,7 +241,11 @@ pub async fn list_categories(
             COUNT(c.id) FILTER (WHERE c.created_at > NOW() - INTERVAL '24 hour') AS new_24h,
             COUNT(c.id) FILTER (WHERE c.created_at > NOW() - INTERVAL '7 day') AS trending
         FROM contract_categories cc
-        LEFT JOIN contracts c ON c.category = cc.name AND c.network = $1
+        -- Cast the network_type enum column to text: the bind param arrives as
+        -- text, and `enum = text` has no operator (Postgres 42883). Casting the
+        -- column (rather than $1::network_type) also tolerates unknown network
+        -- strings by matching nothing instead of erroring.
+        LEFT JOIN contracts c ON c.category = cc.name AND c.network::text = $1
         GROUP BY cc.id
         ORDER BY cc.is_default DESC, cc.name ASC
         "#
@@ -290,9 +294,9 @@ pub async fn list_categories(
     }
 
     // Compute recommendations (top 3 trending)
-    let mut sorted_by_trending: Vec<&CategoryResponse> = categories.iter().collect();
-    sorted_by_trending.sort_by_key(|c| -c.trending);
-    let recommendations: Vec<CategoryRecommendation> = sorted_by_trending
+    let mut by_trending: Vec<&CategoryResponse> = categories.iter().collect();
+    by_trending.sort_by_key(|c| std::cmp::Reverse(c.trending));
+    let recommendations: Vec<CategoryRecommendation> = by_trending
         .into_iter()
         .take(3)
         .map(|c| CategoryRecommendation {

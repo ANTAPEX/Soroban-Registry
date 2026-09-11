@@ -6,9 +6,9 @@ use sqlx::FromRow;
 use std::fmt;
 use uuid::Uuid;
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // EXISTING REGISTRY TYPES
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// Represents a tag that can be attached to a contract
 #[derive(
@@ -83,12 +83,39 @@ pub struct Contract {
     pub organization_id: Option<Uuid>,
     /// Visibility level
     pub visibility: VisibilityType,
+    /// Result of the mandatory artifact validation performed during publish.
+    #[sqlx(default)]
+    #[serde(default)]
+    pub artifact_scan_status: String,
+    #[sqlx(default)]
+    #[serde(default)]
+    pub artifact_scan_findings: serde_json::Value,
     /// The currently active version string for this contract (Issue #486)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_version: Option<String>,
     /// Number of times this contract has been accessed via API
     #[serde(default)]
     pub usage_count: i64,
+    /// When this contract was marked deprecated (Issue #1090). NULL = active.
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecated_at: Option<DateTime<Utc>>,
+    /// Human-readable deprecation reason (Issue #1090).
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecation_reason: Option<String>,
+    /// Recommended successor contract UUID (lineage pointer, Issue #1090).
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replacement_contract_id: Option<Uuid>,
+    /// Denormalized flag for filters (trending/similar/search). True iff deprecated_at is set.
+    #[sqlx(default)]
+    #[serde(default)]
+    pub is_deprecated: bool,
+    /// Lifecycle status: active | deprecated | superseded (Issue #1090).
+    #[sqlx(default)]
+    #[serde(default)]
+    pub deprecation_status: DeprecationStatus,
 }
 
 #[derive(
@@ -113,6 +140,10 @@ pub struct ContractGetResponse {
     /// When ?network= is set, that network's config slice
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network_config: Option<NetworkConfig>,
+    /// Populated when the contract is deprecated (issue #1061).
+    /// `null` / absent when the contract is active.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deprecation_warning: Option<DeprecationWarning>,
 }
 
 /// Per-network config: address, verified status, min/max version (Issue #43)
@@ -185,7 +216,9 @@ pub struct NetworkHealthResponse {
 }
 
 /// Network where the contract is deployed
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq, Eq,
+)]
 #[sqlx(type_name = "network_type", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum Network {
@@ -215,7 +248,9 @@ fn parse_network_value<E: de::Error>(value: &str) -> Result<Network, E> {
     }
 }
 
-fn deserialize_optional_networks<'de, D>(deserializer: D) -> Result<Option<Vec<Network>>, D::Error>
+pub fn deserialize_optional_networks<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<Network>>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -293,6 +328,100 @@ where
     }
 
     deserializer.deserialize_any(NetworksVisitor)
+}
+
+/// Deserialize a free-form string filter that may arrive either as a
+/// comma-separated string (`?categories=DeFi,NFT`) or as repeated query
+/// parameters (`?categories=DeFi&categories=NFT`), so both callers agree.
+///
+/// Blank entries are dropped and an all-blank filter deserializes to `None`,
+/// matching `deserialize_optional_networks`.
+pub fn deserialize_optional_string_list<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct StringListVisitor;
+
+    impl<'de> Visitor<'de> for StringListVisitor {
+        type Value = Option<Vec<String>>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a comma-separated string or sequence of values")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut values = Vec::new();
+            // Repeated params may themselves be comma-separated, so split again.
+            while let Some(value) = seq.next_element::<String>()? {
+                values.extend(
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_owned),
+                );
+            }
+
+            if values.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(values))
+            }
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            let values: Vec<String> = value
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect();
+
+            if values.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(values))
+            }
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(&value)
+        }
+
+        fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(value)
+        }
+    }
+
+    deserializer.deserialize_any(StringListVisitor)
 }
 
 /// Upgrade strategy for contract upgrades
@@ -410,9 +539,9 @@ pub struct MetadataHistoryResponse {
     pub versions: Vec<ContractMetadataVersion>,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // MULTI-TENANCY TYPES (Issue #420)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq)]
 #[sqlx(type_name = "organization_role", rename_all = "lowercase")]
@@ -772,6 +901,9 @@ pub struct ContractInteroperabilityResponse {
 pub struct PublishRequest {
     pub contract_id: String,
     pub wasm_hash: String,
+    /// Base64-encoded WASM artifact. Missing artifacts remain quarantined.
+    #[serde(default, alias = "wasm_base64")]
+    pub wasm_artifact_base64: Option<String>,
     pub name: String,
     pub slug: Option<String>,
     pub description: Option<String>,
@@ -886,9 +1018,9 @@ pub struct CreateContractVersionRequest {
     pub signature_algorithm: Option<String>,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // VERSION TRACKING TYPES (Issue #486)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// A single field-level difference between two contract versions
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -926,12 +1058,73 @@ pub struct RevertVersionRequest {
 // Deprecation management (issue #65)
 // ────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DeprecationStatus {
+    #[default]
     Active,
     Deprecated,
+    /// Deprecated with a replacement_contract_id set (lineage successor).
+    Superseded,
+    /// Past scheduled retirement_at (schedule-based deprecation, Issue #65).
     Retired,
+}
+
+impl DeprecationStatus {
+    /// Derive status from denormalized contract columns (Issue #1090).
+    pub fn from_columns(
+        deprecated_at: Option<DateTime<Utc>>,
+        replacement_contract_id: Option<Uuid>,
+    ) -> Self {
+        match (deprecated_at, replacement_contract_id) {
+            (None, _) => Self::Active,
+            (Some(_), Some(_)) => Self::Superseded,
+            (Some(_), None) => Self::Deprecated,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Deprecated => "deprecated",
+            Self::Superseded => "superseded",
+            Self::Retired => "retired",
+        }
+    }
+
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "deprecated" => Self::Deprecated,
+            "superseded" => Self::Superseded,
+            "retired" => Self::Retired,
+            _ => Self::Active,
+        }
+    }
+}
+
+impl From<String> for DeprecationStatus {
+    fn from(value: String) -> Self {
+        Self::parse(&value)
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for DeprecationStatus {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
+        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Ok(Self::parse(&s))
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for DeprecationStatus {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -943,8 +1136,27 @@ pub struct DeprecationInfo {
     pub replacement_contract_id: Option<String>,
     pub migration_guide_url: Option<String>,
     pub notes: Option<String>,
+    /// Human-readable deprecation reason message (issue #1061); also mirrored to
+    /// `contracts.deprecation_reason` for search/list responses (issue #1090).
+    pub deprecated_reason: Option<String>,
+    /// Configurable grace period in days before hard deletion (issue #1061).
+    pub grace_period_days: Option<i32>,
     pub days_remaining: Option<i64>,
     pub dependents_notified: i64,
+    /// Ordered successor chain starting at the immediate replacement (lineage warnings).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub replacement_lineage: Vec<String>,
+    /// Human-readable warnings for dependents resolving this contract.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeprecationSignaturePayload {
+    pub contract_id: String,
+    pub action: String,
+    pub timestamp: String,
+    pub nonce: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -953,6 +1165,61 @@ pub struct DeprecateContractRequest {
     pub replacement_contract_id: Option<String>,
     pub migration_guide_url: Option<String>,
     pub notes: Option<String>,
+    /// Human-readable reason for the deprecation, shown in API deprecation warnings.
+    #[serde(default, alias = "reason")]
+    pub deprecated_reason: Option<String>,
+    /// Number of days after deprecation before the contract is hard-deleted.
+    /// If `None`, the contract is soft-deleted but never automatically removed.
+    pub grace_period_days: Option<i32>,
+    /// Optional signed action envelope used by clients that require additional wallet proof.
+    /// When any envelope field is supplied, all fields are required and verified.
+    #[serde(default)]
+    pub payload: Option<DeprecationSignaturePayload>,
+    #[serde(default)]
+    pub signature: Option<String>,
+    #[serde(default)]
+    pub signing_address: Option<String>,
+}
+
+/// Query parameters for clearing deprecation. Reactivating a deprecated contract
+/// requires an explicit override so callers cannot silently resurrect a version
+/// that dependents were told to migrate away from (Issue #1090).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::IntoParams)]
+pub struct UndeprecateContractRequest {
+    #[serde(default)]
+    pub r#override: bool,
+    /// Alias accepted by clients that prefer `force` over `override`.
+    #[serde(default)]
+    pub force: bool,
+}
+
+impl UndeprecateContractRequest {
+    pub fn has_override(&self) -> bool {
+        self.r#override || self.force
+    }
+}
+
+/// Lightweight deprecation warning embedded in contract API responses so that
+/// callers immediately know a contract is deprecated without a separate request.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeprecationWarning {
+    /// Human-readable deprecation message / reason.
+    pub message: String,
+    /// When the contract was deprecated.
+    pub deprecated_at: DateTime<Utc>,
+    /// When the contract will be retired (== removed from active results).
+    pub retirement_at: DateTime<Utc>,
+    /// Days remaining until retirement (0 if already past).
+    pub days_until_retirement: i64,
+    /// Optional replacement contract ID for downstream consumers to migrate to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replacement_contract_id: Option<String>,
+    /// Optional migration guide URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub migration_guide_url: Option<String>,
+    /// Number of grace-period days before hard deletion (`None` = never deleted).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grace_period_days: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
@@ -990,6 +1257,75 @@ pub struct ContractDependency {
     pub dependency_contract_id: Option<Uuid>,
     pub version_constraint: String,
     pub created_at: DateTime<Utc>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dependency vulnerability scanning
+//
+// Distinct from `ContractDependency` above (which tracks on-chain
+// contract-to-contract call relationships): these types describe declared
+// package/crate dependencies (Cargo-style name + version) and their exposure
+// to known vulnerabilities, similar to `npm audit` / crates.io advisories.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A single package/crate dependency declared for a contract.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct PackageDependency {
+    pub id: Uuid,
+    pub contract_id: Uuid,
+    pub package_name: String,
+    pub version: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// One package/version pair in a dependency declaration request.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PackageDependencyInput {
+    pub package_name: String,
+    pub version: String,
+}
+
+/// Request body for declaring (replacing) a contract's package dependencies.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeclarePackageDependenciesRequest {
+    pub dependencies: Vec<PackageDependencyInput>,
+}
+
+/// A known vulnerability affecting a package, sourced from the registry's
+/// curated advisory database (`cve_vulnerabilities`).
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct CveVulnerability {
+    pub cve_id: String,
+    pub description: Option<String>,
+    pub severity: String,
+    pub package_name: String,
+    pub patched_versions: Vec<String>,
+    pub published_at: Option<DateTime<Utc>>,
+}
+
+/// One vulnerability finding surfaced for a specific declared dependency.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DependencyVulnerabilityFinding {
+    pub package_name: String,
+    pub version: String,
+    pub cve_id: String,
+    pub severity: String,
+    pub description: Option<String>,
+    pub recommended_version: Option<String>,
+}
+
+/// Result of scanning a contract's declared dependencies against known
+/// vulnerability sources. Returned by both the re-scan trigger and the
+/// read-only status endpoint used to render warnings on contract pages.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DependencyScanReport {
+    pub contract_id: Uuid,
+    /// One of "not_scanned", "clean", "vulnerable".
+    pub status: String,
+    pub dependencies_scanned: i64,
+    pub vulnerable_dependency_count: i64,
+    pub last_scanned_at: Option<DateTime<Utc>>,
+    pub findings: Vec<DependencyVulnerabilityFinding>,
 }
 
 /// Tracks migration scripts between contract versions
@@ -1041,6 +1377,51 @@ pub struct BatchVerifyRequest {
     pub contracts: Vec<BatchVerifyItem>,
 }
 
+/// Lifecycle state of an asynchronous batch verification job.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BatchVerifyJobStatus {
+    Pending,
+    Processing,
+    Completed,
+    /// Job finished but at least one contract could not be verified.
+    PartialFailure,
+    Failed,
+}
+
+/// Per-contract result inside a batch job.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BatchVerifyJobResult {
+    pub contract_id: String,
+    pub verified: bool,
+    /// Human-readable failure reason; absent on success.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wasm_hash_matches: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abi_valid: Option<bool>,
+}
+
+/// Response returned when a batch job is submitted or polled.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BatchVerifyJobResponse {
+    pub job_id: Uuid,
+    pub status: BatchVerifyJobStatus,
+    pub total: usize,
+    pub verified: usize,
+    pub failed: usize,
+    pub submitted_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<DateTime<Utc>>,
+    /// Per-contract results; populated once the job reaches Completed or PartialFailure.
+    #[serde(default)]
+    pub results: Vec<BatchVerifyJobResult>,
+    pub status_url: String,
+}
+
 /// Sorting options for contracts
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 pub enum SortBy {
@@ -1073,15 +1454,20 @@ pub enum SortOrder {
 pub struct ContractSearchParams {
     pub query: Option<String>,
     pub network: Option<Network>,
-    /// Multiple networks filter (e.g. ?networks=mainnet&networks=testnet)
+    /// Multiple networks filter, comma-separated: `?networks=mainnet,testnet`.
+    /// (Repeating the key is rejected by the query extractor as a duplicate
+    /// field; a sequence is still accepted when deserializing from JSON.)
     #[serde(default, deserialize_with = "deserialize_optional_networks")]
     pub networks: Option<Vec<Network>>,
     pub verified_only: Option<bool>,
     /// Filter by verification_status (unverified, pending, verified, failed)
     pub verification_status: Option<VerificationStatus>,
     pub category: Option<String>,
-    /// Multiple categories filter (e.g. ?categories=DeFi&categories=NFT)
+    /// Multiple categories filter, comma-separated: `?categories=DeFi,NFT`.
+    #[serde(default, deserialize_with = "deserialize_optional_string_list")]
     pub categories: Option<Vec<String>>,
+    /// Multiple tags filter, comma-separated: `?tags=defi,amm`.
+    #[serde(default, deserialize_with = "deserialize_optional_string_list")]
     pub tags: Option<Vec<String>>,
     pub maturity: Option<MaturityLevel>,
     pub page: Option<i64>,
@@ -1111,6 +1497,9 @@ pub struct ContractSearchParams {
 #[serde(rename_all = "lowercase")]
 pub enum ContractExportFormat {
     Json,
+    /// Newline-delimited JSON (one object per line). Suitable for streaming
+    /// and processing with tools such as `jq` and `dbt`.
+    Jsonl,
     Csv,
     Yaml,
 }
@@ -1119,8 +1508,28 @@ impl std::fmt::Display for ContractExportFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Json => write!(f, "json"),
+            Self::Jsonl => write!(f, "jsonl"),
             Self::Csv => write!(f, "csv"),
             Self::Yaml => write!(f, "yaml"),
+        }
+    }
+}
+
+impl ContractExportFormat {
+    pub fn content_type(&self) -> &'static str {
+        match self {
+            Self::Json | Self::Jsonl => "application/json",
+            Self::Csv => "text/csv; charset=utf-8",
+            Self::Yaml => "application/yaml",
+        }
+    }
+
+    pub fn file_extension(&self) -> &'static str {
+        match self {
+            Self::Json => "json",
+            Self::Jsonl => "jsonl",
+            Self::Csv => "csv",
+            Self::Yaml => "yaml",
         }
     }
 }
@@ -1215,9 +1624,9 @@ pub struct ContractExportStatusResponse {
     pub error: Option<String>,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // BULK IMPORT TYPES
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// Single contract record for bulk import
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -1318,9 +1727,9 @@ pub struct ContractImportStatusResponse {
     pub results: Option<Vec<ContractImportItemResult>>,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // BULK EXPORT GET REQUEST (Query params)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// Query parameters for GET /contracts/export
 #[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::IntoParams)]
@@ -1429,7 +1838,32 @@ pub struct PaginatedVersionResponse {
     pub prev_cursor: Option<String>,
 }
 
-/// Paginated response
+/// Active search/list filter metadata included in paginated responses
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SearchFilterMetadata {
+    /// Applied network filters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub networks: Option<Vec<String>>,
+    /// Applied category filters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub categories: Option<Vec<String>>,
+    /// Whether only verified contracts are shown
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified_only: Option<bool>,
+    /// Verification status filter
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification_status: Option<String>,
+    /// Applied tag filters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    /// Maturity level filter
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maturity: Option<String>,
+    /// Text query
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct PaginatedResponse<T> {
     pub items: Vec<T>,
@@ -1445,6 +1879,9 @@ pub struct PaginatedResponse<T> {
     pub next_cursor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prev_cursor: Option<String>,
+    /// Active filters applied to this result set (only present for search/list endpoints)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filters: Option<SearchFilterMetadata>,
 }
 
 impl<T> PaginatedResponse<T> {
@@ -1462,7 +1899,13 @@ impl<T> PaginatedResponse<T> {
             total_pages,
             next_cursor: None,
             prev_cursor: None,
+            filters: None,
         }
+    }
+
+    pub fn with_filters(mut self, filters: SearchFilterMetadata) -> Self {
+        self.filters = Some(filters);
+        self
     }
 
     pub fn with_cursors(mut self, next: Option<String>, prev: Option<String>) -> Self {
@@ -1472,9 +1915,9 @@ impl<T> PaginatedResponse<T> {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // CONTRACT INTERACTION HISTORY (Issue #46)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// One contract invocation row (DB)
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
@@ -2435,9 +2878,9 @@ pub struct HealthCheckRequest {
     pub passed: bool,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // POPULARITY / TRENDING
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// Query parameters for the trending contracts endpoint
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
@@ -2470,10 +2913,10 @@ pub struct TrendingContract {
 }
 
 // MULTI-SIGNATURE DEPLOYMENT TYPES  (issue #47)
-// ═══════════════════════════════════════════════════════════════════════════
-// ════════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// ============================================================================
 // Audit Log & Version History types
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 
 /// The type of mutation that triggered an audit log entry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, sqlx::Type, utoipa::ToSchema)]
@@ -2485,6 +2928,7 @@ pub enum AuditActionType {
     PublisherChanged,
     VersionCreated,
     Rollback,
+    OwnershipTransferred,
 }
 
 impl std::fmt::Display for AuditActionType {
@@ -2496,6 +2940,7 @@ impl std::fmt::Display for AuditActionType {
             Self::PublisherChanged => "publisher_changed",
             Self::VersionCreated => "version_created",
             Self::Rollback => "rollback",
+            Self::OwnershipTransferred => "ownership_transferred",
         };
         write!(f, "{}", s)
     }
@@ -2662,9 +3107,9 @@ impl<T: Serialize> CursorPaginatedResponse<T> {
     }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 // Config Management types
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 
 /// Represents a contract configuration version in the registry
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
@@ -2723,9 +3168,9 @@ impl From<ContractConfig> for ContractConfigResponse {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // DATA RESIDENCY CONTROLS  (issue #100)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
 #[sqlx(type_name = "residency_decision", rename_all = "lowercase")]
@@ -2810,9 +3255,9 @@ pub struct ListResidencyLogsParams {
     pub page: Option<i64>,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // CONTRACT EVENT TYPES (issue #44)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// A contract event emitted during execution
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -2872,9 +3317,9 @@ pub struct EventExport {
     pub total_count: i64,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // CONTRACT PACKAGE SIGNING (Issue #67)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq)]
 #[sqlx(type_name = "signature_status", rename_all = "lowercase")]
@@ -3090,9 +3535,9 @@ impl ContractHealth {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // CONTRACT RECOMMENDATIONS (Issue #492)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RecommendationReason {
@@ -3129,9 +3574,9 @@ pub struct ContractRecommendationsResponse {
     pub recommendations: Vec<RecommendedContract>,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // COLLABORATIVE REVIEWS (Issue #502)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq, utoipa::ToSchema)]
 #[sqlx(type_name = "collaborative_review_status", rename_all = "snake_case")]
@@ -3204,11 +3649,11 @@ pub struct CollaborativeReviewDetails {
     pub comments: Vec<CollaborativeComment>,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // ADVANCED CONTRACT DEPENDENCIES (issue #417)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DependencyNode {
     pub contract_id: String,
     pub resolved_id: Option<Uuid>,
@@ -3220,7 +3665,7 @@ pub struct DependencyNode {
     pub visualization_hints: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DependencyResponse {
     pub root: DependencyNode,
     pub total_dependencies: usize,
@@ -3305,9 +3750,9 @@ pub struct DiffSummary {
     pub breaking_count: i32,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // CONTRACT DEPLOYMENT SIMULATION (Issue #256)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulateDeployRequest {
@@ -3381,9 +3826,9 @@ pub struct ContractFunctionInfo {
     pub is_view: bool,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // GAS USAGE ESTIMATION TYPES (Issue #496)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// Confidence level of a gas estimate based on available historical data.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -3467,9 +3912,9 @@ pub struct BatchGasEstimateResponse {
 // Contract changelog (release history)
 // ────────────────────────────────────────────────────────────────────────────
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // ANALYTICS DASHBOARD (issue #430)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct CategoryCount {
@@ -3497,9 +3942,9 @@ pub struct DashboardAnalyticsResponse {
     pub recent_additions: Vec<Contract>,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // CONTRACT REVIEW SYSTEM (Issue: Review System Implementation)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// Review status for moderation workflow
 /// New reviews start as "pending" and must be approved before becoming visible
@@ -3657,9 +4102,9 @@ pub struct ReviewVoteResponse {
     pub vote_recorded: bool,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // #487: Contract Clone/Mirror Types
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// Request to clone an existing contract
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -3723,9 +4168,9 @@ pub struct ContractCloneHistory {
     pub network: Network,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // #499: Federated Registry Protocol Types
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// Federation protocol version
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -3931,9 +4376,9 @@ pub struct FederationSyncHistoryResponse {
     pub total_count: i64,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // SECURITY SCANNING TYPES (#498)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// Security scanner configuration
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, utoipa::ToSchema)]
@@ -3962,8 +4407,22 @@ pub enum ScanStatus {
 }
 
 /// Security issue severity
+// Copy/Eq/Ord/Hash so severities can be compared, counted, and used as map keys
+// by the dependency risk combinator (Issue #1147) without cloning. The variant
+// order below IS the severity order; do not reorder it.
 #[derive(
-    Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq, PartialOrd,
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    sqlx::Type,
+    utoipa::ToSchema,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
 )]
 #[sqlx(type_name = "issue_severity_type", rename_all = "lowercase")]
 pub enum IssueSeverity {
@@ -4129,9 +4588,51 @@ pub struct SecurityScanHistoryResponse {
     pub total_count: i64,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
+#[sqlx(type_name = "audit_status", rename_all = "snake_case")]
+pub enum AuditScanStatus {
+    Passed,
+    Issues,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
+#[sqlx(type_name = "audit_type", rename_all = "snake_case")]
+pub enum AuditType {
+    Formal,
+    Informal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ContractAuditFinding {
+    pub severity: String,
+    pub count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ContractAuditResponse {
+    pub id: Uuid,
+    pub contract_id: Uuid,
+    pub audit_type: AuditType,
+    pub status: AuditScanStatus,
+    pub auditor: Option<String>,
+    pub audit_date: DateTime<Utc>,
+    pub findings_summary: Vec<ContractAuditFinding>,
+    pub total_issues: i32,
+    pub report_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PaginatedAuditsResponse {
+    pub audits: Vec<ContractAuditResponse>,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
+}
+
+// ===========================================================================
 // NOTIFICATION/SUBSCRIPTION TYPES (#493)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// Notification type
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq)]
@@ -4348,9 +4849,9 @@ pub struct NotificationStatistics {
     pub total_failed: i32,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // ZERO-KNOWLEDGE PROOF VALIDATION SYSTEM (Issue #624)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 /// Supported ZK proof systems
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq)]
@@ -4561,10 +5062,310 @@ pub struct ZkCircuitSummary {
     pub compiled_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
+
+// ===========================================================
+// Issue #1058 / #1094 — Ownership Transfer types
+// ===========================================================
+
+/// Status of an ownership transfer request.
+///
+/// `pending` means the outgoing publisher's signature has been verified; `completed`
+/// means the recipient's has been verified too and ownership has moved. `confirmed` is
+/// retained for the #1058 wire contract but is unreachable under the current flow, since
+/// a verified acceptance completes the transfer in the same transaction.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OwnershipTransferStatus {
+    Pending,
+    Confirmed,
+    Completed,
+    Expired,
+    Rejected,
+    Duplicate,
+}
+
+impl OwnershipTransferStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Confirmed => "confirmed",
+            Self::Completed => "completed",
+            Self::Expired => "expired",
+            Self::Rejected => "rejected",
+            Self::Duplicate => "duplicate",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "confirmed" => Some(Self::Confirmed),
+            "completed" => Some(Self::Completed),
+            "expired" => Some(Self::Expired),
+            "rejected" => Some(Self::Rejected),
+            "duplicate" => Some(Self::Duplicate),
+            _ => None,
+        }
+    }
+
+    /// Whether a transfer in this state can still be acted on.
+    pub fn is_live(&self) -> bool {
+        matches!(self, Self::Pending | Self::Confirmed)
+    }
+}
+
+impl std::fmt::Display for OwnershipTransferStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+// `ownership_transfers.status` is VARCHAR(20) constrained by `chk_status`; there is no
+// `transfer_status` Postgres enum. #1058 declared `#[sqlx(type_name = "transfer_status")]`
+// against that column, so decoding any row into `OwnershipTransfer` failed at runtime.
+// Delegate to `String` instead, mirroring `DeprecationStatus` above.
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for OwnershipTransferStatus {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
+        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        // Deliberately an error rather than a silent default: this field gates an
+        // authorization-relevant state machine, so an unrecognised value must be loud.
+        Self::parse(&s).ok_or_else(|| format!("unknown ownership transfer status: {}", s).into())
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for OwnershipTransferStatus {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+/// A transfer request for contract ownership.
+///
+/// The `*_signature` / `*_signed_payload` pairs are what make a completed transfer
+/// independently auditable: the payload is the exact byte string the party signed, so a
+/// third party can re-verify it against the signer address without trusting this API.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct OwnershipTransfer {
+    pub id: Uuid,
+    pub contract_id: Uuid,
+    pub from_publisher_id: Uuid,
+    pub to_publisher_id: Uuid,
+    pub from_confirmation: bool,
+    pub to_confirmation: bool,
+    pub status: OwnershipTransferStatus,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub confirmed_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub created_by: Uuid,
+    pub signature_algorithm: String,
+    pub request_nonce: Option<String>,
+    pub from_signature: Option<String>,
+    pub from_signer_address: Option<String>,
+    pub from_signed_at: Option<DateTime<Utc>>,
+    pub from_signed_payload: Option<String>,
+    pub decision_nonce: Option<String>,
+    pub decision_signature: Option<String>,
+    pub decision_signer_address: Option<String>,
+    pub decision_signed_at: Option<DateTime<Utc>>,
+    pub decision_signed_payload: Option<String>,
+    pub decision_by: Option<Uuid>,
+}
+
+/// Request to create a new ownership transfer, signed by the current owner.
+///
+/// The acting identity comes from the bearer token, never from the body — #1058 carried a
+/// `user_id` field here, which let any caller transfer any contract.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateOwnershipTransferRequest {
+    /// Stellar address (`G...`) of the publisher that will receive ownership.
+    pub to_publisher_address: String,
+    /// Expiry as unix seconds. Unix seconds rather than RFC3339 so the value the client
+    /// signs and the value the server verifies cannot diverge through timezone offset,
+    /// sub-second precision, or trailing-zero formatting.
+    pub expires_at_unix: i64,
+    /// Single-use random token binding this signature to one request. The sender must
+    /// sign before the transfer row exists, so the nonce is what makes the signature
+    /// non-replayable.
+    pub nonce: String,
+    /// When the client produced the signature, unix seconds. Must be within the server's
+    /// freshness window.
+    pub signed_at_unix: i64,
+    /// Base64 (standard alphabet) ed25519 signature over the canonical initiate payload.
+    pub signature: String,
+    /// Only `ed25519` is accepted. Defaults to `ed25519` when omitted.
+    pub signature_algorithm: Option<String>,
+}
+
+/// Request to confirm (accept or reject) an ownership transfer, signed by the acting party.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ConfirmOwnershipTransferRequest {
+    pub accept: bool,
+    /// Single-use random token binding this decision signature.
+    pub nonce: String,
+    pub signed_at_unix: i64,
+    /// Base64 (standard alphabet) ed25519 signature over the canonical accept/reject payload.
+    pub signature: String,
+    /// Only `ed25519` is accepted. Defaults to `ed25519` when omitted.
+    pub signature_algorithm: Option<String>,
+}
+
+/// An event log entry for an ownership transfer. Append-only.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct OwnershipTransferLog {
+    pub id: Uuid,
+    pub transfer_id: Uuid,
+    /// `None` for system-authored rows, such as the expiry sweeper.
+    pub actor_id: Option<Uuid>,
+    pub actor_type: String,
+    pub action: String,
+    pub details: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+}
+
+// ===========================================================================
+// SNAPSHOT TYPES
+// ===========================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SnapshotPayload {
+    pub version: String,
+    pub registry_identity: String,
+    pub network: String,
+    pub timestamp: DateTime<Utc>,
+    pub contracts: Vec<Contract>,
+    pub versions: Vec<ContractVersion>,
+    pub artifact_hashes: Vec<String>,
+    pub interface_fingerprints: Vec<String>,
+    pub provenance_metadata: serde_json::Value,
+    pub deprecation_state: serde_json::Value,
+    pub vulnerability_state: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SignedSnapshot {
+    pub payload: SnapshotPayload,
+    pub signature: Option<String>,
+    pub public_key: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json;
+
+    // ── deserialize_optional_string_list ───────────────────────────────
+
+    /// Helper: deserialize a single comma-separated string value through the custom deserializer
+    fn deser_comma_separated(input: &str) -> Option<Vec<String>> {
+        use serde::de::value::StrDeserializer;
+        deserialize_optional_string_list(StrDeserializer::<serde::de::value::Error>::new(input))
+            .ok()
+            .flatten()
+    }
+
+    /// Helper: deserialize repeated params through a sequence
+    fn deser_repeated(inputs: &[&str]) -> Option<Vec<String>> {
+        use serde::de::value::{SeqDeserializer, StringDeserializer};
+        let seq = inputs
+            .iter()
+            .map(|s| StringDeserializer::<serde::de::value::Error>::new(s.to_string()));
+        let deserializer = SeqDeserializer::new(seq);
+        deserialize_optional_string_list(deserializer)
+            .ok()
+            .flatten()
+    }
+
+    #[test]
+    fn test_optional_categories_single_value() {
+        let cats = deser_comma_separated("DeFi").unwrap();
+        assert_eq!(cats, vec!["DeFi"]);
+    }
+
+    #[test]
+    fn test_optional_categories_comma_separated() {
+        let cats = deser_comma_separated("DeFi,NFT").unwrap();
+        assert_eq!(cats, vec!["DeFi", "NFT"]);
+    }
+
+    #[test]
+    fn test_optional_categories_repeated_params() {
+        let cats = deser_repeated(&["DeFi", "NFT"]).unwrap();
+        assert_eq!(cats, vec!["DeFi", "NFT"]);
+    }
+
+    #[test]
+    fn test_optional_categories_with_spaces() {
+        let cats = deser_comma_separated("DeFi, NFT").unwrap();
+        assert_eq!(cats, vec!["DeFi", "NFT"]);
+    }
+
+    #[test]
+    fn test_optional_categories_missing() {
+        let cats = deser_comma_separated("");
+        // Empty string should return None or empty vec
+        assert!(cats.is_none() || cats.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_optional_categories_empty_seq() {
+        let cats = deser_repeated(&[]);
+        assert!(cats.is_none() || cats.unwrap().is_empty());
+    }
+
+    // ── ContractSearchParams filter normalization ──────────────────────
+
+    /// Helper: deserialize ContractSearchParams from a comma-separated query string
+    fn parse_search_params(qs: &str) -> Result<ContractSearchParams, serde_urlencoded::de::Error> {
+        serde_urlencoded::from_str(qs)
+    }
+
+    #[test]
+    fn test_search_params_networks_comma_separated() {
+        let params = parse_search_params("networks=testnet,mainnet").unwrap();
+        let nets = params.networks.unwrap();
+        assert_eq!(nets.len(), 2);
+        assert!(nets.contains(&Network::Testnet));
+        assert!(nets.contains(&Network::Mainnet));
+    }
+
+    #[test]
+    fn test_search_params_invalid_network_fails_gracefully() {
+        let result = parse_search_params("networks=unknown");
+        assert!(
+            result.is_err(),
+            "Invalid network values should fail clearly"
+        );
+    }
+
+    #[test]
+    fn test_search_params_categories_normalized() {
+        let params = parse_search_params("categories=lending,dex&network=testnet").unwrap();
+        let cats = params.categories.unwrap();
+        assert_eq!(cats.len(), 2);
+        assert!(cats.contains(&"lending".to_string()));
+        assert!(cats.contains(&"dex".to_string()));
+    }
+
+    #[test]
+    fn test_search_params_combined_network_and_category_filters() {
+        let params = parse_search_params(
+            "networks=testnet&categories=DeFi,NFT&verified_only=true&query=swap",
+        )
+        .unwrap();
+        assert_eq!(params.query.as_deref(), Some("swap"));
+        assert!(params.verified_only.unwrap_or(false));
+        assert!(params.networks.unwrap().contains(&Network::Testnet));
+        assert!(params.categories.unwrap().contains(&"DeFi".to_string()));
+    }
+
+    // ── Existing tests follow ──────────────────────────────────────────
 
     #[test]
     fn test_contract_usage_count_serialization() {
@@ -4596,8 +5397,15 @@ mod tests {
             relevance_score: None,
             organization_id: None,
             visibility: VisibilityType::Public,
+            artifact_scan_status: "passed".to_string(),
+            artifact_scan_findings: serde_json::json!([]),
             current_version: Some("1.0.0".to_string()),
             usage_count: 42,
+            deprecated_at: None,
+            deprecation_reason: None,
+            replacement_contract_id: None,
+            is_deprecated: false,
+            deprecation_status: DeprecationStatus::Active,
         };
 
         let json = serde_json::to_string(&contract).expect("Failed to serialize contract");

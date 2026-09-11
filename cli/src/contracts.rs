@@ -1,9 +1,7 @@
-use crate::net::RequestBuilderExt;
+use crate::output_format::{self, OutputFormat};
 use anyhow::{Context, Result};
 use colored::Colorize;
-use reqwest::StatusCode;
 use serde_json::json;
-use std::cmp::Ordering;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ContractListItem {
@@ -16,13 +14,6 @@ pub struct ContractListItem {
     pub health_score: i32,
     pub created_at: String,
     pub tags: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputFormat {
-    Table,
-    Json,
-    Csv,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,10 +74,8 @@ pub async fn list_contracts(
 ) -> Result<()> {
     let limit = limit.min(100);
     let url = format!("{}/api/contracts", api_url);
-    let mut query: Vec<(&str, String)> = vec![
-        ("limit", limit.to_string()),
-        ("offset", offset.to_string()),
-    ];
+    let mut query: Vec<(&str, String)> =
+        vec![("limit", limit.to_string()), ("offset", offset.to_string())];
     if let Some(net) = network {
         query.push(("network", net.to_string()));
     }
@@ -211,6 +200,7 @@ pub async fn list_contracts(
         OutputFormat::Table => print_table(&contracts),
         OutputFormat::Json => print_json(&contracts),
         OutputFormat::Csv => print_csv(&contracts),
+        OutputFormat::Yaml => print_yaml(&contracts),
     }
 
     Ok(())
@@ -254,9 +244,9 @@ fn print_table(contracts: &[ContractListItem]) {
     // Rows
     for contract in contracts {
         let verified = if contract.is_verified {
-            "✓".green().to_string()
+            "yes".green().to_string()
         } else {
-            "✗".red().to_string()
+            "no".red().to_string()
         };
 
         let health_color = match contract.health_score {
@@ -325,28 +315,38 @@ fn print_csv(contracts: &[ContractListItem]) {
     }
 }
 
+fn print_yaml(contracts: &[ContractListItem]) {
+    let data = json!({
+        "contracts": contracts,
+        "count": contracts.len()
+    });
+
+    match output_format::render_yaml(&data) {
+        Ok(yaml) => println!("{}", yaml),
+        Err(e) => eprintln!("Error rendering YAML: {}", e),
+    }
+}
+
 pub async fn info(api_url: &str, id: &str, json_output: bool) -> Result<()> {
     let t0 = std::time::Instant::now();
 
-    let url = format!("{}/api/contracts/{}", api_url, id);
-    let query = vec![
-        ("include_stats", "true".to_string()),
-        ("include_versions", "true".to_string()),
-        ("include_abi", "true".to_string()),
-    ];
-
-    let (status, body) = crate::cached_http::cached_get(&url, &query)
+    // The document is kept untyped: `--json` passes the server's response
+    // through verbatim, so fields the registry adds later are not dropped.
+    let data: serde_json::Value = crate::registry::client(api_url)
+        .await?
+        .send_json(
+            registry_client::RequestSpec::get(format!("/api/contracts/{id}"))
+                .query_pair("include_stats", "true")
+                .query_pair("include_versions", "true")
+                .query_pair("include_abi", "true"),
+        )
         .await
-        .context("Failed to connect to the registry API")?;
-
-    if status == StatusCode::NOT_FOUND {
-        anyhow::bail!("Contract not found for address or slug: {}", id.bold());
-    } else if !status.is_success() {
-        anyhow::bail!("Failed to fetch contract info: HTTP {status}");
-    }
-
-    let data: serde_json::Value =
-        serde_json::from_str(&body).context("Invalid JSON response from server")?;
+        .map_err(|err| match err {
+            registry_client::Error::NotFound(_) => {
+                anyhow::anyhow!("Contract not found for address or slug: {}", id.bold())
+            }
+            other => anyhow::anyhow!("Failed to fetch contract info: {other}"),
+        })?;
 
     if json_output {
         println!("{}", serde_json::to_string_pretty(&data)?);
@@ -376,19 +376,19 @@ pub async fn info(api_url: &str, id: &str, json_output: bool) -> Result<()> {
     }
 
     let status_str = if is_verified {
-        "✓ Verified".green()
+        "Verified".green()
     } else {
-        "○ Unverified".yellow()
+        "Unverified".yellow()
     };
     println!("{:<15} {}", "Status:".bold(), status_str);
 
     if let Some(stats) = data.get("stats") {
         println!("\n{}", "Activity & Stats".bold().magenta());
         println!("{}", "-".repeat(40).magenta());
-        
+
         let deployments = stats["deployments_count"].as_u64().unwrap_or(0);
         let interactions = stats["interactions_count"].as_u64().unwrap_or(0);
-        
+
         println!("{:<15} {}", "Deployments:".bold(), deployments);
         println!("{:<15} {}", "Interactions:".bold(), interactions);
     }
@@ -396,8 +396,11 @@ pub async fn info(api_url: &str, id: &str, json_output: bool) -> Result<()> {
     if let Some(abi) = data.get("abi").and_then(|a| a.as_array()) {
         println!("\n{}", "ABI Methods Preview".bold().yellow());
         println!("{}", "-".repeat(40).yellow());
-        
-        let functions: Vec<_> = abi.iter().filter(|item| item["type"] == "function").collect();
+
+        let functions: Vec<_> = abi
+            .iter()
+            .filter(|item| item["type"] == "function")
+            .collect();
         if functions.is_empty() {
             println!("  No exposed functions found.");
         } else {
@@ -414,15 +417,19 @@ pub async fn info(api_url: &str, id: &str, json_output: bool) -> Result<()> {
     if let Some(versions) = data.get("versions").and_then(|v| v.as_array()) {
         println!("\n{}", "Version History".bold().blue());
         println!("{}", "-".repeat(40).blue());
-        
+
         if versions.is_empty() {
             println!("  No version history available.");
         } else {
             for (i, version) in versions.iter().take(3).enumerate() {
                 let ver_str = version["version"].as_str().unwrap_or("unknown");
                 let date = version["published_at"].as_str().unwrap_or("unknown");
-                let current_tag = if i == 0 { " (latest)".bright_black() } else { "".normal() };
-                
+                let current_tag = if i == 0 {
+                    " (latest)".bright_black()
+                } else {
+                    "".normal()
+                };
+
                 println!("  • v{} - {}{}", ver_str.cyan(), date, current_tag);
             }
         }
@@ -445,26 +452,21 @@ pub async fn run_details(
     network: &str,
     json_output: bool,
 ) -> Result<()> {
-    let url = format!("{}/api/contracts/{}?network={}", api_url, address, network);
-    log::debug!("Fetching contract details from: {}", url);
+    log::debug!("Fetching contract details for {address} on {network}");
 
-    let client = crate::net::client();
-    let response = client
-        .get(&url)
-        .send_with_retry()
+    let contract: serde_json::Value = crate::registry::client(api_url)
+        .await?
+        .send_json(
+            registry_client::RequestSpec::get(format!("/api/contracts/{address}"))
+                .query_pair("network", network),
+        )
         .await
-        .context("Failed to fetch contract details from API")?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("API request failed with status {}: {}", status, body);
-    }
-
-    let contract: serde_json::Value = response
-        .json()
-        .await
-        .context("Failed to parse contract response")?;
+        .map_err(|err| match err {
+            registry_client::Error::NotFound(_) => {
+                anyhow::anyhow!("Contract not found for address: {}", address.bold())
+            }
+            other => anyhow::anyhow!("Failed to fetch contract details: {other}"),
+        })?;
 
     if json_output {
         println!("{}", serde_json::to_string_pretty(&contract)?);
