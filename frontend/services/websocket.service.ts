@@ -82,7 +82,9 @@ export class WebSocketService {
         30000,
       );
       setTimeout(() => {
-        this.connect().catch(console.error);
+        // onerror already warns; avoid console.error here so Next.js's
+        // dev overlay doesn't pop on every retry while unreachable.
+        this.connect().catch(() => {});
       }, delay);
     }
   }
