@@ -311,6 +311,17 @@
   opacity: 0;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up,
+  .animate-fade-in-up-delay-1,
+  .animate-fade-in-up-delay-2,
+  .animate-fade-in-up-delay-3 {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* ── Skeleton loading animation ───────────────────────────────── */
 
 @keyframes skeleton-pulse {
