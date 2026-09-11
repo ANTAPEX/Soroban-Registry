@@ -132,7 +132,7 @@ export default function VerifyContractPage() {
                         showError("Please fix validation errors to continue.");
                     }}
                     disabled={isSubmitting}
-                    className="w-full sm:w-auto px-6 py-2.5 rounded-lg btn-glow text-primary-foreground font-medium"
+                    className="w-full sm:w-auto px-6 py-2.5 rounded-lg btn-glow bg-primary text-primary-foreground font-medium"
                   >
                     Continue
                   </button>

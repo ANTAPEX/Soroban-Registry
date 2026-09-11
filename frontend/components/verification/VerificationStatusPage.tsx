@@ -123,7 +123,7 @@ export default function VerificationStatusPage() {
             <div className="mt-4">
               <Link
                 href="/verify-contract"
-                className="px-6 py-2.5 rounded-lg btn-glow text-primary-foreground font-medium inline-flex"
+                className="px-6 py-2.5 rounded-lg btn-glow bg-primary text-primary-foreground font-medium inline-flex"
               >
                 Verify a contract
               </Link>

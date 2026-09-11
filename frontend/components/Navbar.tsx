@@ -211,6 +211,7 @@ export default function Navbar() {
     const [searchOpen,    setSearchOpen]    = useState(false);
 
     const exploreTimeout = useRef<NodeJS.Timeout | null>(null);
+    const exploreRef     = useRef<HTMLDivElement>(null);
     const drawerRef      = useRef<HTMLDivElement>(null);
 
     // Close mobile menu on route change
@@ -236,12 +237,34 @@ export default function Navbar() {
     }, []);
     useTrapFocus(drawerRef, mobileOpen);
 
+    // Explore is opened by hover for pointer users, but must also work by
+    // click/keyboard (Enter/Space on the button) — close on outside click
+    // or Escape so it doesn't get stuck open for keyboard users either.
+    useEffect(() => {
+        if (!exploreOpen) return;
+        const onClickOutside = (e: MouseEvent) => {
+            if (exploreRef.current && !exploreRef.current.contains(e.target as Node)) {
+                setExploreOpen(false);
+            }
+        };
+        const onEscape = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setExploreOpen(false);
+        };
+        document.addEventListener('mousedown', onClickOutside);
+        document.addEventListener('keydown', onEscape);
+        return () => {
+            document.removeEventListener('mousedown', onClickOutside);
+            document.removeEventListener('keydown', onEscape);
+        };
+    }, [exploreOpen]);
+
     const isActive = useCallback((href: string) => pathname === href, [pathname]);
     const isExploreActive = EXPLORE_LINKS.some(l => pathname.startsWith(l.href));
 
     /* hover helpers */
     const onExploreEnter = () => { if (exploreTimeout.current) clearTimeout(exploreTimeout.current); setExploreOpen(true);  };
     const onExploreLeave = () => { exploreTimeout.current = setTimeout(() => setExploreOpen(false), 150); };
+    const onExploreToggle = () => { if (exploreTimeout.current) clearTimeout(exploreTimeout.current); setExploreOpen(v => !v); };
 
     const navLinkClass = (active: boolean) =>
         `pb-[3px] border-b-2 text-[14px] font-medium transition-colors ${
@@ -289,12 +312,15 @@ export default function Navbar() {
 
                             {/* Explore dropdown */}
                             <div
+                                ref={exploreRef}
                                 className="relative"
                                 onMouseEnter={onExploreEnter}
                                 onMouseLeave={onExploreLeave}
                                 role="none"
                             >
                                 <button
+                                    type="button"
+                                    onClick={onExploreToggle}
                                     role="menuitem"
                                     aria-haspopup="true"
                                     aria-expanded={exploreOpen}

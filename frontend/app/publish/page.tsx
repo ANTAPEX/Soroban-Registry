@@ -153,7 +153,7 @@ export default function PublishPage() {
           />
 
           <div className="flex flex-col sm:flex-row items-center sm:justify-between gap-2">
-            <button type="submit" className="w-full sm:w-auto px-6 py-2.5 rounded-lg btn-glow text-primary-foreground font-medium">
+            <button type="submit" className="w-full sm:w-auto px-6 py-2.5 rounded-lg btn-glow bg-primary text-primary-foreground font-medium">
               {t('publish.submit')}
             </button>
           </div>
