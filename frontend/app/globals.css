@@ -11,8 +11,9 @@
 :root {
   --background: #ffffff;
   --foreground: #0a0a0a;
-  --primary: #c99a1e;
-  --primary-foreground: #0a0a0a;
+  --primary: #8a6d1a;
+  --primary-foreground: #ffffff;
+  --primary-gradient-end: #6b5313;
   --secondary: #0a0a0a;
   --secondary-foreground: #ffffff;
   --accent: #fdf6e3;
@@ -22,12 +23,12 @@
   --border: #e4e4e0;
   --border-strong: #0a0a0a;
   --input: #f4f4f2;
-  --ring: #c99a1e;
+  --ring: #8a6d1a;
   --radius: 0.625rem;
   --card: #ffffff;
   --card-foreground: #0a0a0a;
   --surface: #ffffff;
-  --glow-primary: rgba(201, 154, 30, 0.35);
+  --glow-primary: rgba(138, 109, 26, 0.35);
   --glow-secondary: rgba(10, 10, 10, 0.1);
 }
 
@@ -36,6 +37,7 @@
   --foreground: #f5f5f0;
   --primary: #f7c948;
   --primary-foreground: #0a0a0a;
+  --primary-gradient-end: #ffe08a;
   --secondary: #f5f5f0;
   --secondary-foreground: #0a0a0a;
   --accent: #17170f;
@@ -66,6 +68,7 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
+  --color-primary-gradient-end: var(--primary-gradient-end);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-card: var(--card);
@@ -178,11 +181,11 @@ h4 {
   }
 }
 
-:root .hero-gradient {
+:root:not(.dark) .hero-gradient {
   background: #ffffff;
 }
 
-:root .hero-gradient::before {
+:root:not(.dark) .hero-gradient::before {
   background:
     radial-gradient(
       ellipse 80% 50% at 20% 40%,
@@ -205,7 +208,7 @@ h4 {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-:root .glass {
+:root:not(.dark) .glass {
   background: rgba(255, 255, 255, 0.7);
   border: 1px solid rgba(0, 0, 0, 0.06);
 }
@@ -263,7 +266,7 @@ h4 {
 /* ── Gradient text ────────────────────────────────────────────── */
 
 .text-gradient {
-  background: linear-gradient(135deg, var(--primary), #d19f1f);
+  background: linear-gradient(135deg, var(--primary), var(--primary-gradient-end));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -354,52 +357,6 @@ h4 {
 
 .btn-glow:active {
   transform: translateY(0);
-}
-
-/* ── Stellar editorial pill buttons ───────────────────────────── */
-
-.btn-stellar-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border-radius: 9999px;
-  border: 2px solid var(--border-strong);
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-weight: 600;
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease,
-    transform 0.2s ease;
-}
-
-.btn-stellar-primary:hover {
-  background: var(--border-strong);
-  color: var(--background);
-  transform: translateY(-1px);
-}
-
-.btn-stellar-outline {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border-radius: 9999px;
-  border: 2px solid var(--border-strong);
-  background: transparent;
-  color: var(--foreground);
-  font-weight: 600;
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease,
-    transform 0.2s ease;
-}
-
-.btn-stellar-outline:hover {
-  background: var(--border-strong);
-  color: var(--background);
-  transform: translateY(-1px);
 }
 
 /* ── Nav glow border ──────────────────────────────────────────── */

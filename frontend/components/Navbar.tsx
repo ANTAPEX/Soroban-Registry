@@ -9,6 +9,7 @@ import NotificationBell from './NotificationBell';
 import { useTranslation } from '@/lib/i18n/client';
 import LanguageSelector from './LanguageSelector';
 import { useFavorites } from '@/hooks/useFavorites';
+import { buttonVariants } from '@/components/ui/button';
 
 /* ─── nav links ──────────────────────────────────────────── */
 const NAV_LINKS = [
@@ -424,7 +425,7 @@ export default function Navbar() {
 
                             <Link
                                 href="/publish"
-                                className="btn-stellar-primary px-3.5 py-1.5 ml-1 text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                className={buttonVariants({ size: 'sm', className: 'ml-1' })}
                             >
                                 <Plus className="w-3.5 h-3.5" />
                                 Publish
@@ -615,7 +616,7 @@ export default function Navbar() {
                             <Link
                                 href="/publish"
                                 onClick={() => setMobileOpen(false)}
-                                className="btn-stellar-primary py-2.5 text-sm"
+                                className={buttonVariants({ size: 'lg', className: 'w-full' })}
                             >
                                 <Plus className="w-4 h-4" />
                                 Publish

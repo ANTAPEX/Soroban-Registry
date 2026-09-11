@@ -15,6 +15,8 @@ import Navbar from '@/components/Navbar';
 import ActivityFeed from '@/components/ActivityFeed';
 import { useCopy } from '@/hooks/useCopy';
 import CodeCopyButton from '@/components/CodeCopyButton';
+import { buttonVariants } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 export default function Home() {
   const { t } = useTranslation('common');
@@ -89,12 +91,12 @@ export default function Home() {
         <div className="absolute inset-0 bg-grid-pattern opacity-5 text-primary" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 relative">
           <div className="text-center max-w-3xl mx-auto">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6">
+            <Badge className="mb-6 animate-fade-in-up">
               <Sparkles className="w-4 h-4" />
               The Official Soroban Smart Contract Registry
-            </div>
+            </Badge>
 
-            <h1 className="text-5xl sm:text-6xl font-bold mb-6 leading-tight">
+            <h1 className="text-6xl sm:text-7xl lg:text-8xl font-bold mb-6 leading-[0.95] tracking-tight animate-fade-in-up-delay-1">
               {t('home.title_part1')}
               <br />
               <span className="text-gradient">
@@ -102,14 +104,14 @@ export default function Home() {
               </span>
             </h1>
 
-            <p className="text-xl text-muted-foreground mb-12">
+            <p className="text-xl sm:text-2xl text-muted-foreground mb-12 animate-fade-in-up-delay-2">
               {t('home.subtitle')}
             </p>
 
             {/* Search Bar */}
-            <form onSubmit={handleSearch} className="max-w-2xl mx-auto mb-12">
+            <form onSubmit={handleSearch} className="max-w-2xl mx-auto mb-12 animate-fade-in-up-delay-3">
               <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <input
                   ref={searchInputRef}
                   type="text"
@@ -118,11 +120,11 @@ export default function Home() {
                   placeholder="Search contracts by name, category, or tag..."
                   aria-label="Search contracts"
                   aria-keyshortcuts="/"
-                  className="w-full pl-12 pr-4 py-4 rounded-xl border border-border bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-lg"
+                  className="w-full pl-14 pr-28 py-4 rounded-full border-2 border-border-strong bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-lg"
                 />
                 <button
                   type="submit"
-                  className="btn-stellar-primary absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2"
+                  className={buttonVariants({ className: 'absolute right-2 top-1/2 -translate-y-1/2' })}
                 >
                   Search
                 </button>
@@ -193,8 +195,8 @@ export default function Home() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="gradient-border-card p-8 card-hover">
-            <div className="w-12 h-12 rounded-xl bg-green-500/10 flex items-center justify-center mb-6">
-              <Shield className="w-6 h-6 text-green-500" />
+            <div className="w-12 h-12 rounded-xl border-2 border-border-strong flex items-center justify-center mb-6">
+              <Shield className="w-6 h-6 text-foreground" />
             </div>
             <h3 className="text-xl font-semibold mb-3">{t('home.features.verified.title')}</h3>
             <p className="text-muted-foreground leading-relaxed">
@@ -203,7 +205,7 @@ export default function Home() {
           </div>
 
           <div className="gradient-border-card p-8 card-hover">
-            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-6">
+            <div className="w-12 h-12 rounded-xl border-2 border-border-strong flex items-center justify-center mb-6">
               <GitBranch className="w-6 h-6 text-primary" />
             </div>
             <h3 className="text-xl font-semibold mb-3">{t('home.features.graph.title')}</h3>
@@ -213,8 +215,8 @@ export default function Home() {
           </div>
 
           <div className="gradient-border-card p-8 card-hover">
-            <div className="w-12 h-12 rounded-xl bg-secondary/10 flex items-center justify-center mb-6">
-              <Upload className="w-6 h-6 text-secondary" />
+            <div className="w-12 h-12 rounded-xl border-2 border-border-strong flex items-center justify-center mb-6">
+              <Upload className="w-6 h-6 text-foreground" />
             </div>
             <h3 className="text-xl font-semibold mb-3">{t('home.features.easy.title')}</h3>
             <p className="text-muted-foreground leading-relaxed">
@@ -313,7 +315,7 @@ export default function Home() {
               </p>
               <Link
                 href="/publish"
-                className="btn-stellar-primary w-full py-2 text-sm"
+                className={buttonVariants({ size: 'sm', className: 'w-full' })}
               >
                 Publish Your Contract
                 <ArrowRight className="w-4 h-4" />
@@ -338,14 +340,14 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row gap-4">
               <Link
                 href="/contracts"
-                className="btn-stellar-primary px-6 py-3"
+                className={buttonVariants({ size: 'lg' })}
               >
                 Browse Contracts
                 <ArrowRight className="w-4 h-4" />
               </Link>
               <Link
                 href="/templates"
-                className="btn-stellar-outline px-6 py-3"
+                className={buttonVariants({ variant: 'outline', size: 'lg' })}
               >
                 View Templates
               </Link>
