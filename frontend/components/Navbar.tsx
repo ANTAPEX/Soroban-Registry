@@ -175,6 +175,26 @@ function SearchModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
     );
 }
 
+/* ─── Logo mark — an abstract soroban (abacus) glyph. "Soroban" is the
+   Japanese word for abacus, which is also why Stellar named its smart-
+   contracts platform Soroban — so the rods + beads are a literal nod to
+   the name, not just a generic icon. The bead color reuses --primary,
+   the same gold used for the nav's active underline and the Publish
+   CTA's badge, so the mark and the rest of the chrome read as one
+   system rather than a logo bolted onto an unrelated palette. ─── */
+function LogoMark({ className = 'w-8 h-8' }: { className?: string }) {
+    return (
+        <span className={`relative flex items-center justify-center rounded-lg bg-foreground flex-shrink-0 ${className}`}>
+            <svg viewBox="0 0 24 24" className="w-[62%] h-[62%]" fill="none" aria-hidden="true">
+                <line x1="3.5" y1="8" x2="20.5" y2="8" strokeWidth="2" strokeLinecap="round" className="stroke-background/40" />
+                <line x1="3.5" y1="16" x2="20.5" y2="16" strokeWidth="2" strokeLinecap="round" className="stroke-background/40" />
+                <circle cx="9" cy="8" r="2.75" className="fill-primary" />
+                <circle cx="15" cy="16" r="2.75" className="fill-primary" />
+            </svg>
+        </span>
+    );
+}
+
 /* ─── Publish CTA — black pill with a trailing gold arrow badge ─── */
 function PublishCta({ onClick, size = 'sm' }: { onClick?: () => void; size?: 'sm' | 'lg' }) {
     const isLg = size === 'lg';
@@ -285,12 +305,10 @@ export default function Navbar() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
 
-                        {/* Logo — compact icon mark + short name, Stellar-style */}
-                        <Link href="/" className="flex items-center gap-2.5 flex-shrink-0" aria-label="Soroban Registry home">
-                            <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-foreground text-background font-bold text-sm flex-shrink-0">
-                                S
-                            </span>
-                            <span className="text-base font-bold text-foreground tracking-tight hidden sm:block">
+                        {/* Logo — abacus mark + name as one lockup, Stellar-style */}
+                        <Link href="/" className="group flex items-center gap-2.5 flex-shrink-0" aria-label="Soroban Registry home">
+                            <LogoMark className="w-8 h-8 transition-transform group-hover:scale-105" />
+                            <span className="font-display text-lg font-bold text-foreground tracking-tight hidden sm:block">
                                 Soroban
                             </span>
                         </Link>
@@ -476,10 +494,8 @@ export default function Navbar() {
                     {/* Drawer header */}
                     <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                         <Link href="/" className="flex items-center gap-2.5" onClick={() => setMobileOpen(false)}>
-                            <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-foreground text-background font-bold text-xs flex-shrink-0">
-                                S
-                            </span>
-                            <span className="font-bold text-base text-foreground tracking-tight">
+                            <LogoMark className="w-7 h-7" />
+                            <span className="font-display text-base font-bold text-foreground tracking-tight">
                                 Soroban
                             </span>
                         </Link>
