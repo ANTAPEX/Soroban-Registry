@@ -124,7 +124,7 @@ export default function Home() {
                 />
                 <button
                   type="submit"
-                  className={buttonVariants({ className: 'absolute right-2 top-1/2 -translate-y-1/2' })}
+                  className={buttonVariants({ lift: false, className: 'absolute right-2 top-1/2 -translate-y-1/2' })}
                 >
                   Search
                 </button>

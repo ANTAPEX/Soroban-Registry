@@ -9,9 +9,9 @@ const baseStyles =
 
 const variantStyles: Record<ButtonVariant, string> = {
   default:
-    "border-2 border-border-strong bg-primary text-primary-foreground hover:bg-border-strong hover:text-background hover:-translate-y-px",
+    "border-2 border-border-strong bg-primary text-primary-foreground hover:bg-border-strong hover:text-background",
   outline:
-    "border-2 border-border-strong bg-transparent text-foreground hover:bg-border-strong hover:text-background hover:-translate-y-px",
+    "border-2 border-border-strong bg-transparent text-foreground hover:bg-border-strong hover:text-background",
   ghost: "text-foreground hover:bg-accent",
   link: "text-primary underline-offset-4 hover:underline",
 };
@@ -26,6 +26,12 @@ const sizeStyles: Record<ButtonSize, string> = {
 export interface ButtonVariantsOptions {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  /** Nudge the button up 1px on hover. Set false for buttons whose own
+   *  position already relies on a `translate-y` utility (e.g. absolutely
+   *  centered inside a search field) — otherwise the hover state's
+   *  transform overwrites the centering transform instead of composing
+   *  with it, since both target the same `--tw-translate-y` variable. */
+  lift?: boolean;
   className?: string;
 }
 
@@ -35,9 +41,16 @@ export interface ButtonVariantsOptions {
 export function buttonVariants({
   variant = "default",
   size = "default",
+  lift = true,
   className,
 }: ButtonVariantsOptions = {}): string {
-  return cn(baseStyles, variantStyles[variant], sizeStyles[size], className);
+  return cn(
+    baseStyles,
+    variantStyles[variant],
+    sizeStyles[size],
+    lift && "hover:-translate-y-px",
+    className,
+  );
 }
 
 export interface ButtonProps

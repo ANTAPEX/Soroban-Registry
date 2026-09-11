@@ -79,51 +79,58 @@
   --font-display: var(--font-space-grotesk);
 }
 
-* {
-  border-color: var(--border);
-  transition:
-    background-color 0.3s ease,
-    color 0.3s ease,
-    border-color 0.3s ease,
-    box-shadow 0.3s ease;
-}
+/* Wrapped in @layer base so Tailwind's generated utilities (which live in
+   @layer utilities) can still override these — an unlayered `*` or `body`
+   rule would otherwise always beat every border/bg/text/font utility
+   regardless of source order, per CSS cascade-layer rules. */
+@layer base {
+  * {
+    border-color: var(--border);
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease,
+      border-color 0.3s ease,
+      box-shadow 0.3s ease;
+  }
 
-body {
-  background-color: var(--background);
-  color: var(--foreground);
-  font-family:
-    var(--font-sans),
-    "Inter",
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Roboto,
-    "Helvetica Neue",
-    Arial,
-    "Noto Sans",
-    sans-serif;
-  transition:
-    background-color 0.3s ease,
-    color 0.3s ease,
-    border-color 0.3s ease;
-}
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family:
+      var(--font-inter),
+      "Inter",
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      Roboto,
+      "Helvetica Neue",
+      Arial,
+      "Noto Sans",
+      sans-serif;
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease,
+      border-color 0.3s ease;
+  }
 
-/* Bold geometric display face for headings, sitewide — matches
-   Stellar's editorial headline treatment without touching every
-   component that renders an <h1>-<h4>. */
-h1,
-h2,
-h3,
-h4 {
-  font-family:
-    var(--font-display),
-    var(--font-sans),
-    ui-sans-serif,
-    system-ui,
-    sans-serif;
-  letter-spacing: -0.02em;
+  /* Bold geometric display face for headings, sitewide — matches
+     Stellar's editorial headline treatment without touching every
+     component that renders an <h1>-<h4>. Reference the next/font
+     variables directly rather than through the @theme inline aliases. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family:
+      var(--font-space-grotesk),
+      var(--font-inter),
+      ui-sans-serif,
+      system-ui,
+      sans-serif;
+    letter-spacing: -0.02em;
+  }
 }
 
 /* ── Base layouts ─────────────────────────────────────────────── */
