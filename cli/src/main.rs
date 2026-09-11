@@ -84,6 +84,7 @@ mod wizard;
 
 mod diagnostic;
 mod output_format;
+mod ranking;
 mod search;
 mod search_pagination;
 mod snapshot;
@@ -297,6 +298,10 @@ pub enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Explain contributing ranking factors for each search result
+        #[arg(long)]
+        explain: bool,
     },
 
     /// Compare multiple contracts
@@ -3474,17 +3479,19 @@ pub async fn dispatch_command(
             limit,
             offset,
             json,
+            explain,
         } => {
             let networks_vec: Vec<String> = filter_networks
                 .map(|n| n.split(',').map(|s| s.trim().to_string()).collect())
                 .unwrap_or_default();
             log::debug!(
-                "Command: search | query={:?} verified_only={} networks={:?} category={:?} sort={:?}",
+                "Command: search | query={:?} verified_only={} networks={:?} category={:?} sort={:?} explain={}",
                 query,
                 verified_only,
                 networks_vec,
                 category,
-                sort
+                sort,
+                explain
             );
             commands::search(
                 &cli.api_url,
@@ -3497,6 +3504,7 @@ pub async fn dispatch_command(
                 limit,
                 offset,
                 json,
+                explain,
             )
             .await?;
         }

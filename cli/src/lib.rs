@@ -3,5 +3,6 @@ pub mod diagnostic;
 pub mod notification;
 pub mod output_format;
 pub mod profiler;
+pub mod ranking;
 pub mod search_pagination;
 pub mod table_format;
