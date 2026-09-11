@@ -38,8 +38,12 @@ function useScrolled(threshold = 8) {
 }
 
 function useTrapFocus(ref: React.RefObject<HTMLElement | null>, active: boolean) {
+    const previouslyFocused = useRef<HTMLElement | null>(null);
+
     useEffect(() => {
         if (!active || !ref.current) return;
+        previouslyFocused.current = document.activeElement as HTMLElement | null;
+
         const el = ref.current;
         const focusable = el.querySelectorAll<HTMLElement>(
             'a[href], button:not([disabled]), input, [tabindex]:not([tabindex="-1"])'
@@ -55,7 +59,10 @@ function useTrapFocus(ref: React.RefObject<HTMLElement | null>, active: boolean)
         };
         el.addEventListener('keydown', onKey);
         first?.focus();
-        return () => el.removeEventListener('keydown', onKey);
+        return () => {
+            el.removeEventListener('keydown', onKey);
+            previouslyFocused.current?.focus();
+        };
     }, [active, ref]);
 }
 
@@ -264,7 +271,7 @@ export default function Navbar() {
                         </Link>
 
                         {/* ── Desktop nav links ─────────────────────────── */}
-                        <div className="hidden md:flex items-center gap-7" role="menubar" aria-label="Site navigation">
+                        <div className="hidden lg:flex items-center gap-5 xl:gap-7" role="menubar" aria-label="Site navigation">
 
                             {NAV_LINKS.map(({ href, label }) => (
                                 <Link
@@ -336,7 +343,7 @@ export default function Navbar() {
                         </div>
 
                         {/* ── Desktop right actions ────────────────────── */}
-                        <div className="hidden md:flex items-center gap-2">
+                        <div className="hidden lg:flex items-center gap-1.5 xl:gap-2">
                             {/* Search */}
                             <button
                                 onClick={() => setSearchOpen(true)}
@@ -374,7 +381,7 @@ export default function Navbar() {
                         </div>
 
                         {/* ── Mobile actions row ───────────────────────── */}
-                        <div className="flex md:hidden items-center gap-1">
+                        <div className="flex lg:hidden items-center gap-1">
                             {/* Mobile search button */}
                             <button
                                 onClick={() => setSearchOpen(true)}
@@ -416,7 +423,7 @@ export default function Navbar() {
             {/* ── Mobile drawer overlay + panel ──────────────────────── */}
             <div
                 id="mobile-nav-drawer"
-                className={`fixed inset-0 z-[100] md:hidden transition-all duration-300 ${
+                className={`fixed inset-0 z-[100] lg:hidden transition-all duration-300 ${
                     mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
                 }`}
                 aria-hidden={!mobileOpen}
