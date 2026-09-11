@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/providers/ThemeProvider";
 import ToastProvider from "@/providers/ToastProvider";
 import RealtimeProvider from "@/providers/RealtimeProvider";
 import ErrorBoundary from "./ErrorBoundary";
+import LanguageDirSync from "./LanguageDirSync";
 import { CookiesProvider } from "react-cookie";
 
 // Redux
@@ -28,6 +29,7 @@ export default function Providers({ children }: { children: ReactNode }) {
 
   return (
     <ErrorBoundary>
+      <LanguageDirSync />
       <ReduxProvider store={store}>
         <PersistGate loading={null} persistor={persistor}>
           <CookiesProvider>

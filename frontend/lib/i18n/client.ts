@@ -56,4 +56,4 @@ export function useTranslation(lng: string = fallbackLng, ns = "common") {
   return ret;
 }
 
-export { languages };
+export { languages, i18n };
