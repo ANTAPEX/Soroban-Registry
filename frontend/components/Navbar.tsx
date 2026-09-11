@@ -1,6 +1,6 @@
 'use client';
 
-import { Package, ChevronDown, BarChart2, Users, Menu, X, Layers, Search, ArrowUpRight, Columns2, ShieldCheck, PieChart, TrendingUp, LogOut, Settings, Zap, Code2, User, Star, GitBranch } from 'lucide-react';
+import { Package, ChevronDown, BarChart2, Users, Menu, X, Layers, Search, ArrowUpRight, Columns2, ShieldCheck, PieChart, TrendingUp, Settings, Zap, Code2, Star, GitBranch } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -262,11 +262,13 @@ export default function Navbar() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
 
-                        {/* Logo — monochrome mark + wordmark, Stellar-style */}
-                        <Link href="/" className="flex items-center gap-2 flex-shrink-0" aria-label="Soroban Registry home">
-                            <Package className="w-6 h-6 text-foreground" strokeWidth={2.2} />
+                        {/* Logo — compact icon mark + short name, Stellar-style */}
+                        <Link href="/" className="flex items-center gap-2.5 flex-shrink-0" aria-label="Soroban Registry home">
+                            <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-foreground text-background font-bold text-sm flex-shrink-0">
+                                S
+                            </span>
                             <span className="text-base font-bold text-foreground tracking-tight hidden sm:block">
-                                SorobanRegistry
+                                Soroban
                             </span>
                         </Link>
 
@@ -447,10 +449,12 @@ export default function Navbar() {
                 >
                     {/* Drawer header */}
                     <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-                        <Link href="/" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
-                            <Package className="w-5 h-5 text-foreground" strokeWidth={2.2} />
+                        <Link href="/" className="flex items-center gap-2.5" onClick={() => setMobileOpen(false)}>
+                            <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-foreground text-background font-bold text-xs flex-shrink-0">
+                                S
+                            </span>
                             <span className="font-bold text-base text-foreground tracking-tight">
-                                SorobanRegistry
+                                Soroban
                             </span>
                         </Link>
                         <button
@@ -538,35 +542,18 @@ export default function Navbar() {
                         </nav>
                     </div>
 
-                    {/* Profile footer */}
-                    <div className="border-t border-border p-4 bg-accent/20">
-                        <div className="flex items-center gap-3 mb-3">
-                            <div className="w-10 h-10 rounded-full border-2 border-border-strong flex items-center justify-center flex-shrink-0">
-                                <User className="w-5 h-5 text-foreground" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-foreground truncate">User Profile</p>
-                                <p className="text-xs text-muted-foreground truncate">user@example.com</p>
-                            </div>
+                    {/* Footer actions — open to everyone, no account/sign-in concept */}
+                    <div className="border-t border-border p-4">
+                        <div className="flex items-center gap-2">
+                            <PublishCta size="lg" onClick={() => setMobileOpen(false)} />
                             <Link
                                 href="/settings"
                                 onClick={() => setMobileOpen(false)}
-                                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                                 aria-label="Settings"
+                                className="flex items-center justify-center w-11 h-11 rounded-full border-2 border-border-strong text-foreground hover:bg-accent transition-colors flex-shrink-0"
                             >
                                 <Settings className="w-4 h-4" />
                             </Link>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                            <PublishCta size="lg" onClick={() => setMobileOpen(false)} />
-                            <button
-                                className="flex items-center justify-center gap-1.5 py-2.5 rounded-full border border-red-500/20 text-red-500 text-sm font-medium hover:bg-red-500/8 transition-colors"
-                                onClick={() => setMobileOpen(false)}
-                            >
-                                <LogOut className="w-4 h-4" />
-                                Sign Out
-                            </button>
                         </div>
                     </div>
                 </div>
