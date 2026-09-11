@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Space_Grotesk } from "next/font/google";
+import { Inter, Fraunces } from "next/font/google";
 import "./globals.css";
 import Providers from "@/components/Providers";
 import Script from "next/script";
@@ -20,10 +20,11 @@ const inter = Inter({
   display: "swap",
 });
 
-const spaceGrotesk = Space_Grotesk({
+const fraunces = Fraunces({
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
-  variable: "--font-space-grotesk",
+  weight: ["500", "600"],
+  style: ["normal"],
+  variable: "--font-fraunces",
   display: "swap",
 });
 
@@ -94,7 +95,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       lang={lng}
       dir={dir}
       suppressHydrationWarning
-      className={`${inter.variable} ${spaceGrotesk.variable}`}
+      className={`${inter.variable} ${fraunces.variable}`}
     >
       <head>
         {/* Theme detection script to prevent flash */}

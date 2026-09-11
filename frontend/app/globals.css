@@ -76,7 +76,7 @@
   --color-surface: var(--surface);
 
   --font-sans: var(--font-inter);
-  --font-display: var(--font-space-grotesk);
+  --font-display: var(--font-fraunces);
 }
 
 /* Wrapped in @layer base so Tailwind's generated utilities (which live in
@@ -115,21 +115,22 @@
       border-color 0.3s ease;
   }
 
-  /* Bold geometric display face for headings, sitewide — matches
-     Stellar's editorial headline treatment without touching every
-     component that renders an <h1>-<h4>. Reference the next/font
-     variables directly rather than through the @theme inline aliases. */
+  /* Editorial serif display face for headings, sitewide — matches
+     Stellar's own serif/sans pairing (serif headlines over a clean
+     grotesque for everything else) without touching every component
+     that renders an <h1>-<h4>. Reference the next/font variable
+     directly rather than through the @theme inline alias. */
   h1,
   h2,
   h3,
   h4 {
     font-family:
-      var(--font-space-grotesk),
-      var(--font-inter),
-      ui-sans-serif,
-      system-ui,
-      sans-serif;
-    letter-spacing: -0.02em;
+      var(--font-fraunces),
+      Georgia,
+      "Times New Roman",
+      serif;
+    font-weight: 600;
+    letter-spacing: -0.01em;
   }
 }
 
@@ -146,6 +147,29 @@
 .bg-grid-pattern {
   background-image: radial-gradient(circle, currentColor 1px, transparent 1px);
   background-size: 24px 24px;
+}
+
+/* ── Hero dot field — warm gold dot pattern fading in behind the
+   headline, matching Stellar's hero background treatment ─────────── */
+
+.hero-dot-field {
+  position: relative;
+}
+
+.hero-dot-field::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--primary) 1.5px, transparent 1.5px);
+  background-size: 26px 26px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 35%, black 30%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 35%, black 30%, transparent 75%);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.dark .hero-dot-field::before {
+  opacity: 0.35;
 }
 
 .hero-gradient {

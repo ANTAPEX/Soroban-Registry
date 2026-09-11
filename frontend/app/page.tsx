@@ -87,8 +87,8 @@ export default function Home() {
       <Navbar />
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-grid-pattern opacity-5 text-primary" />
+      <section className="relative overflow-hidden hero-dot-field">
+        <div className="absolute inset-0 bg-gradient-to-b from-accent/60 via-transparent to-transparent" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 relative">
           <div className="text-center max-w-3xl mx-auto">
             <Badge className="mb-6 animate-fade-in-up">

@@ -308,7 +308,7 @@ export default function Navbar() {
                         {/* Logo — abacus mark + name as one lockup, Stellar-style */}
                         <Link href="/" className="group flex items-center gap-2.5 flex-shrink-0" aria-label="Soroban Registry home">
                             <LogoMark className="w-8 h-8 transition-transform motion-safe:group-hover:scale-105" />
-                            <span className="font-display text-lg font-bold text-foreground tracking-tight hidden sm:block">
+                            <span className="text-lg font-bold text-foreground tracking-tight hidden sm:block">
                                 Soroban
                             </span>
                         </Link>
@@ -500,7 +500,7 @@ export default function Navbar() {
                     <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                         <Link href="/" className="flex items-center gap-2.5" onClick={() => setMobileOpen(false)}>
                             <LogoMark className="w-7 h-7" />
-                            <span className="font-display text-base font-bold text-foreground tracking-tight">
+                            <span className="text-base font-bold text-foreground tracking-tight">
                                 Soroban
                             </span>
                         </Link>
