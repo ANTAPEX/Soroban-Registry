@@ -425,6 +425,19 @@ export default function Navbar() {
                                 )}
                             </Link>
 
+                            {/* Settings link */}
+                            <Link
+                                href="/settings"
+                                aria-label="Settings"
+                                className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
+                                    isActive('/settings')
+                                        ? 'text-primary bg-accent'
+                                        : 'text-foreground/70 hover:text-foreground hover:bg-accent'
+                                }`}
+                            >
+                                <Settings className="w-[18px] h-[18px]" />
+                            </Link>
+
                             <div className="ml-1">
                                 <PublishCta />
                             </div>
