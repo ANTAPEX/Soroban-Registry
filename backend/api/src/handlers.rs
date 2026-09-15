@@ -2494,7 +2494,16 @@ fn render_contract_export(
     }
 }
 
-fn sanitized_export_filters(filters: ContractSearchParams) -> ContractSearchParams {
+/// Strip pagination state from the filter set echoed into an export artifact.
+///
+/// An export covers the whole matching set, so recording the requesting page,
+/// limit, offset or cursor would describe a slice the file does not contain —
+/// and replaying those filters would reproduce a different subset.
+fn sanitized_export_filters(mut filters: ContractSearchParams) -> ContractSearchParams {
+    filters.page = None;
+    filters.limit = None;
+    filters.offset = None;
+    filters.cursor = None;
     filters
 }
 

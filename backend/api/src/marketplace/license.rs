@@ -201,10 +201,12 @@ mod tests {
         let s = signer();
         let token = s.sign(&sample_claims()).unwrap();
         let mut parts: Vec<&str> = token.split('.').collect();
-        // Flip last byte of signature
+        // Flip last byte of signature. Must land on a *different* character —
+        // unconditionally pushing 'A' is a no-op whenever the signature already
+        // ends in 'A', which left this test failing roughly one run in 64.
         let mut sig = parts[2].to_string();
-        sig.pop();
-        sig.push('A');
+        let last = sig.pop().expect("signature segment is non-empty");
+        sig.push(if last == 'A' { 'B' } else { 'A' });
         parts[2] = &sig;
         let tampered = parts.join(".");
         assert!(matches!(

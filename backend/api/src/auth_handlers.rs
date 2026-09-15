@@ -333,6 +333,10 @@ mod tests {
     }
 
     #[tokio::test]
+    // Needs a live Postgres: verify_challenge looks the publisher up before
+    // issuing a JWT, so the lazy pool used by the other tests in this module
+    // times out here. Run with `--ignored` against a migrated database.
+    #[ignore = "requires a running Postgres"]
     async fn verify_issues_jwt_when_signature_valid() {
         let state = test_app_state().await;
         let key = SigningKey::from_bytes(&[1u8; 32]);

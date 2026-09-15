@@ -492,7 +492,15 @@ mod tests {
             "networks": "testnet,not-a-network",
         }));
 
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid network"));
+        let message = result.unwrap_err().to_string();
+        assert!(
+            message.contains("invalid network"),
+            "unexpected error message: {message}"
+        );
+        // The message should name the offending value, not just the field.
+        assert!(
+            message.contains("not-a-network"),
+            "unexpected error message: {message}"
+        );
     }
 }

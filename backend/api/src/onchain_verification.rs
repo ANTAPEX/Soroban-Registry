@@ -751,7 +751,7 @@ mod tests {
         let contract = dummy_contract(Network::Testnet, "abc123");
         assert_eq!(
             OnChainVerificationResult::cache_key(&contract, None),
-            "onchain:testnet:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4:abc123"
+            "onchain:testnet:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4:abc123:noabi"
         );
     }
 

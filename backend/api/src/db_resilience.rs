@@ -226,6 +226,20 @@ impl DbQueue {
     /// capacity, or `Err(DbQueueError::Timeout)` when the wait exceeds
     /// `queue_timeout`.
     pub async fn acquire(self: &Arc<Self>) -> Result<DbQueuePermit, DbQueueError> {
+        // Fast path: a permit is free right now, so this request never waits.
+        // Checked before the capacity test so that `queue_limit = 0` ("no
+        // waiting allowed") still serves requests that need not wait — treating
+        // it as "reject everything" would make the queue a total outage. It
+        // also keeps instantly-served requests out of the queue-depth metric.
+        if let Ok(permit) = self.semaphore.clone().try_acquire_owned() {
+            self.active_requests.fetch_add(1, Ordering::SeqCst);
+            crate::metrics::DB_RESILIENCE_ACTIVE_REQS.set(self.active_count() as i64);
+            return Ok(DbQueuePermit {
+                _permit: permit,
+                queue: self.clone(),
+            });
+        }
+
         if self.is_queue_full() {
             crate::metrics::DB_RESILIENCE_REJECTIONS
                 .with_label_values(&["queue_full"])
