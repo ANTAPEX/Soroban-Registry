@@ -930,6 +930,13 @@ pub async fn rate_limit_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Response {
+    // Health probes, the Prometheus scrape endpoint and internal admin APIs
+    // bypass quota accounting entirely. Checked before the whitelist so an
+    // exempt path never emits bypass audit/metric noise.
+    if is_exempt_path(request.uri().path()) {
+        return next.run(request).await;
+    }
+
     if rate_limiter.config.is_whitelisted(&request) {
         // ── Bypass audit trail (issue #1054) ──────────────────────────────
         // Determine the bypass identity before consuming the request.
