@@ -3,7 +3,10 @@
   "compilerOptions": {
     "moduleResolution": "node",
     "types": ["jest", "node"],
-    "noEmit": true
+    "noEmit": true,
+    // tsconfig.json uses "preserve" so Next/SWC transforms JSX at build time.
+    // ts-jest emits the JSX it is given, so under Jest it must be compiled.
+    "jsx": "react-jsx"
   },
   "include": [
     "**/*.ts",

@@ -294,6 +294,17 @@ mod tests {
             ai_service: None,
             state_monitor: None,
             rate_limit_state: Arc::new(RateLimitState::from_env()),
+            db_breaker: Arc::new(crate::db_resilience::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(30),
+            )),
+            db_queue: Arc::new(crate::db_resilience::DbQueue::new(
+                10,
+                100,
+                std::time::Duration::from_millis(500),
+            )),
+            feature_flags: Arc::new(crate::feature_flags::FeatureFlagManager::new()),
+            encryption: Arc::new(crate::crypto::EncryptionService::from_env()),
         }
     }
 
@@ -301,7 +312,7 @@ mod tests {
     async fn challenge_returns_nonce_for_address() {
         let state = test_app_state().await;
         let key = SigningKey::from_bytes(&[1u8; 32]);
-        let address = StellarPublicKey(*key.verifying_key().as_bytes()).to_string();
+        let address = format!("{}", StellarPublicKey(*key.verifying_key().as_bytes()));
         let query = ChallengeQuery { address };
         let result = get_challenge(State(state.clone()), Query(query)).await;
         assert!(result.is_ok());
@@ -325,7 +336,7 @@ mod tests {
     async fn verify_issues_jwt_when_signature_valid() {
         let state = test_app_state().await;
         let key = SigningKey::from_bytes(&[1u8; 32]);
-        let address = StellarPublicKey(*key.verifying_key().as_bytes()).to_string();
+        let address = format!("{}", StellarPublicKey(*key.verifying_key().as_bytes()));
         let public_key_hex = hex::encode(key.verifying_key().as_bytes());
 
         let query = ChallengeQuery {
@@ -346,7 +357,7 @@ mod tests {
             scopes: vec!["read".to_string()],
             expires_in_seconds: None,
         };
-        let result = verify_challenge(State(state.clone()), Json(payload)).await;
+        let result = verify_challenge(State(state.clone()), ValidatedJson(payload)).await;
         assert!(result.is_ok(), "{:?}", result.err());
         let (status, Json(resp)) = result.unwrap();
         assert_eq!(status, StatusCode::OK);

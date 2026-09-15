@@ -1107,7 +1107,8 @@ export async function fetchContracts(
   if (params.sort_by) searchParams.set("sort_by", params.sort_by);
   if (params.sort_order) searchParams.set("sort_order", params.sort_order);
 
-  return apiFetch<PaginatedResponse<Contract>>(`/api/contracts?${searchParams.toString()}`);
+  const qs = searchParams.toString();
+  return apiFetch<PaginatedResponse<Contract>>(`/api/contracts${qs ? `?${qs}` : ""}`);
 }
 
 export async function advancedSearchContracts(

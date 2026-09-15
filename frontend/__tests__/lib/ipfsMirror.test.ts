@@ -19,7 +19,7 @@ describe("IPFS mirror helpers", () => {
     const second = pinContractMetadata(metadata, "2026-04-23T00:01:00.000Z");
 
     expect(first.cid).toBe(second.cid);
-    expect(first.cid).toStartWith("bafy");
+    expect(first.cid).toMatch(/^bafy/);
     expect(verifyPinnedContract(first)).toBe(true);
     expect(retrievePinnedContract(first.cid, [first])).toEqual(first);
   });

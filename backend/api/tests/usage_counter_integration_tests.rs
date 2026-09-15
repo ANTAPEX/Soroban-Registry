@@ -6,8 +6,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::usage_counter;
-    use sqlx::PgPool;
+    use api::usage_counter;
     use uuid::Uuid;
 
     // Note: These tests require a test database setup
@@ -51,38 +50,22 @@ mod tests {
         //     .expect("Failed to fetch updated usage count");
         // assert_eq!(updated_count, 1);
 
-        // For now, just test that the function signature is correct
-        let contract_id = Uuid::new_v4();
-        let _future = async {
-            // This would fail at runtime but compiles correctly
-            let pool: PgPool = unsafe { std::mem::zeroed() };
-            usage_counter::increment_usage_counter(contract_id, &pool).await
-        };
+        // For now, just test that the function signature is correct.
+        let _ = usage_counter::increment_usage_counter;
     }
 
     #[tokio::test]
     #[ignore] // Ignore until test database is set up
     async fn test_increment_usage_counter_with_timeout_integration() {
         // This test would verify that timeout protection works
-        let contract_id = Uuid::new_v4();
-        let _future = async {
-            // This would fail at runtime but compiles correctly
-            let pool: PgPool = unsafe { std::mem::zeroed() };
-            usage_counter::increment_usage_counter_with_timeout(contract_id, &pool).await
-        };
+        let _ = usage_counter::increment_usage_counter_with_timeout;
     }
 
     #[tokio::test]
     #[ignore] // Ignore until test database is set up
     async fn test_increment_usage_counter_with_retry_integration() {
         // This test would verify that retry logic works
-        let contract_id = Uuid::new_v4();
-        let _future = async {
-            // This would fail at runtime but compiles correctly
-            let pool: PgPool = unsafe { std::mem::zeroed() };
-            usage_counter::increment_usage_counter_with_retry(contract_id, &pool, Some(3), Some(10))
-                .await
-        };
+        let _ = usage_counter::increment_usage_counter_with_retry;
     }
 
     #[tokio::test]
@@ -140,7 +123,7 @@ mod tests {
     #[test]
     fn test_contract_stats_response_serialization() {
         // Test that ContractStatsResponse can be serialized/deserialized
-        use crate::handlers::ContractStatsResponse;
+        use api::handlers::ContractStatsResponse;
         use chrono::Utc;
         use uuid::Uuid;
 

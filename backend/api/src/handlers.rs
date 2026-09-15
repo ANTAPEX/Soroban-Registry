@@ -8925,6 +8925,16 @@ mod tests {
             rate_limit_state,
             None,
             event_broadcaster,
+            Arc::new(crate::db_resilience::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(30),
+            )),
+            Arc::new(crate::db_resilience::DbQueue::new(
+                10,
+                100,
+                std::time::Duration::from_millis(500),
+            )),
+            Arc::new(crate::feature_flags::FeatureFlagManager::new()),
         )
         .await
         .unwrap();
@@ -9317,6 +9327,8 @@ mod tests {
 
     #[test]
     fn parse_datetime_rfc3339_format() {
+        use chrono::Datelike;
+
         let dt_str = "2024-01-15T10:30:00Z";
         let parsed = parse_datetime(dt_str);
         assert!(parsed.is_some());

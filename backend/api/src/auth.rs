@@ -712,7 +712,7 @@ mod tests {
         let mut auth = AuthManager::new("test-secret".to_string());
         let seed = [7u8; 32];
         let sk = SigningKey::from_bytes(&seed);
-        let address = StellarPublicKey(*sk.verifying_key().as_bytes()).to_string();
+        let address = format!("{}", StellarPublicKey(*sk.verifying_key().as_bytes()));
         let vk_hex = hex_encode(sk.verifying_key().as_bytes());
         let nonce = auth.create_challenge(&address);
         let sig = sk.sign(nonce.as_bytes());
@@ -736,7 +736,7 @@ mod tests {
         let mut auth = AuthManager::new("test-secret".to_string());
         let seed = [9u8; 32];
         let sk = SigningKey::from_bytes(&seed);
-        let address = StellarPublicKey(*sk.verifying_key().as_bytes()).to_string();
+        let address = format!("{}", StellarPublicKey(*sk.verifying_key().as_bytes()));
         let vk_hex = hex_encode(sk.verifying_key().as_bytes());
         let nonce = auth.create_challenge(&address);
         let sig = sk.sign(nonce.as_bytes());
