@@ -30,12 +30,157 @@ jobs:
               - 'soroban-registry/**/*.rs'
               - 'soroban-registry/Cargo.toml'
               - 'soroban-registry/Cargo.lock'
+              - 'rust-toolchain.toml'
+              - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+              - '.github/workflows/ci.yml'
 
-  # Rust backend checks removed: fmt, clippy, test, build (not having effect)
+  # ── Backend ────────────────────────────────────────────────────────────
+  #
+  # Restored after the backend test targets were found not to compile at all on
+  # main: `cargo check` passed while `cargo check --all-targets` failed, and
+  # nothing in CI built a test target, so the rot was invisible. `cargo test`
+  # below compiles every test target, which is the part that actually regressed.
+  #
+  # Deliberately not gated here: clippy and rustfmt. CONTRIBUTING.md prescribes
+  # -D warnings, but the backend has pre-existing formatting and lint drift, so
+  # enabling either would make this job red on arrival and teach people to
+  # ignore it. Same reasoning as cli-ci.yml.
+  backend:
+    name: Backend (build, test)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    env:
+      # A full debug build of this workspace is large enough to exhaust a
+      # hosted runner's disk. Incremental artifacts are pure overhead for a
+      # single-shot CI build, and line-tables-only keeps panic line numbers
+      # while dropping the bulk of the debug info.
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  # Frontend checks removed: lint, test, build (push) — not running in CI
+      - name: Install system build dependencies
+        run: |
+          set -euo pipefail
+          # openssl-sys is in the backend build graph via rust-s3 -> aws-creds
+          # -> attohttpc -> native-tls.
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev build-essential
+
+      - name: Install pinned toolchain
+        run: |
+          set -euo pipefail
+          # rust-toolchain.toml pins nightly; `rustup show` installs it on
+          # demand. No dtolnay/actions-rs action, which would override the pin.
+          rustup show
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            backend/target
+          key: backend-${{ runner.os }}-${{ hashFiles('**/rust-toolchain.toml', 'backend/Cargo.lock') }}
+          restore-keys: |
+            backend-${{ runner.os }}-
+
+      - name: Test
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          echo "::group::cargo test --workspace --locked"
+          # Compiles and runs every target, unit and integration alike. Tests
+          # marked #[ignore] need a live Postgres and are not run here.
+          if ! cargo test --workspace --locked; then
+            echo "::endgroup::"
+            echo "::error::Backend tests failed. A clean checkout must compile and pass, including test targets."
+            exit 1
+          fi
+          echo "::endgroup::"
+
+  # ── Frontend ───────────────────────────────────────────────────────────
+  #
+  # Restored alongside the backend job. The component tests in particular were
+  # never actually executing: tsconfig.json sets jsx "preserve" for Next/SWC,
+  # which ts-jest inherited and emitted untransformed, so every .tsx suite died
+  # on a parse error rather than running.
+  #
+  # Deliberately not gated here: eslint warnings. `npm run lint` reports ~210
+  # warnings and zero errors today; failing on warnings would be red on arrival.
+  frontend:
+    name: Frontend (typecheck, lint, test, build)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: |
+          set -euo pipefail
+          echo "::group::tsc --noEmit"
+          if ! npx tsc --noEmit; then
+            echo "::endgroup::"
+            echo "::error::Frontend typecheck failed."
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: Lint
+        run: |
+          set -euo pipefail
+          echo "::group::eslint"
+          if ! npm run lint; then
+            echo "::endgroup::"
+            echo "::error::Frontend lint reported an error."
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: Test
+        run: |
+          set -euo pipefail
+          echo "::group::jest"
+          if ! npx jest --ci; then
+            echo "::endgroup::"
+            echo "::error::Frontend tests failed."
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          echo "::group::next build"
+          if ! npm run build; then
+            echo "::endgroup::"
+            echo "::error::Frontend production build failed."
+            exit 1
+          fi
+          echo "::endgroup::"
 
   # ── Security Audit ─────────────────────────────────────────────────────
   security-audit:
