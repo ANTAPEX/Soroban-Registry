@@ -16,10 +16,11 @@ use tokio::sync::Semaphore;
 /// # Example
 /// ```rust,no_run
 /// # use verifier::engine::VerificationEngine;
-/// # tokio_test::block_on(async {
+/// # async fn example() {
 /// let engine = VerificationEngine::new(5);
 /// let result = engine.verify("wasm_base64:...", "aabbcc...", None, None).await.unwrap();
-/// # });
+/// # let _ = result;
+/// # }
 /// ```
 #[derive(Clone)]
 pub struct VerificationEngine {
