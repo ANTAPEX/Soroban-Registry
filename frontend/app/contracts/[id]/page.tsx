@@ -37,6 +37,8 @@ import { useContractAutoRefresh } from "@/hooks/useContractAutoRefresh";
 import ContractInteractionFlow from "@/components/contracts/ContractInteractionFlow";
 import ContractAbiMethodExplorer from "@/components/contracts/ContractAbiMethodExplorer";
 import VerificationBadge from "@/components/verification/VerificationBadge";
+import DriftBadge from "@/components/verification/DriftBadge";
+import ContractDriftPanel from "@/components/contracts/ContractDriftPanel";
 
 const NETWORKS: Network[] = ["mainnet", "testnet", "futurenet"];
 const TAB_IDS = [
@@ -119,6 +121,18 @@ function ContractDetailsContent() {
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     )[0];
   }, [versions]);
+
+  const { data: driftData } = useQuery({
+    queryKey: ["contract-drift", id, selectedNetwork],
+    queryFn: async () => {
+      const contractAddress = contract?.contract_id || id;
+      const res = await fetch(`/api/contracts/${contractAddress}/drift?network=${selectedNetwork}`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!id,
+    refetchInterval: 30_000,
+  });
 
   const { data: abiResponse, isLoading: abiLoading } = useQuery({
     queryKey: ["contract-abi", id, latestVersion?.version],
@@ -320,7 +334,11 @@ function ContractDetailsContent() {
                 status={displayVerified ? "approved" : "unverified"}
                 level={contract.verification_level}
                 size="md"
+                driftStatus={driftData?.status}
               />
+              {driftData?.status && (
+                <DriftBadge status={driftData.status} size="md" />
+              )}
               {contract.artifact_scan_status && (
                 <span className={`text-xs font-medium ${contract.artifact_scan_status === "passed" ? "text-emerald-600" : "text-amber-600"}`}>
                   Artifact scan: {contract.artifact_scan_status}
@@ -799,7 +817,11 @@ function ContractDetailsContent() {
                     status={displayVerified ? "approved" : "unverified"}
                     level={contract.verification_level}
                     size="md"
+                    driftStatus={driftData?.status}
                   />
+                  {driftData?.status && (
+                    <DriftBadge status={driftData.status} size="md" />
+                  )}
                   {!displayVerified && (
                     <Link
                       href={`/verify-contract?id=${contract.id}`}
@@ -857,6 +879,11 @@ function ContractDetailsContent() {
                 </div>
               </dl>
             </div>
+            <ContractDriftPanel
+              contractId={displayContractId || contract.id}
+              network={selectedNetwork}
+              initialDriftData={driftData}
+            />
             <FormalVerificationPanel contractId={contract.id} />
             <DependencyVulnerabilityPanel contractId={contract.id} />
           </section>

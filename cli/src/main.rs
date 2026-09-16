@@ -31,6 +31,7 @@ mod contract_dependency;
 mod contract_dependency_graph;
 mod contract_deploy;
 mod contract_deprecate;
+mod contract_drift;
 mod contract_highlight;
 mod contract_interaction;
 mod contract_interfaces;
@@ -2628,6 +2629,37 @@ pub enum ContractCommands {
         json: bool,
     },
 
+    /// Detect three-way WASM drift (lockfile ↔ registry ↔ chain) (#1191)
+    ///
+    /// Usage:
+    ///   soroban-registry contract drift --id <CONTRACT_ID> [--lockfile <PATH>] [--network <NET>] [--json]
+    ///   soroban-registry contract drift --all [--status <STATUS>] [--network <NET>] [--json]
+    Drift {
+        /// Contract ID or address to check for drift
+        #[arg(long)]
+        id: Option<String>,
+
+        /// Query drift state registry-wide across all monitored contracts
+        #[arg(long)]
+        all: bool,
+
+        /// Filter registry-wide drift check by status: match | drift | not_on_chain | unknown
+        #[arg(long)]
+        status: Option<String>,
+
+        /// Path to local lockfile for three-way comparison (default: soroban-registry.lock.json if present)
+        #[arg(long)]
+        lockfile: Option<String>,
+
+        /// Stellar network (mainnet | testnet | futurenet)
+        #[arg(long)]
+        network: Option<String>,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Deprecate a contract with publisher-signed authorization (#1091)
     ///
     /// Requires the publisher's Ed25519 private key to sign the deprecation
@@ -5196,6 +5228,36 @@ pub async fn dispatch_command(
                 );
                 let fmt = if json { "json" } else { &format };
                 contract_audit::run(&cli.api_url, &lockfile, fix, init, &contracts, fmt).await?;
+            }
+            ContractCommands::Drift {
+                id,
+                all,
+                status,
+                lockfile,
+                network,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract drift | id={:?} all={} status={:?} lockfile={:?}",
+                    id,
+                    all,
+                    status,
+                    lockfile
+                );
+                let net = network.or_else(|| cli.network.clone());
+                let has_drift = contract_drift::run(contract_drift::DriftCliOptions {
+                    api_url: &cli.api_url,
+                    id: id.as_deref(),
+                    all,
+                    status: status.as_deref(),
+                    lockfile: lockfile.as_deref(),
+                    network: net.as_deref(),
+                    json,
+                })
+                .await?;
+                if has_drift {
+                    std::process::exit(1);
+                }
             }
             ContractCommands::Snapshot { id, output, json } => {
                 log::debug!("Command: contract snapshot | id={} output={}", id, output);
