@@ -1,128 +1,56 @@
 // tests/usage_counter_integration_tests.rs
 //
-// Integration tests for the usage counter functionality.
-// These tests verify that the usage counter works correctly with the database
-// and that handlers properly increment counters.
+// Integration tests for the usage counter.
+//
+// The behaviour worth testing here — that an increment survives a round trip
+// through Postgres, and that concurrent increments do not lose updates — cannot
+// be checked without a database. These tests are therefore #[ignore]d by
+// default, matching the convention used by the other DB-backed suites in this
+// directory (see dependency_graph_tests.rs for the full setup recipe).
+//
+// To run:
+//   docker run -d --name sr-test-pg -e POSTGRES_PASSWORD=postgres \
+//     -e POSTGRES_DB=soroban_registry -p 5432:5432 postgres:16
+//   export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/soroban_registry"
+//   cargo test --test usage_counter_integration_tests -- --include-ignored
+//
+// They body out to todo!() rather than to a vacuous assert!(true). The previous
+// version passed when run with --include-ignored despite touching no database,
+// which reported coverage that did not exist. Failing loudly is the honest
+// signal that the work is outstanding.
+//
+// Argument types for every usage_counter entry point are pinned by a unit test
+// in api/src/usage_counter.rs, which needs no database.
 
 #[cfg(test)]
 mod tests {
-    use api::usage_counter;
-    use uuid::Uuid;
-
-    // Note: These tests require a test database setup
-    // In a real test environment, we would set up a test database connection
-
+    /// Increment once against a real row and read the value back.
+    ///
+    /// Spec: insert a contract with usage_count 0, call
+    /// `increment_usage_counter`, then assert the persisted count is 1.
     #[tokio::test]
-    #[ignore] // Ignore until test database is set up
-    async fn test_increment_usage_counter_integration() {
-        // This test would verify that increment_usage_counter works with a real database
-        // let pool = setup_test_db().await;
-        // let contract_id = Uuid::new_v4();
-
-        // // First, create a test contract in the database
-        // sqlx::query("INSERT INTO contracts (id, contract_id, name, publisher_id, network) VALUES ($1, $2, $3, $4, $5)")
-        //     .bind(contract_id)
-        //     .bind("TEST123")
-        //     .bind("Test Contract")
-        //     .bind(Uuid::new_v4())
-        //     .bind("mainnet")
-        //     .execute(&pool)
-        //     .await
-        //     .expect("Failed to create test contract");
-
-        // // Verify initial usage_count is 0
-        // let initial_count: i64 = sqlx::query_scalar("SELECT usage_count FROM contracts WHERE id = $1")
-        //     .bind(contract_id)
-        //     .fetch_one(&pool)
-        //     .await
-        //     .expect("Failed to fetch initial usage count");
-        // assert_eq!(initial_count, 0);
-
-        // // Increment usage counter
-        // let result = usage_counter::increment_usage_counter(contract_id, &pool).await;
-        // assert!(result.is_ok(), "Should increment usage counter successfully");
-
-        // // Verify usage_count is now 1
-        // let updated_count: i64 = sqlx::query_scalar("SELECT usage_count FROM contracts WHERE id = $1")
-        //     .bind(contract_id)
-        //     .fetch_one(&pool)
-        //     .await
-        //     .expect("Failed to fetch updated usage count");
-        // assert_eq!(updated_count, 1);
-
-        // For now, just test that the function signature is correct.
-        let _ = usage_counter::increment_usage_counter;
+    #[ignore = "requires a running Postgres"]
+    async fn increment_persists_to_the_database() {
+        todo!("seed a contract, increment, assert usage_count == 1");
     }
 
+    /// Concurrent increments must not lose updates.
+    ///
+    /// Spec: seed one contract, spawn 10 concurrent `increment_usage_counter`
+    /// calls, await all of them, then assert the persisted count is exactly 10.
+    /// This is the test that would catch a read-modify-write regression in the
+    /// SQL, which is why the production statement is a single atomic UPDATE.
     #[tokio::test]
-    #[ignore] // Ignore until test database is set up
-    async fn test_increment_usage_counter_with_timeout_integration() {
-        // This test would verify that timeout protection works
-        let _ = usage_counter::increment_usage_counter_with_timeout;
+    #[ignore = "requires a running Postgres"]
+    async fn concurrent_increments_do_not_lose_updates() {
+        todo!("seed a contract, run 10 concurrent increments, assert count == 10");
     }
 
-    #[tokio::test]
-    #[ignore] // Ignore until test database is set up
-    async fn test_increment_usage_counter_with_retry_integration() {
-        // This test would verify that retry logic works
-        let _ = usage_counter::increment_usage_counter_with_retry;
-    }
-
-    #[tokio::test]
-    #[ignore] // Ignore until test database is set up
-    async fn test_concurrent_increment_usage_counter() {
-        // This test would verify that concurrent increments work correctly
-        // let pool = setup_test_db().await;
-        // let contract_id = Uuid::new_v4();
-
-        // // Create test contract
-        // sqlx::query("INSERT INTO contracts (id, contract_id, name, publisher_id, network) VALUES ($1, $2, $3, $4, $5)")
-        //     .bind(contract_id)
-        //     .bind("TEST123")
-        //     .bind("Test Contract")
-        //     .bind(Uuid::new_v4())
-        //     .bind("mainnet")
-        //     .execute(&pool)
-        //     .await
-        //     .expect("Failed to create test contract");
-
-        // // Spawn multiple concurrent increment operations
-        // let mut handles = vec![];
-        // for _ in 0..10 {
-        //     let pool_clone = pool.clone();
-        //     let contract_id_clone = contract_id;
-        //     handles.push(tokio::spawn(async move {
-        //         usage_counter::increment_usage_counter(contract_id_clone, &pool_clone).await
-        //     }));
-        // }
-
-        // // Wait for all operations to complete
-        // for handle in handles {
-        //     let result = handle.await.expect("Task should complete");
-        //     assert!(result.is_ok(), "Concurrent increment should succeed");
-        // }
-
-        // // Verify final count is 10
-        // let final_count: i64 = sqlx::query_scalar("SELECT usage_count FROM contracts WHERE id = $1")
-        //     .bind(contract_id)
-        //     .fetch_one(&pool)
-        //     .await
-        //     .expect("Failed to fetch final usage count");
-        // assert_eq!(final_count, 10);
-
-        // For now, just mark test as passed
-        assert!(true);
-    }
-
+    /// `ContractStatsResponse` survives a JSON round trip.
+    ///
+    /// Needs no database, so it is not ignored.
     #[test]
-    fn test_usage_counter_module_compiles() {
-        // Simple test to verify the module compiles correctly
-        assert!(true);
-    }
-
-    #[test]
-    fn test_contract_stats_response_serialization() {
-        // Test that ContractStatsResponse can be serialized/deserialized
+    fn contract_stats_response_round_trips_through_json() {
         use api::handlers::ContractStatsResponse;
         use chrono::Utc;
         use uuid::Uuid;

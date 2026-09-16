@@ -185,104 +185,49 @@ pub async fn increment_usage_counter_with_retry_and_timeout(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
     use uuid::Uuid;
 
-    // Note: These tests are marked as ignored because they require a test database setup
-    // In a real implementation, you would set up a test database connection
+    // These functions all need a live Postgres to exercise for real. Until the
+    // suite has one, the checks below are deliberately limited to what can be
+    // asserted without a connection: that each entry point exists with the
+    // argument types callers rely on.
+    //
+    // They are NOT #[ignore]d, because they no longer pretend to need a
+    // database — an ignored test that asserts nothing is worse than a small
+    // test that asserts something true. The behavioural coverage these stand in
+    // for is tracked separately; see usage_counter_integration_tests.rs.
 
+    /// Pins each entry point's argument types at compile time.
+    ///
+    /// `connect_lazy` opens no connection, so no database is needed — but it
+    /// does spawn a pool-maintenance task, hence `#[tokio::test]`. The async
+    /// block below is constructed and never
+    /// awaited: that is enough to type-check every call site, and nothing in it
+    /// touches the connection.
+    ///
+    /// The previous version of these tests built a `PgPool` with
+    /// `unsafe { std::mem::zeroed() }`. That is undefined behaviour on
+    /// construction, not merely on use: `PgPool` wraps non-null pointers, and a
+    /// zeroed one violates its validity invariant. It stayed inert only because
+    /// the future was never polled, so deleting the `#[ignore]` above it would
+    /// have turned it into a segfault rather than a passing test.
     #[tokio::test]
-    #[ignore] // Ignore until test database is set up
-    async fn test_increment_usage_counter() {
-        // This test would verify that the basic increment function works
-        // let pool = setup_test_db().await;
-        // let contract_id = Uuid::new_v4();
-        //
-        // // Test basic increment functionality
-        // let result = increment_usage_counter(contract_id, &pool).await;
-        // assert!(result.is_ok());
-
-        // For now, just test that the function signature is correct
+    async fn entry_points_accept_their_documented_arguments() {
+        let pool = PgPool::connect_lazy("postgres://user:pass@localhost/db")
+            .expect("connect_lazy performs no I/O and should not fail");
         let contract_id = Uuid::new_v4();
-        // This won't actually run but verifies the function signature compiles
-        let _future = async {
-            // This would fail at runtime but compiles correctly
-            let pool: PgPool = unsafe { std::mem::zeroed() };
-            increment_usage_counter(contract_id, &pool).await
+
+        let _never_awaited = async {
+            let _ = increment_usage_counter(contract_id, &pool).await;
+            let _ = increment_usage_counter_with_timeout(contract_id, &pool).await;
+            let _ = increment_usage_counter_with_retry(contract_id, &pool, Some(3), Some(10)).await;
+            let _ = increment_usage_counter_with_retry_and_timeout(
+                contract_id,
+                &pool,
+                Some(100),
+                Some(3),
+            )
+            .await;
         };
-    }
-
-    #[tokio::test]
-    #[ignore] // Ignore until test database is set up
-    async fn test_increment_usage_counter_with_timeout() {
-        // This test would verify that the timeout-protected increment works
-        let contract_id = Uuid::new_v4();
-        // This won't actually run but verifies the function signature compiles
-        let _future = async {
-            // This would fail at runtime but compiles correctly
-            let pool: PgPool = unsafe { std::mem::zeroed() };
-            increment_usage_counter_with_timeout(contract_id, &pool).await
-        };
-    }
-
-    #[test]
-    fn test_module_compiles() {
-        // Simple test to verify the module compiles correctly
-        assert!(true);
-    }
-
-    #[tokio::test]
-    #[ignore] // Ignore until test database is set up
-    async fn test_increment_usage_counter_with_retry() {
-        // This test would verify that the retry logic works correctly
-        let contract_id = Uuid::new_v4();
-        // This won't actually run but verifies the function signature compiles
-        let _future = async {
-            // This would fail at runtime but compiles correctly
-            let pool: PgPool = unsafe { std::mem::zeroed() };
-            increment_usage_counter_with_retry(contract_id, &pool, Some(3), Some(10)).await
-        };
-    }
-
-    #[tokio::test]
-    #[ignore] // Ignore until test database is set up
-    async fn test_increment_usage_counter_with_retry_and_timeout() {
-        // This test would verify that the retry with timeout logic works correctly
-        let contract_id = Uuid::new_v4();
-        // This won't actually run but verifies the function signature compiles
-        let _future = async {
-            // This would fail at runtime but compiles correctly
-            let pool: PgPool = unsafe { std::mem::zeroed() };
-            increment_usage_counter_with_retry_and_timeout(contract_id, &pool, Some(100), Some(3))
-                .await
-        };
-    }
-
-    #[test]
-    fn test_exponential_backoff_calculation() {
-        // Test that exponential backoff delays are calculated correctly
-        let base_delay = 10u64;
-
-        // First retry: 10ms * 2^0 = 10ms
-        assert_eq!(base_delay * (2_u64.pow(0)), 10);
-
-        // Second retry: 10ms * 2^1 = 20ms
-        assert_eq!(base_delay * (2_u64.pow(1)), 20);
-
-        // Third retry: 10ms * 2^2 = 40ms
-        assert_eq!(base_delay * (2_u64.pow(2)), 40);
-    }
-
-    #[test]
-    fn test_default_retry_parameters() {
-        // Test that default parameters are reasonable
-        let default_max_retries = 3u32;
-        let default_base_delay = 10u64;
-        let default_timeout = 100u64;
-
-        // Verify defaults are within reasonable bounds
-        assert!(default_max_retries > 0 && default_max_retries <= 5);
-        assert!(default_base_delay >= 5 && default_base_delay <= 50);
-        assert!(default_timeout >= 50 && default_timeout <= 500);
     }
 }
