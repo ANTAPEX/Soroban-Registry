@@ -53,10 +53,12 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     env:
-      # A full debug build of this workspace is large enough to exhaust a
-      # hosted runner's disk. Incremental artifacts are pure overhead for a
-      # single-shot CI build, and line-tables-only keeps panic line numbers
-      # while dropping the bulk of the debug info.
+      # Measured locally: a full debug build of this workspace is ~26 GB with
+      # the default profile and 8.4 GB with these settings. The default
+      # overruns a hosted runner's disk, so these are load-bearing rather than
+      # tuning. Incremental artifacts are pure overhead for a single-shot CI
+      # build, and line-tables-only keeps panic line numbers while dropping the
+      # bulk of the debug info.
       CARGO_INCREMENTAL: 0
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
       CARGO_PROFILE_TEST_DEBUG: line-tables-only
@@ -93,6 +95,20 @@ jobs:
           restore-keys: |
             backend-${{ runner.os }}-
 
+      - name: Report disk headroom (before build)
+        run: |
+          set -euo pipefail
+          # A full debug build of this workspace measured 8.4 GB locally with
+          # the trimmed profile above, and ~26 GB without it. That fits a
+          # hosted runner, but not so comfortably that it can go unwatched:
+          # every tests/*.rs is its own crate statically linking the whole api
+          # crate, so the footprint grows with each integration test file
+          # added. These steps put the real numbers in the log rather than
+          # leaving them to be rediscovered by a confusing linker failure.
+          echo "::group::disk before build"
+          df -h /
+          echo "::endgroup::"
+
       - name: Test
         working-directory: backend
         run: |
@@ -106,6 +122,21 @@ jobs:
             exit 1
           fi
           echo "::endgroup::"
+
+      - name: Report disk headroom (after build)
+        # Runs even on failure: if the build died from a full disk, this step
+        # is what says so.
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "::group::disk after build"
+          df -h /
+          du -sh backend/target 2>/dev/null || true
+          echo "::endgroup::"
+          avail_kb=$(df --output=avail / | tail -1)
+          if [ "$avail_kb" -lt 2097152 ]; then
+            echo "::warning::Under 2 GB of disk left after the backend build. Adding integration test files will start failing CI before it starts failing review."
+          fi
 
   # ── Frontend ───────────────────────────────────────────────────────────
   #
