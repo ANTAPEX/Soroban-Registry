@@ -167,7 +167,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        # @reduxjs/toolkit 1.x declares a peer of react <= 18 and this project
+        # is on react 19, so a strict resolve fails before anything is fetched.
+        # The committed lockfile was resolved the same way. Upgrading the
+        # dependency is a separate change; this only installs what is pinned.
+        run: npm ci --legacy-peer-deps
 
       - name: Typecheck
         run: |
