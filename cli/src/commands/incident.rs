@@ -6,6 +6,7 @@ use std::str::FromStr;
 
 use anyhow::{bail, Result};
 use chrono::{DateTime, Utc};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -205,4 +206,78 @@ mod tests {
         let err = mgr.update_state(id, IncidentState::Detected).unwrap_err();
         assert!(err.to_string().contains("already in state"));
     }
+}
+
+pub fn incident_trigger(contract_id: &str, severity_str: &str) -> Result<()> {
+    use crate::commands::incident::{IncidentManager, IncidentSeverity};
+
+    let severity = severity_str.parse::<IncidentSeverity>()?;
+    let mut mgr = IncidentManager::default();
+    let id = mgr.trigger(contract_id.to_string(), severity);
+
+    println!("\n{}", "Incident Triggered".bold().cyan());
+    println!("{}", "=".repeat(80).cyan());
+    println!("  {}: {}", "Incident ID".bold(), id);
+    println!("  {}: {}", "Contract".bold(), contract_id.bright_black());
+    println!(
+        "  {}: {}",
+        "Severity".bold(),
+        match severity {
+            IncidentSeverity::Critical => "CRITICAL".red().bold(),
+            IncidentSeverity::High => "HIGH".yellow().bold(),
+            IncidentSeverity::Medium => "MEDIUM".cyan(),
+            IncidentSeverity::Low => "LOW".normal(),
+        }
+    );
+    println!("  {}: Detected", "State".bold());
+
+    if mgr.is_halted(contract_id) {
+        println!(
+            "\n  {} {}",
+            "CIRCUIT BREAKER ENGAGED —".red().bold(),
+            format!("contract {} is now halted", contract_id).red()
+        );
+    }
+
+    println!(
+        "\n  {} To advance state:\n    soroban-registry incident update {} --state responding\n",
+        "→".bright_black(),
+        id
+    );
+
+    Ok(())
+}
+
+pub fn incident_update(incident_id_str: &str, state_str: &str) -> Result<()> {
+    use crate::commands::incident::IncidentState;
+    use uuid::Uuid;
+
+    let id = incident_id_str
+        .parse::<Uuid>()
+        .map_err(|_| anyhow::anyhow!("invalid incident ID: {}", incident_id_str))?;
+    let new_state = state_str.parse::<IncidentState>()?;
+
+    println!("\n{}", "Incident Updated".bold().cyan());
+    println!("{}", "=".repeat(80).cyan());
+    println!("  {}: {}", "Incident ID".bold(), id);
+    println!(
+        "  {}: {}",
+        "New State".bold(),
+        new_state.to_string().green().bold()
+    );
+
+    if matches!(
+        new_state,
+        IncidentState::Recovered | IncidentState::PostReview
+    ) {
+        println!(
+            "\n  {} {}",
+            "[OK]".green(),
+            "Circuit breaker cleared — registry interactions for this contract resumed.".green()
+        );
+    }
+
+    println!();
+
+    Ok(())
 }

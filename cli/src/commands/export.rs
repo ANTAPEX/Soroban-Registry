@@ -12,6 +12,7 @@ use tar::Builder;
 
 use crate::support::io_utils::{compute_sha256_streaming, BUF_SIZE};
 use crate::support::manifest::{ExportManifest, ManifestEntry};
+use colored::Colorize;
 
 pub fn create_archive(
     contract_dir: &Path,
@@ -705,5 +706,44 @@ fn append_file_streaming<W: Write>(
 
     let reader = BufReader::with_capacity(BUF_SIZE, File::open(file_path)?);
     builder.append_data(&mut header, archive_name, reader)?;
+    Ok(())
+}
+
+pub async fn export(
+    api_url: &str,
+    id: Option<&str>,
+    output: Option<&str>,
+    contract_dir: &str,
+    format: Option<&str>,
+    filters: Vec<String>,
+    page_size: usize,
+) -> Result<()> {
+    let resolved_format =
+        crate::commands::export::RegistryExportFormat::resolve(format, id, output)?;
+    let summary = crate::commands::export::export_registry_data(
+        crate::commands::export::RegistryExportOptions {
+            api_url,
+            id,
+            output,
+            contract_dir,
+            format: resolved_format,
+            filters,
+            page_size,
+            include_related: true,
+            compress: false,
+        },
+    )
+    .await?;
+
+    println!("{}", "[OK] Export complete!".green().bold());
+    println!(
+        "  {}: {}",
+        "Format".bold(),
+        format!("{:?}", summary.format).to_lowercase()
+    );
+    println!("  {}: {}", "Items".bold(), summary.items_exported);
+    println!("  {}: {}", "Output".bold(), summary.output_path);
+    println!("  {}: {}", "SHA-256".bold(), summary.sha256.bright_black());
+    println!("  {}: {}\n", "Checksum".bold(), summary.checksum_path);
     Ok(())
 }
