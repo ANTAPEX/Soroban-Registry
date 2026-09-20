@@ -107,8 +107,8 @@ fn check_token(_email: &str, token: Option<&str>) -> bool {
 /// Verify a publisher's email ownership and award the verification badge.
 ///
 /// Issue #603 acceptance criteria:
-///   ✅ Endpoint validates publisher identity.
-///   ✅ Returns appropriate verification status.
+///   - Endpoint validates publisher identity.
+///   - Returns appropriate verification status.
 pub async fn verify_publisher(
     State(state): State<AppState>,
     Path(publisher_id): Path<Uuid>,
