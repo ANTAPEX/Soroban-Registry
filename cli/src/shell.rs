@@ -199,7 +199,7 @@ async fn execute_command(args: Vec<String>, _context: &ShellContext) -> Result<(
             }
             let network: crate::commands::Network = net_str.parse().unwrap();
 
-            crate::dispatch_command(cli, network, cfg_network).await
+            crate::dispatch::dispatch_command(cli, network, cfg_network).await
         }
         Err(e) => {
             if e.to_string().contains("Usage:") {
