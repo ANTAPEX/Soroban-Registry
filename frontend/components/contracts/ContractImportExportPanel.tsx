@@ -575,41 +575,26 @@ export default function ContractImportExportPanel() {
       setExporting(true);
       showInfo("Export started. Fetching contracts...");
 
-      const firstPage = await api.getContracts({
-        query: exportFilters.query || undefined,
-        network: exportFilters.network || undefined,
-        category: exportFilters.category || undefined,
-        verified_only: exportFilters.verifiedOnly || undefined,
-        page: 1,
-        page_size: 100,
-      });
-
-      const allItems = [...firstPage.items];
-      const totalPages = Math.max(1, firstPage.total_pages);
-
-      setProgress({
-        active: true,
-        mode: "export",
-        current: 1,
-        total: totalPages,
-        label: "Fetching export pages",
-      });
-
-      for (let page = 2; page <= totalPages; page += 1) {
-        const next = await api.getContracts({
+      let totalPages = 1;
+      const allItems = await api.fetchAllContracts(
+        {
           query: exportFilters.query || undefined,
           network: exportFilters.network || undefined,
           category: exportFilters.category || undefined,
           verified_only: exportFilters.verifiedOnly || undefined,
-          page,
           page_size: 100,
-        });
-        allItems.push(...next.items);
-        setProgress((current: ProgressState) => ({
-          ...current,
-          current: page,
-        }));
-      }
+        },
+        (current, total) => {
+          totalPages = total;
+          setProgress({
+            active: true,
+            mode: "export",
+            current,
+            total,
+            label: "Fetching export pages",
+          });
+        },
+      );
 
       const exportRows = buildExportRows(allItems);
       const timestamp = new Date()

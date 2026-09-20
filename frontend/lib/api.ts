@@ -9,6 +9,7 @@
 
 import {
   fetchContracts,
+  fetchAllContracts,
   advancedSearchContracts,
   fetchContract,
   fetchContractHealth,
@@ -192,6 +193,7 @@ export { ApiError, NetworkError } from "./errors";
 
 export {
   fetchContracts,
+  fetchAllContracts,
   advancedSearchContracts,
   fetchContract,
   fetchContractHealth,
@@ -259,6 +261,7 @@ export {
 
 export const api = {
   fetchContracts,
+  fetchAllContracts,
   getContracts: fetchContracts,
   advancedSearchContracts,
   fetchContract,
