@@ -1,6 +1,5 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
 import { api, GraphNode, GraphEdge } from '@/lib/api';
 import DependencyGraph from '@/components/DependencyGraph';
 import GraphControls from '@/components/GraphControls';
@@ -9,7 +8,7 @@ import { AlertCircle, Sparkles, ExternalLink, X } from 'lucide-react';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import type { DependencyGraphHandle } from '@/components/DependencyGraph';
 import { useTranslation } from '@/lib/i18n/client';
-import { queryKeys } from "@/lib/queryKeys";
+import { useContractGraph } from "@/hooks/queries";
 
 // Generate synthetic demo data for testing at scale
 function generateDemoData(nodeCount: number): { nodes: GraphNode[]; edges: GraphEdge[] } {
@@ -130,9 +129,7 @@ export function GraphContent() {
         }
     }, []);
 
-    const { data: apiData, isLoading, error } = useQuery({
-        queryKey: queryKeys.contractGraph(networkFilter),
-        queryFn: () => api.getContractGraph(networkFilter || undefined),
+    const { data: apiData, isLoading, error } = useContractGraph(networkFilter, {
         enabled: !demoMode,
     });
 

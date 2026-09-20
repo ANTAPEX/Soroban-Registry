@@ -1,8 +1,6 @@
 "use client";
 
 import type { Contract } from "@/types";
-import { api } from "@/lib/api";
-import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
@@ -10,16 +8,14 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
-import { queryKeys } from "@/lib/queryKeys";
+import { useContractHealth } from "@/hooks/queries";
 
 interface HealthWidgetProps {
   contract: Contract;
 }
 
 export default function HealthWidget({ contract }: HealthWidgetProps) {
-  const { data: health, isLoading } = useQuery({
-    queryKey: queryKeys.contractHealth(contract.id),
-    queryFn: () => api.getContractHealth(contract.id),
+  const { data: health, isLoading } = useContractHealth(contract.id, {
     retry: false,
   });
 

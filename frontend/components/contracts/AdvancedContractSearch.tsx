@@ -8,7 +8,6 @@ import {
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
 import {
   Bookmark,
   ChevronDown,
@@ -17,11 +16,10 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { api } from "@/lib/api";
 import type { Contract, ContractSearchParams } from "@/types";
 import ContractCard from "@/components/ContractCard";
 import ContractCardSkeleton from "@/components/ContractCardSkeleton";
-import { queryKeys } from "@/lib/queryKeys";
+import { useContracts } from "@/hooks/queries";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -507,9 +505,7 @@ export function AdvancedContractSearch() {
     [filters, debouncedQuery],
   );
 
-  const { data, isFetching, isPending } = useQuery({
-    queryKey: queryKeys.contractsList(apiParams),
-    queryFn: () => api.getContracts(apiParams),
+  const { data, isFetching, isPending } = useContracts(apiParams, {
     placeholderData: (prev) => prev,
     staleTime: 30_000,
   });

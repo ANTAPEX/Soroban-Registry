@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api, MetricCatalogEntry } from "@/lib/api";
+import { MetricCatalogEntry } from "@/lib/api";
 import { Activity, BarChart3, Clock3, LineChart } from "lucide-react";
-import { queryKeys } from "@/lib/queryKeys";
+import {
+  useCustomMetricsCatalog,
+  useCustomMetricsSeries,
+} from "@/hooks/queries";
 
 function toNumber(value?: number) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -51,10 +53,7 @@ export default function CustomMetricsPanel({ contractId }: Props) {
     data: catalog,
     isLoading: catalogLoading,
     isError: catalogError,
-  } = useQuery({
-    queryKey: queryKeys.customMetricsCatalog(contractId),
-    queryFn: () => api.getCustomMetricCatalog(contractId),
-  });
+  } = useCustomMetricsCatalog(contractId);
 
   const metricName = selectedMetric || (catalog?.[0]?.metric_name ?? "");
 
@@ -62,15 +61,7 @@ export default function CustomMetricsPanel({ contractId }: Props) {
     data: series,
     isLoading: seriesLoading,
     isError: seriesError,
-  } = useQuery({
-    queryKey: queryKeys.customMetricsSeries(contractId, metricName, resolution),
-    queryFn: () =>
-      api.getCustomMetricSeries(contractId, metricName || "", {
-        resolution,
-        limit: 48,
-      }),
-    enabled: !!metricName,
-  });
+  } = useCustomMetricsSeries(contractId, metricName, resolution);
 
   const latestPoint = useMemo(() => {
     if (!series || !series.points || series.points.length === 0) return null;

@@ -1,7 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import {
   Shield,
   ShieldAlert,
@@ -12,7 +10,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useState } from "react";
-import { queryKeys } from "@/lib/queryKeys";
+import { useFormalVerification } from "@/hooks/queries";
 
 export default function FormalVerificationPanel({
   contractId,
@@ -25,10 +23,7 @@ export default function FormalVerificationPanel({
     data: reports,
     isLoading,
     error,
-  } = useQuery({
-    queryKey: queryKeys.formalVerification(contractId),
-    queryFn: () => api.getFormalVerificationResults(contractId),
-  });
+  } = useFormalVerification(contractId);
 
   if (isLoading) {
     return (

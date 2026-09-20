@@ -160,6 +160,25 @@ export function useContractInteractions(
   });
 }
 
+/**
+ * The last N interactions, as the contract detail page shows them. It keys on
+ * the contract alone, without the limit — which is what the page has always
+ * done, and why it is a separate hook rather than `useContractInteractions`
+ * with arguments.
+ */
+export function useContractInteractionsPreview(
+  id: string | undefined,
+  limit = 10,
+  options?: QueryOpts<InteractionsListResponse>,
+) {
+  return useQuery({
+    queryKey: queryKeys.contractInteractions(id),
+    queryFn: () => fetchContractInteractions(id!, { limit, offset: 0 }),
+    enabled: !!id,
+    ...options,
+  });
+}
+
 export function useContractDependencies(
   id: string | undefined,
   options?: QueryOpts<DependencyTreeNode>,

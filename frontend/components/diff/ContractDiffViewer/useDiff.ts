@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import { ContractVersion } from "@/types";
 import { diffLines } from "@/utils/comparison";
 import {
@@ -13,6 +12,7 @@ import {
 } from "./utils";
 import type { DiffComment } from "./CommentThread";
 import { queryKeys } from "@/lib/queryKeys";
+import { useContractVersions } from "@/hooks/queries";
 
 export function useDiff(contractId: string, contractName?: string) {
   const [viewMode, setViewMode] = useState<"unified" | "side-by-side">(
@@ -23,11 +23,7 @@ export function useDiff(contractId: string, contractName?: string) {
   const [comments, setComments] = useState<Record<string, DiffComment[]>>({});
   const [openThread, setOpenThread] = useState<string | null>(null);
 
-  const versionsQuery = useQuery({
-    queryKey: queryKeys.contractVersions(contractId),
-    queryFn: () => api.getContractVersions(contractId),
-    enabled: !!contractId,
-  });
+  const versionsQuery = useContractVersions(contractId);
 
   const versions = useMemo(
     () => versionsQuery.data ?? [],

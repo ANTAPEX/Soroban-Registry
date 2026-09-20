@@ -8,17 +8,14 @@ import { CompatibilityMatrixDisplay } from "@/components/CompatibilityMatrix";
 import { ArrowLeft, GitCompare, Loader2 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { queryKeys } from "@/lib/queryKeys";
+import { useContract } from "@/hooks/queries";
 
 export default function CompatibilityPage() {
   const params = useParams<{ id?: string | string[] }>() ?? {};
   const idParam = params.id;
   const contractId = Array.isArray(idParam) ? idParam[0] : idParam;
 
-  const { data: contract } = useQuery({
-    queryKey: queryKeys.contract(contractId),
-    queryFn: () => api.fetchContract(contractId!),
-    enabled: !!contractId,
-  });
+  const { data: contract } = useContract(contractId);
 
   const {
     data: compatibility,

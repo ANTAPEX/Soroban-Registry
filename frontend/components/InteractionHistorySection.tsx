@@ -1,8 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import type { InteractionsQueryParams } from "@/lib/api";
 import { formatPublicKey, formatTransactionHash } from "@/lib/utils/formatting";
 import {
@@ -15,7 +13,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { AlertCircle, Users, Activity } from "lucide-react";
-import { queryKeys } from "@/lib/queryKeys";
+import { useContractAnalytics, useContractInteractions } from "@/hooks/queries";
 
 interface InteractionHistorySectionProps {
   contractId: string;
@@ -35,19 +33,13 @@ export default function InteractionHistorySection({
     data: analytics,
     isLoading: analyticsLoading,
     error: analyticsError,
-  } = useQuery({
-    queryKey: queryKeys.contractAnalytics(contractId),
-    queryFn: () => api.getContractAnalytics(contractId),
-  });
+  } = useContractAnalytics(contractId);
 
   const {
     data: interactions,
     isLoading: listLoading,
     error: listError,
-  } = useQuery({
-    queryKey: queryKeys.contractInteractions(contractId, listParams),
-    queryFn: () => api.getContractInteractions(contractId, listParams),
-  });
+  } = useContractInteractions(contractId, listParams);
 
   const applyFilters = () => {
     setListParams((p) => ({

@@ -3,12 +3,10 @@
 import { Suspense } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import Navbar from "@/components/Navbar";
 import dynamic from "next/dynamic";
 import { ArrowLeft, GitCompare } from "lucide-react";
-import { queryKeys } from "@/lib/queryKeys";
+import { useContract } from "@/hooks/queries";
 
 const ContractDiffViewer = dynamic(
   () => import("@/components/ContractDiffViewer"),
@@ -29,11 +27,7 @@ function DiffPageContent() {
   const idParam = params?.id;
   const contractId = Array.isArray(idParam) ? idParam[0] : (idParam ?? "");
 
-  const contractQuery = useQuery({
-    queryKey: queryKeys.contract(contractId),
-    queryFn: () => api.fetchContract(contractId),
-    enabled: !!contractId,
-  });
+  const contractQuery = useContract(contractId);
 
   const contract = contractQuery.data;
 

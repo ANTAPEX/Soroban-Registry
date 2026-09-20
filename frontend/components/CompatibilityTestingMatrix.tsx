@@ -1,14 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type {
   CompatibilityTestMatrixResponse,
   CompatibilityTestEntry,
   CompatibilityTestStatus,
   CompatibilityHistoryEntry,
 } from "@/types";
-import { api } from "@/lib/api";
 import {
   CheckCircle,
   XCircle,
@@ -21,7 +19,12 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { queryKeys } from "@/lib/queryKeys";
+import {
+  useCompatibilityHistory,
+  useCompatibilityMatrix,
+  useCompatibilityNotifications,
+  useRunCompatibilityTest,
+} from "@/hooks/queries";
 
 interface CompatibilityTestingMatrixProps {
   contractId: string;
@@ -193,7 +196,6 @@ function HistoryTimeline({
 export default function CompatibilityTestingMatrix({
   contractId,
 }: CompatibilityTestingMatrixProps) {
-  const queryClient = useQueryClient();
   const [showHistory, setShowHistory] = useState(false);
   const [showRunTest, setShowRunTest] = useState(false);
   const [testForm, setTestForm] = useState({
@@ -207,42 +209,15 @@ export default function CompatibilityTestingMatrix({
     isLoading,
     isError,
     error,
-  } = useQuery({
-    queryKey: queryKeys.compatibilityMatrix(contractId),
-    queryFn: () => api.getCompatibilityMatrix(contractId),
-    enabled: !!contractId,
-  });
+  } = useCompatibilityMatrix(contractId);
 
-  const { data: history } = useQuery({
-    queryKey: queryKeys.compatibilityHistory(contractId),
-    queryFn: () => api.getCompatibilityHistory(contractId, 20),
+  const { data: history } = useCompatibilityHistory(contractId, 20, {
     enabled: !!contractId && showHistory,
   });
 
-  const { data: notifications } = useQuery({
-    queryKey: queryKeys.compatibilityNotifications(contractId),
-    queryFn: () => api.getCompatibilityNotifications(contractId),
-    enabled: !!contractId,
-  });
+  const { data: notifications } = useCompatibilityNotifications(contractId);
 
-  const runTestMutation = useMutation({
-    mutationFn: (data: {
-      sdk_version: string;
-      wasm_runtime: string;
-      network: string;
-    }) => api.runCompatibilityTest(contractId, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.compatibilityMatrix(contractId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.compatibilityHistory(contractId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.compatibilityNotifications(contractId),
-      });
-    },
-  });
+  const runTestMutation = useRunCompatibilityTest(contractId);
 
   const unreadCount = notifications?.filter((n) => !n.is_read).length ?? 0;
 

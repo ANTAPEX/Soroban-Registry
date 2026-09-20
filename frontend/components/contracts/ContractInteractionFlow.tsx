@@ -1,14 +1,13 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { api, GraphNode } from "@/lib/api";
+import { GraphNode } from "@/lib/api";
 import DependencyGraph from "@/components/DependencyGraph";
 import GraphControls from "@/components/GraphControls";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { AlertCircle, ExternalLink, X, Info } from "lucide-react";
 import type { DependencyGraphHandle } from "@/components/DependencyGraph";
 import { useRouter } from "next/navigation";
-import { queryKeys } from "@/lib/queryKeys";
+import { useContractLocalGraph } from "@/hooks/queries";
 
 interface ContractInteractionFlowProps {
   contractId: string;
@@ -33,10 +32,7 @@ export default function ContractInteractionFlow({
     isLoading,
     error,
     refetch,
-  } = useQuery({
-    queryKey: queryKeys.contractLocalGraph(contractId, depth),
-    queryFn: () => api.getContractLocalGraph(contractId, depth),
-  });
+  } = useContractLocalGraph(contractId, depth);
 
   const rawNodes = useMemo(
     () => (graphData && Array.isArray(graphData.nodes) ? graphData.nodes : []),

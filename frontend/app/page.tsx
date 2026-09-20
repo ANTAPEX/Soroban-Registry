@@ -1,7 +1,5 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
 import ContractCard from '@/components/ContractCard';
 import ContractCardSkeleton from '@/components/ContractCardSkeleton';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
@@ -17,7 +15,7 @@ import { useCopy } from '@/hooks/useCopy';
 import CodeCopyButton from '@/components/CodeCopyButton';
 import { buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { queryKeys } from "@/lib/queryKeys";
+import { useRecentContracts, useRegistryStats } from "@/hooks/queries";
 
 export default function Home() {
   const { t } = useTranslation('common');
@@ -27,15 +25,10 @@ export default function Home() {
   const { logEvent } = useAnalytics();
   const { copy, copied, isCopying } = useCopy();
 
-  const { data: stats, isLoading: statsLoading } = useQuery({
-    queryKey: queryKeys.stats(),
-    queryFn: () => api.getStats(),
-  });
+  const { data: stats, isLoading: statsLoading } = useRegistryStats();
 
-  const { data: recentContracts, isLoading: contractsLoading } = useQuery({
-    queryKey: queryKeys.contractsRecent(),
-    queryFn: () => api.getContracts({ page: 1, page_size: 6 }),
-  });
+  const { data: recentContracts, isLoading: contractsLoading } =
+    useRecentContracts(6);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

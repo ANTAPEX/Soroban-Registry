@@ -1,8 +1,6 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import type { Comment } from "@/lib/api";
 import { formatPublicKey } from "@/lib/utils/formatting";
 import {
@@ -12,7 +10,12 @@ import {
   Flag,
   AlertTriangle,
 } from "lucide-react";
-import { queryKeys } from "@/lib/queryKeys";
+import {
+  useContractComments,
+  useFlagComment,
+  usePostComment,
+  useVoteComment,
+} from "@/hooks/queries";
 
 interface ContractCommentsProps {
   contractId: string;
@@ -125,35 +128,13 @@ function CommentCard({
   contractId,
   isReply = false,
 }: CommentCardProps) {
-  const queryClient = useQueryClient();
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyBody, setReplyBody] = useState("");
 
-  const voteMutation = useMutation({
-    mutationFn: (direction: "up" | "down") =>
-      api.voteComment(comment.id, contractId, direction),
+  const voteMutation = useVoteComment(comment.id, contractId);
+  const flagMutation = useFlagComment(comment.id, contractId);
+  const replyMutation = usePostComment(contractId, comment.id, {
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.contractComments(contractId),
-      });
-    },
-  });
-
-  const flagMutation = useMutation({
-    mutationFn: () => api.flagComment(comment.id, contractId, "spam"),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.contractComments(contractId),
-      });
-    },
-  });
-
-  const replyMutation = useMutation({
-    mutationFn: (body: string) => api.postComment(contractId, body, comment.id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.contractComments(contractId),
-      });
       setReplyOpen(false);
       setReplyBody("");
     },
@@ -291,21 +272,13 @@ function CommentCard({
 export default function ContractComments({
   contractId,
 }: ContractCommentsProps) {
-  const queryClient = useQueryClient();
   const [commentBody, setCommentBody] = useState("");
   const [previewMode, setPreviewMode] = useState(false);
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: queryKeys.contractComments(contractId),
-    queryFn: () => api.getComments(contractId),
-  });
+  const { data, isLoading, error } = useContractComments(contractId);
 
-  const postMutation = useMutation({
-    mutationFn: (body: string) => api.postComment(contractId, body),
+  const postMutation = usePostComment(contractId, undefined, {
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.contractComments(contractId),
-      });
       setCommentBody("");
       setPreviewMode(false);
     },

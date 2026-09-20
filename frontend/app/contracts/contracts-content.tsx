@@ -36,6 +36,7 @@ import {
   parseAdvancedContractQuery,
 } from "@/utils/advancedSearchSyntax";
 import { queryKeys } from "@/lib/queryKeys";
+import { useRegistryStats } from "@/hooks/queries";
 
 const DEFAULT_PAGE_SIZE = 12;
 const CATEGORY_OPTIONS_NAMES = [
@@ -407,10 +408,7 @@ export function ContractsContent() {
     placeholderData: (previousData) => previousData ?? EMPTY_CONTRACTS_RESPONSE,
   });
 
-  const { data: stats } = useQuery({
-    queryKey: queryKeys.stats(),
-    queryFn: () => api.getStats(),
-  });
+  const { data: stats } = useRegistryStats();
 
   // Used to determine if results are empty for UI
   const paginationRange = useMemo(
