@@ -3,7 +3,13 @@ import type {
   PublisherResponse,
   ContractSummary,
   ActivityEvent,
+  Contract,
+  ContractSearchParams,
+  PaginatedResponse,
+  Publisher,
 } from "@/types";
+import { apiFetch } from "./client";
+import { MOCK_CONTRACTS } from "./mocks";
 
 
 // ---------------------------------------------------------------------------
@@ -99,3 +105,55 @@ const MOCK_PUBLISHER: Omit<PublisherResponse, "contracts" | "activity"> = {
   totalContracts: 18,
   createdAt: "2023-09-15T10:00:00Z",
 };
+
+// ---------------------------------------------------------------------------
+// Moved here from lib/api.ts (stage 5b)
+// ---------------------------------------------------------------------------
+
+export async function fetchPublisher(id: string): Promise<Publisher> {
+  if (USE_MOCKS) {
+    return {
+      id,
+      stellar_address: id,
+      created_at: new Date().toISOString(),
+    };
+  }
+  return apiFetch<Publisher>(`/api/publishers/${id}`);
+}
+
+export async function fetchPublishers(
+  params: { page?: number; page_size?: number; query?: string } = {},
+): Promise<PaginatedResponse<Publisher>> {
+  if (USE_MOCKS) {
+    return { items: [], total: 0, page: 1, page_size: 20, total_pages: 0 };
+  }
+  const searchParams = new URLSearchParams();
+  if (params.page) searchParams.set("page", String(params.page));
+  if (params.page_size) searchParams.set("page_size", String(params.page_size));
+  if (params.query) searchParams.set("query", params.query);
+  return apiFetch<PaginatedResponse<Publisher>>(`/api/publishers?${searchParams.toString()}`);
+}
+
+export async function fetchPublisherContracts(
+  publisherId: string,
+  params: ContractSearchParams = {},
+): Promise<PaginatedResponse<Contract>> {
+  if (USE_MOCKS) {
+    const items = MOCK_CONTRACTS.filter(
+      (c) => c.publisher_id === publisherId,
+    ) as Contract[];
+    return {
+      items,
+      total: items.length,
+      page: 1,
+      page_size: 20,
+      total_pages: Math.ceil(items.length / 20),
+    };
+  }
+  const searchParams = new URLSearchParams();
+  if (params.page) searchParams.set("page", String(params.page));
+  if (params.page_size) searchParams.set("page_size", String(params.page_size));
+  return apiFetch<PaginatedResponse<Contract>>(
+    `/api/publishers/${publisherId}/contracts?${searchParams.toString()}`,
+  );
+}
