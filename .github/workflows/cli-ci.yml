@@ -133,7 +133,7 @@ jobs:
 
       # Catches the specific failure mode behind issue #1156: a command that still has a
       # module and a dispatch arm but was dropped from the clap tree. The unit tests in
-      # main.rs assert the tree directly; this proves the built binary actually runs.
+      # cli.rs assert the tree directly; this proves the built binary actually runs.
       - name: Smoke check command tree
         run: |
           set -euo pipefail

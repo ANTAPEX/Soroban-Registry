@@ -1,4 +1,4 @@
-use crate::net::RequestBuilderExt;
+use crate::support::net::RequestBuilderExt;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -45,7 +45,7 @@ pub async fn estimate_costs(
     optimize: bool,
     forecast: bool,
 ) -> Result<()> {
-    let client = crate::net::client();
+    let client = crate::support::net::client();
 
     let request = CostEstimateRequest {
         method_name: method.to_string(),
