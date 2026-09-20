@@ -2,8 +2,10 @@ use crate::support::net::RequestBuilderExt;
 use std::fmt;
 use std::str::FromStr;
 
+use crate::support::severity::severity_colored;
 use anyhow::{bail, Result};
 use chrono::{DateTime, Utc};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -320,4 +322,95 @@ mod tests {
 
         assert_eq!(ensure_single_contract_match(&data, "hash-c").unwrap(), 1);
     }
+}
+
+pub async fn patch_create(
+    api_url: &str,
+    version: &str,
+    hash: &str,
+    severity: Severity,
+    rollout: u8,
+) -> Result<()> {
+    println!("\n{}", "Creating security patch...".bold().cyan());
+
+    let patch = PatchManager::create(api_url, version, hash, severity, rollout).await?;
+
+    println!("{}", "[OK] Patch created!".green().bold());
+    println!("  {}: {}", "ID".bold(), patch.id);
+    println!("  {}: {}", "Target Version".bold(), patch.target_version);
+    println!(
+        "  {}: {}",
+        "Severity".bold(),
+        severity_colored(&patch.severity)
+    );
+    println!(
+        "  {}: {}",
+        "New WASM Hash".bold(),
+        patch.new_wasm_hash.bright_black()
+    );
+    println!("  {}: {}%\n", "Rollout".bold(), patch.rollout_percentage);
+
+    if matches!(patch.severity, Severity::Critical | Severity::High) {
+        println!(
+            "  {} {}",
+            "[WARN]".red(),
+            format!(
+                "{} severity — immediate action recommended",
+                severity_colored(&patch.severity)
+            )
+            .red()
+        );
+    }
+
+    Ok(())
+}
+
+pub async fn patch_notify(api_url: &str, patch_id: &str) -> Result<()> {
+    println!("\n{}", "Identifying vulnerable contracts...".bold().cyan());
+
+    let (patch, contracts) = PatchManager::find_vulnerable(api_url, patch_id).await?;
+
+    println!(
+        "\n{} {} patch for version {}",
+        "[WARN]".bold(),
+        severity_colored(&patch.severity),
+        patch.target_version.bold()
+    );
+    println!("{}", "=".repeat(80).cyan());
+
+    if contracts.is_empty() {
+        println!("{}", "No vulnerable contracts found.".green());
+        return Ok(());
+    }
+
+    for (i, c) in contracts.iter().enumerate() {
+        let cid = crate::support::conversions::as_str(&c["contract_id"], "contract_id")?;
+        let name = crate::support::conversions::as_str(&c["name"], "name")?;
+        let net = crate::support::conversions::as_str(&c["network"], "network")?;
+        println!(
+            "  {}. {} ({}) [{}]",
+            i + 1,
+            name.bold(),
+            cid.bright_black(),
+            net.bright_blue()
+        );
+    }
+
+    println!("\n{}", "=".repeat(80).cyan());
+    println!("{} vulnerable contract(s) found\n", contracts.len());
+
+    Ok(())
+}
+
+pub async fn patch_apply(api_url: &str, contract_id: &str, patch_id: &str) -> Result<()> {
+    println!("\n{}", "Applying security patch...".bold().cyan());
+
+    let audit = PatchManager::apply(api_url, contract_id, patch_id).await?;
+
+    println!("{}", "[OK] Patch applied successfully!".green().bold());
+    println!("  {}: {}", "Contract".bold(), audit.contract_id);
+    println!("  {}: {}", "Patch".bold(), audit.patch_id);
+    println!("  {}: {}\n", "Applied At".bold(), audit.applied_at);
+
+    Ok(())
 }

@@ -105,11 +105,11 @@ fn build_params(options: &ListOptions, limit: usize) -> Result<ContractSearchPar
 
     // Reuse the filter normalisation `list` and `search` already share, so an
     // unknown network fails here rather than being dropped server-side.
-    let networks = crate::commands::normalize_network_list(options.networks.as_deref())?;
+    let networks = crate::support::network::normalize_network_list(options.networks.as_deref())?;
     if !networks.is_empty() {
         params.networks = Some(networks);
     }
-    let categories = crate::commands::normalize_list_values(options.category.as_deref());
+    let categories = crate::support::filters::normalize_list_values(options.category.as_deref());
     if !categories.is_empty() {
         params.categories = Some(categories);
     }

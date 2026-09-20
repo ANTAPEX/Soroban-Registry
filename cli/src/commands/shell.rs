@@ -197,7 +197,7 @@ async fn execute_command(args: Vec<String>, _context: &ShellContext) -> Result<(
             if net_str == "auto" {
                 net_str = "mainnet".to_string();
             }
-            let network: crate::commands::Network = net_str.parse().unwrap();
+            let network: crate::support::network::Network = net_str.parse().unwrap();
 
             crate::dispatch::dispatch_command(cli, network, cfg_network).await
         }
