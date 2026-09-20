@@ -246,7 +246,7 @@ pub enum Commands {
     Completion {
         /// Target shell
         #[arg(value_enum)]
-        shell: crate::completion::CompletionShell,
+        shell: crate::commands::completion::CompletionShell,
     },
 
     /// Check CLI version and update availability
@@ -1333,7 +1333,7 @@ pub enum AuthCommands {
     Login {
         /// Authentication method to use
         #[arg(long, value_enum)]
-        method: Option<crate::auth::AuthMethod>,
+        method: Option<crate::commands::auth::AuthMethod>,
 
         /// Identity to authenticate with
         #[arg(long)]
@@ -1832,7 +1832,7 @@ pub enum ContractCommands {
     #[command(verbatim_doc_comment)]
     List {
         /// Contracts per page (1-100)
-        #[arg(long, short, default_value_t = crate::contract_list::DEFAULT_LIMIT)]
+        #[arg(long, short, default_value_t = crate::commands::contract::list::DEFAULT_LIMIT)]
         limit: usize,
 
         /// Contracts to skip; use it with --limit to page through the registry

@@ -7,13 +7,13 @@ use anyhow::Result;
 use colored::Colorize;
 
 use crate::cli::*;
-use crate::patch::Severity;
+use crate::commands::patch::Severity;
 
 pub async fn handle_command(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Repl {
             network: shell_network,
-        } => crate::shell::run(&cli.api_url, shell_network).await,
+        } => crate::commands::shell::run(&cli.api_url, shell_network).await,
         _ => {
             // ── Resolve network ───────────────────────────────────────────────────────
             let cfg_network =
@@ -39,7 +39,7 @@ pub async fn dispatch_command(
     match cli.command {
         Commands::Repl { .. } => {
             // Already handled at top level, but for completeness or nested calls:
-            // We could call crate::shell::run here again but to break recursion we don't.
+            // We could call crate::commands::shell::run here again but to break recursion we don't.
             println!("{}", "Warning: REPL already running".yellow());
             return Ok(());
         }
@@ -54,7 +54,7 @@ pub async fn dispatch_command(
                 "Command: track-deployment | contract_id={} network={} tx_hash={:?} wait_timeout={} json={}",
                 contract_id, network, tx_hash, wait_timeout, json
             );
-            crate::track_deployment::run(
+            crate::commands::track_deployment::run(
                 &cli.api_url,
                 &contract_id,
                 &network,
@@ -66,7 +66,7 @@ pub async fn dispatch_command(
         }
         Commands::Plugins { action } => match action {
             PluginCommands::List { json } => {
-                let installed = crate::plugins::discover_installed()?;
+                let installed = crate::commands::plugins::discover_installed()?;
                 if json {
                     let out: Vec<serde_json::Value> = installed
                         .into_iter()
@@ -107,7 +107,7 @@ pub async fn dispatch_command(
                 }
             }
             PluginCommands::Marketplace { json } => {
-                let marketplace = crate::plugins::fetch_marketplace(&cli.api_url).await?;
+                let marketplace = crate::commands::plugins::fetch_marketplace(&cli.api_url).await?;
                 if json {
                     println!("{}", serde_json::to_string_pretty(&marketplace)?);
                 } else {
@@ -135,14 +135,18 @@ pub async fn dispatch_command(
                 }
             }
             PluginCommands::Install { name, version } => {
-                crate::plugins::install_from_registry(&cli.api_url, &name, version.as_deref())
-                    .await?;
+                crate::commands::plugins::install_from_registry(
+                    &cli.api_url,
+                    &name,
+                    version.as_deref(),
+                )
+                .await?;
             }
             PluginCommands::Uninstall { name, version } => {
-                crate::plugins::uninstall(&name, version.as_deref())?;
+                crate::commands::plugins::uninstall(&name, version.as_deref())?;
             }
             PluginCommands::Run { command, args } => {
-                let result = crate::plugins::run_installed_command(
+                let result = crate::commands::plugins::run_installed_command(
                     &cli.api_url,
                     &network.to_string(),
                     &command,
@@ -153,19 +157,19 @@ pub async fn dispatch_command(
             }
             PluginCommands::Config { action } => match action {
                 PluginConfigCommands::Get { name } => {
-                    let cfg = crate::plugins::get_plugin_config(&name)?;
+                    let cfg = crate::commands::plugins::get_plugin_config(&name)?;
                     println!("{}", serde_json::to_string_pretty(&cfg)?);
                 }
                 PluginConfigCommands::Set { name, json } => {
-                    crate::plugins::set_plugin_config_json(&name, &json)?;
+                    crate::commands::plugins::set_plugin_config_json(&name, &json)?;
                     println!("{} Updated config for {}", "[OK]".green(), name.bold());
                 }
                 PluginConfigCommands::Disable { name } => {
-                    crate::plugins::set_plugin_enabled(&name, false)?;
+                    crate::commands::plugins::set_plugin_enabled(&name, false)?;
                     println!("{} Disabled {}", "[OK]".green(), name.bold());
                 }
                 PluginConfigCommands::Enable { name } => {
-                    crate::plugins::set_plugin_enabled(&name, true)?;
+                    crate::commands::plugins::set_plugin_enabled(&name, true)?;
                     println!("{} Enabled {}", "[OK]".green(), name.bold());
                 }
             },
@@ -176,7 +180,7 @@ pub async fn dispatch_command(
             }
             let cmd = args[0].clone();
             let rest = args.into_iter().skip(1).collect::<Vec<_>>();
-            let result = crate::plugins::run_installed_command(
+            let result = crate::commands::plugins::run_installed_command(
                 &cli.api_url,
                 &network.to_string(),
                 &cmd,
@@ -222,7 +226,7 @@ pub async fn dispatch_command(
         }
         Commands::Info { id, json, raw } => {
             let use_json = json || raw;
-            crate::contracts::info(&cli.api_url, &id, use_json).await?;
+            crate::commands::contract::info::info(&cli.api_url, &id, use_json).await?;
         }
         Commands::Compare {
             ids,
@@ -233,28 +237,28 @@ pub async fn dispatch_command(
             diff,
             fields,
         } => {
-            let diff_format = crate::compare::DiffFormat::parse(&diff)?;
+            let diff_format = crate::commands::compare::DiffFormat::parse(&diff)?;
             let field_filter = fields.map(|values| values.join(","));
-            let code = crate::compare::run(
+            let code = crate::commands::compare::run(
                 &cli.api_url,
                 ids,
                 json,
                 export.as_deref(),
                 format.as_deref(),
-                crate::compare::CompareOptions {
+                crate::commands::compare::CompareOptions {
                     exit_code,
                     diff_format,
                     fields: field_filter,
                 },
             )
             .await?;
-            if exit_code && code != crate::compare::EXIT_IDENTICAL {
+            if exit_code && code != crate::commands::compare::EXIT_IDENTICAL {
                 std::process::exit(code);
             }
         }
         Commands::Completion { shell } => {
-            crate::completion::generate_script(shell);
-            eprintln!("\n{}", crate::completion::install_hint(shell));
+            crate::commands::completion::generate_script(shell);
+            eprintln!("\n{}", crate::commands::completion::install_hint(shell));
         }
         Commands::Analytics {
             query,
@@ -263,8 +267,8 @@ pub async fn dispatch_command(
             sort,
             export,
         } => {
-            let parsed_query = crate::analytics::AnalyticsQuery::parse(&query)?;
-            crate::analytics::run(
+            let parsed_query = crate::commands::analytics::AnalyticsQuery::parse(&query)?;
+            crate::commands::analytics::run(
                 &cli.api_url,
                 parsed_query,
                 &period,
@@ -287,7 +291,7 @@ pub async fn dispatch_command(
             auto_update,
             rollback,
         } => {
-            crate::version::check_version(check_updates, auto_update, rollback).await?;
+            crate::commands::version::check_version(check_updates, auto_update, rollback).await?;
         }
         Commands::Publish {
             contract_id,
@@ -362,12 +366,14 @@ pub async fn dispatch_command(
                 cli.network,
                 category
             );
-            crate::dashboard::run_dashboard(crate::dashboard::DashboardParams {
-                refresh_rate_ms: refresh_rate,
-                network: cli.network.clone(),
-                category,
-                ws_url,
-            })
+            crate::commands::dashboard::run_dashboard(
+                crate::commands::dashboard::DashboardParams {
+                    refresh_rate_ms: refresh_rate,
+                    network: cli.network.clone(),
+                    category,
+                    ws_url,
+                },
+            )
             .await?;
         }
         Commands::BreakingChanges {
@@ -389,7 +395,7 @@ pub async fn dispatch_command(
                     old_id,
                     new_id
                 );
-                crate::migration::preview(&old_id, &new_id)?;
+                crate::commands::migration::preview(&old_id, &new_id)?;
             }
             MigrateCommands::Analyze { old_id, new_id } => {
                 log::debug!(
@@ -397,7 +403,7 @@ pub async fn dispatch_command(
                     old_id,
                     new_id
                 );
-                crate::migration::analyze(&old_id, &new_id)?;
+                crate::commands::migration::analyze(&old_id, &new_id)?;
             }
             MigrateCommands::Generate {
                 old_id,
@@ -411,7 +417,7 @@ pub async fn dispatch_command(
                     new_id,
                     language
                 );
-                crate::migration::generate_template(
+                crate::commands::migration::generate_template(
                     &old_id,
                     &new_id,
                     &language,
@@ -424,7 +430,7 @@ pub async fn dispatch_command(
                     old_id,
                     new_id
                 );
-                crate::migration::validate(&old_id, &new_id)?;
+                crate::commands::migration::validate(&old_id, &new_id)?;
             }
             MigrateCommands::Apply { old_id, new_id } => {
                 log::debug!(
@@ -432,15 +438,15 @@ pub async fn dispatch_command(
                     old_id,
                     new_id
                 );
-                crate::migration::apply(&old_id, &new_id)?;
+                crate::commands::migration::apply(&old_id, &new_id)?;
             }
             MigrateCommands::Rollback { migration_id } => {
                 log::debug!("Command: migrate rollback | migration_id={}", migration_id);
-                crate::migration::rollback(&migration_id)?;
+                crate::commands::migration::rollback(&migration_id)?;
             }
             MigrateCommands::History { limit } => {
                 log::debug!("Command: migrate history | limit={}", limit);
-                crate::migration::history(limit)?;
+                crate::commands::migration::history(limit)?;
             }
         },
         Commands::Export {
@@ -484,7 +490,7 @@ pub async fn dispatch_command(
                 validate,
                 dry_run
             );
-            let opts = crate::import::ImportOptions {
+            let opts = crate::commands::import::ImportOptions {
                 api_url: &cli.api_url,
                 file_path: &file,
                 format: format.as_deref(),
@@ -492,12 +498,12 @@ pub async fn dispatch_command(
                 output_dir: &output_dir,
                 validate,
                 dry_run,
-                on_duplicate: crate::import::OnDuplicate::Skip,
+                on_duplicate: crate::commands::import::OnDuplicate::Skip,
                 network_map: std::collections::HashMap::new(),
                 atomic: false,
                 report_output: None,
             };
-            crate::import::run(opts).await?;
+            crate::commands::import::run(opts).await?;
         }
         Commands::Doc {
             contract_path,
@@ -525,12 +531,12 @@ pub async fn dispatch_command(
         }
         Commands::Deploy {} => {
             log::debug!("Command: deploy");
-            crate::deploy::run_interactive().await?;
+            crate::commands::deploy::run_interactive().await?;
         }
         Commands::VersionSemver { action } => match action {
             VersionCommands::List { contract_id } => {
                 log::debug!("Command: version list | contract_id={}", contract_id);
-                crate::upgrade::version::list(&contract_id)?;
+                crate::commands::upgrade::version::list(&contract_id)?;
             }
             VersionCommands::Bump { current, level } => {
                 log::debug!(
@@ -538,7 +544,7 @@ pub async fn dispatch_command(
                     current,
                     level
                 );
-                let next = crate::upgrade::version::bump(&current, &level)?;
+                let next = crate::commands::upgrade::version::bump(&current, &level)?;
                 println!("Next version: {}", next.green().bold());
             }
         },
@@ -549,7 +555,7 @@ pub async fn dispatch_command(
                     old_wasm,
                     new_wasm
                 );
-                crate::upgrade::manager::analyze(&old_wasm, &new_wasm).await?;
+                crate::commands::upgrade::manager::analyze(&old_wasm, &new_wasm).await?;
             }
             UpgradeSubcommands::Apply {
                 contract_id,
@@ -560,7 +566,7 @@ pub async fn dispatch_command(
                     contract_id,
                     new_wasm
                 );
-                crate::upgrade::manager::apply(&contract_id, &new_wasm).await?;
+                crate::commands::upgrade::manager::apply(&contract_id, &new_wasm).await?;
             }
             UpgradeSubcommands::Rollback {
                 contract_id,
@@ -571,7 +577,7 @@ pub async fn dispatch_command(
                     contract_id,
                     version
                 );
-                crate::upgrade::manager::rollback(&contract_id, &version).await?;
+                crate::commands::upgrade::manager::rollback(&contract_id, &version).await?;
             }
             UpgradeSubcommands::Generate {
                 old_id,
@@ -585,7 +591,7 @@ pub async fn dispatch_command(
                     new_id,
                     language
                 );
-                crate::migration::generate_template(
+                crate::commands::migration::generate_template(
                     &old_id,
                     &new_id,
                     &language,
@@ -595,11 +601,11 @@ pub async fn dispatch_command(
         },
         Commands::Wizard {} => {
             log::debug!("Command: wizard");
-            crate::wizard::run(&cli.api_url).await?;
+            crate::commands::wizard::run(&cli.api_url).await?;
         }
         Commands::History { search, limit } => {
             log::debug!("Command: history | search={:?} limit={}", search, limit);
-            crate::wizard::show_history(search.as_deref(), limit)?;
+            crate::commands::wizard::show_history(search.as_deref(), limit)?;
         }
         Commands::Incident { action } => match action {
             IncidentCommands::Trigger {
@@ -675,7 +681,7 @@ pub async fn dispatch_command(
                     threshold,
                     signer_vec
                 );
-                crate::multisig::create_policy(
+                crate::commands::multisig::create_policy(
                     &cli.api_url,
                     &name,
                     threshold,
@@ -699,7 +705,7 @@ pub async fn dispatch_command(
                     contract_id,
                     policy_id
                 );
-                crate::multisig::create_proposal(
+                crate::commands::multisig::create_proposal(
                     &cli.api_url,
                     &contract_name,
                     &contract_id,
@@ -717,7 +723,7 @@ pub async fn dispatch_command(
                 signature_data,
             } => {
                 log::debug!("Command: multisig sign | proposal_id={}", proposal_id);
-                crate::multisig::sign_proposal(
+                crate::commands::multisig::sign_proposal(
                     &cli.api_url,
                     &proposal_id,
                     &signer,
@@ -727,11 +733,11 @@ pub async fn dispatch_command(
             }
             MultisigCommands::Execute { proposal_id } => {
                 log::debug!("Command: multisig execute | proposal_id={}", proposal_id);
-                crate::multisig::execute_proposal(&cli.api_url, &proposal_id).await?;
+                crate::commands::multisig::execute_proposal(&cli.api_url, &proposal_id).await?;
             }
             MultisigCommands::Info { proposal_id } => {
                 log::debug!("Command: multisig info | proposal_id={}", proposal_id);
-                crate::multisig::proposal_info(&cli.api_url, &proposal_id).await?;
+                crate::commands::multisig::proposal_info(&cli.api_url, &proposal_id).await?;
             }
             MultisigCommands::ListProposals { status, limit } => {
                 log::debug!(
@@ -739,7 +745,8 @@ pub async fn dispatch_command(
                     status,
                     limit
                 );
-                crate::multisig::list_proposals(&cli.api_url, status.as_deref(), limit).await?;
+                crate::commands::multisig::list_proposals(&cli.api_url, status.as_deref(), limit)
+                    .await?;
             }
         },
         Commands::Fuzz {
@@ -751,7 +758,7 @@ pub async fn dispatch_command(
             output,
             minimize,
         } => {
-            crate::fuzz::run_fuzzer(
+            crate::commands::fuzz::run_fuzzer(
                 &contract_path,
                 &duration.to_string(),
                 &timeout.to_string(),
@@ -796,7 +803,7 @@ pub async fn dispatch_command(
                     address,
                     json
                 );
-                crate::user_profile::view(&cli.api_url, address.as_deref(), json).await?;
+                crate::commands::profile::view(&cli.api_url, address.as_deref(), json).await?;
             }
             ProfileCommands::Edit {
                 name,
@@ -807,7 +814,7 @@ pub async fn dispatch_command(
                 avatar,
             } => {
                 log::debug!("Command: profile edit");
-                crate::user_profile::edit(
+                crate::commands::profile::edit(
                     &cli.api_url,
                     name.as_deref(),
                     bio.as_deref(),
@@ -820,7 +827,7 @@ pub async fn dispatch_command(
             }
             ProfileCommands::Update { field, value } => {
                 log::debug!("Command: profile update | field={} value={}", field, value);
-                crate::user_profile::update_field(&cli.api_url, &field, &value).await?;
+                crate::commands::profile::update_field(&cli.api_url, &field, &value).await?;
             }
             ProfileCommands::ListContracts {
                 address,
@@ -834,7 +841,7 @@ pub async fn dispatch_command(
                     limit,
                     format
                 );
-                crate::user_profile::list_contracts(
+                crate::commands::profile::list_contracts(
                     &cli.api_url,
                     address.as_deref(),
                     limit,
@@ -849,7 +856,7 @@ pub async fn dispatch_command(
                     address,
                     format
                 );
-                crate::user_profile::export(&cli.api_url, address.as_deref(), &format).await?;
+                crate::commands::profile::export(&cli.api_url, address.as_deref(), &format).await?;
             }
         },
         Commands::Test {
@@ -900,7 +907,7 @@ pub async fn dispatch_command(
                 output,
                 fail_on
             );
-            crate::audit_command::run(
+            crate::commands::audit::run(
                 &contract_path,
                 &format,
                 output.as_deref(),
@@ -930,23 +937,23 @@ pub async fn dispatch_command(
         },
         Commands::Config { action } => match action {
             ConfigSubcommands::UserGet { key } => {
-                crate::user_config::validate_key(&key)?;
-                let value = crate::user_config::get_key(&key)?;
+                crate::config::user::validate_key(&key)?;
+                let value = crate::config::user::get_key(&key)?;
                 match value {
                     Some(v) => println!("{}", v),
                     None => anyhow::bail!("Key '{}' was not found in user config.", key),
                 }
             }
             ConfigSubcommands::UserSet { key, value } => {
-                crate::user_config::set_key(&key, &value)?;
+                crate::config::user::set_key(&key, &value)?;
                 println!("Updated '{}' in user config.", key);
             }
             ConfigSubcommands::UserList {} => {
-                let cfg = crate::user_config::list()?;
+                let cfg = crate::config::user::list()?;
                 println!("{}", serde_json::to_string_pretty(&cfg)?);
             }
             ConfigSubcommands::UserReset {} => {
-                let cfg = crate::user_config::reset_to_defaults()?;
+                let cfg = crate::config::user::reset_to_defaults()?;
                 println!("User config reset to defaults:");
                 println!("{}", serde_json::to_string_pretty(&cfg)?);
             }
@@ -1006,7 +1013,7 @@ pub async fn dispatch_command(
                 let method = match method {
                     Some(method) => method,
                     None => {
-                        let selected = crate::wizard::prompt_with_validation(
+                        let selected = crate::commands::wizard::prompt_with_validation(
                             "Authentication method [github|stellar|api-key]",
                             Some("stellar".to_string()),
                             |value| {
@@ -1018,9 +1025,9 @@ pub async fn dispatch_command(
                             "Choose github, stellar, or api-key.",
                         )?;
                         match selected.trim().to_ascii_lowercase().as_str() {
-                            "github" => crate::auth::AuthMethod::Github,
-                            "stellar" => crate::auth::AuthMethod::Stellar,
-                            "api-key" => crate::auth::AuthMethod::ApiKey,
+                            "github" => crate::commands::auth::AuthMethod::Github,
+                            "stellar" => crate::commands::auth::AuthMethod::Stellar,
+                            "api-key" => crate::commands::auth::AuthMethod::ApiKey,
                             _ => unreachable!(),
                         }
                     }
@@ -1032,7 +1039,7 @@ pub async fn dispatch_command(
                     scopes,
                     expires
                 );
-                crate::auth::login(
+                crate::commands::auth::login(
                     &cli.api_url,
                     method,
                     identity.as_deref(),
@@ -1044,11 +1051,11 @@ pub async fn dispatch_command(
             }
             AuthCommands::Logout {} => {
                 log::debug!("Command: auth logout");
-                crate::auth::logout()?;
+                crate::commands::auth::logout()?;
             }
             AuthCommands::Status {} => {
                 log::debug!("Command: auth status");
-                crate::auth::status(&cli.api_url).await?;
+                crate::commands::auth::status(&cli.api_url).await?;
             }
             AuthCommands::Token { scopes, expires } => {
                 log::debug!(
@@ -1056,7 +1063,7 @@ pub async fn dispatch_command(
                     scopes,
                     expires
                 );
-                crate::auth::token(&cli.api_url, scopes, expires.as_deref()).await?;
+                crate::commands::auth::token(&cli.api_url, scopes, expires.as_deref()).await?;
             }
         },
         Commands::Backup { action } => match action {
@@ -1064,25 +1071,28 @@ pub async fn dispatch_command(
                 contract_id,
                 include_state,
             } => {
-                crate::backup::create_backup(&cli.api_url, &contract_id, include_state).await?;
+                crate::commands::backup::create_backup(&cli.api_url, &contract_id, include_state)
+                    .await?;
             }
             BackupCommands::List { contract_id } => {
-                crate::backup::list_backups(&cli.api_url, &contract_id).await?;
+                crate::commands::backup::list_backups(&cli.api_url, &contract_id).await?;
             }
             BackupCommands::Restore {
                 contract_id,
                 backup_date,
             } => {
-                crate::backup::restore_backup(&cli.api_url, &contract_id, &backup_date).await?;
+                crate::commands::backup::restore_backup(&cli.api_url, &contract_id, &backup_date)
+                    .await?;
             }
             BackupCommands::Verify {
                 contract_id,
                 backup_date,
             } => {
-                crate::backup::verify_backup(&cli.api_url, &contract_id, &backup_date).await?;
+                crate::commands::backup::verify_backup(&cli.api_url, &contract_id, &backup_date)
+                    .await?;
             }
             BackupCommands::Stats { contract_id } => {
-                crate::backup::backup_stats(&cli.api_url, &contract_id).await?;
+                crate::commands::backup::backup_stats(&cli.api_url, &contract_id).await?;
             }
         },
         Commands::State { action } => match action {
@@ -1139,7 +1149,7 @@ pub async fn dispatch_command(
             output,
             post,
         } => {
-            crate::formal_verification::run(
+            crate::commands::formal_verification::run(
                 &cli.api_url,
                 &contract_path,
                 &properties,
@@ -1162,7 +1172,7 @@ pub async fn dispatch_command(
             threshold,
             output,
         } => {
-            crate::coverage::run(&contract_path, &tests, threshold, &output).await?;
+            crate::commands::coverage::run(&contract_path, &tests, threshold, &output).await?;
         }
         Commands::Sign {
             package,
@@ -1177,7 +1187,7 @@ pub async fn dispatch_command(
                 contract_id,
                 version
             );
-            crate::package_signing::sign_package(
+            crate::commands::package_signing::sign_package(
                 &cli.api_url,
                 &package,
                 &private_key,
@@ -1198,7 +1208,7 @@ pub async fn dispatch_command(
                 package,
                 contract_id
             );
-            crate::package_signing::verify_package(
+            crate::commands::package_signing::verify_package(
                 &cli.api_url,
                 &package,
                 &contract_id,
@@ -1223,7 +1233,7 @@ pub async fn dispatch_command(
                 submit,
                 check
             );
-            crate::verification::run(
+            crate::commands::verification::run(
                 &cli.api_url,
                 id,
                 submit,
@@ -1249,7 +1259,7 @@ pub async fn dispatch_command(
                 contract_id,
                 version
             );
-            crate::package_signing::verify_contract_local(
+            crate::commands::package_signing::verify_contract_local(
                 &wasm_path,
                 &contract_id,
                 &version,
@@ -1260,7 +1270,7 @@ pub async fn dispatch_command(
         Commands::Keys { action } => match action {
             KeysCommands::Generate {} => {
                 log::debug!("Command: keys generate");
-                crate::package_signing::generate_keypair()?;
+                crate::commands::package_signing::generate_keypair()?;
             }
             KeysCommands::Revoke {
                 signature_id,
@@ -1268,7 +1278,7 @@ pub async fn dispatch_command(
                 reason,
             } => {
                 log::debug!("Command: keys revoke | signature_id={}", signature_id);
-                crate::package_signing::revoke_signature(
+                crate::commands::package_signing::revoke_signature(
                     &cli.api_url,
                     &signature_id,
                     &revoked_by,
@@ -1278,7 +1288,8 @@ pub async fn dispatch_command(
             }
             KeysCommands::Custody { contract_id } => {
                 log::debug!("Command: keys custody | contract_id={}", contract_id);
-                crate::package_signing::get_chain_of_custody(&cli.api_url, &contract_id).await?;
+                crate::commands::package_signing::get_chain_of_custody(&cli.api_url, &contract_id)
+                    .await?;
             }
             KeysCommands::Log {
                 contract_id,
@@ -1286,7 +1297,7 @@ pub async fn dispatch_command(
                 limit,
             } => {
                 log::debug!("Command: keys log");
-                crate::package_signing::get_transparency_log(
+                crate::commands::package_signing::get_transparency_log(
                     &cli.api_url,
                     contract_id.as_deref(),
                     entry_type.as_deref(),
@@ -1313,20 +1324,22 @@ pub async fn dispatch_command(
                 contracts,
                 initiated_by
             );
-            crate::batch_verify::run_batch_verify(crate::batch_verify::BatchVerifyArgs {
-                api_url: &cli.api_url,
-                file: file.as_deref(),
-                contracts: contracts.as_deref(),
-                network: network.as_deref(),
-                category: category.as_deref(),
-                age,
-                initiated_by: &initiated_by,
-                level: &level,
-                export: export.as_deref(),
-                output: output.as_deref(),
-                schedule: schedule.as_deref(),
-                json,
-            })
+            crate::commands::batch::verify::run_batch_verify(
+                crate::commands::batch::verify::BatchVerifyArgs {
+                    api_url: &cli.api_url,
+                    file: file.as_deref(),
+                    contracts: contracts.as_deref(),
+                    network: network.as_deref(),
+                    category: category.as_deref(),
+                    age,
+                    initiated_by: &initiated_by,
+                    level: &level,
+                    export: export.as_deref(),
+                    output: output.as_deref(),
+                    schedule: schedule.as_deref(),
+                    json,
+                },
+            )
             .await?;
         }
         Commands::Webhook { action } => match action {
@@ -1342,28 +1355,33 @@ pub async fn dispatch_command(
                     url,
                     event_list
                 );
-                crate::webhook::create_webhook(&cli.api_url, &url, event_list, secret.as_deref())
-                    .await?;
+                crate::commands::webhook::create_webhook(
+                    &cli.api_url,
+                    &url,
+                    event_list,
+                    secret.as_deref(),
+                )
+                .await?;
             }
             WebhookCommands::List {} => {
                 log::debug!("Command: webhook list");
-                crate::webhook::list_webhooks(&cli.api_url).await?;
+                crate::commands::webhook::list_webhooks(&cli.api_url).await?;
             }
             WebhookCommands::Delete { webhook_id } => {
                 log::debug!("Command: webhook delete | id={}", webhook_id);
-                crate::webhook::delete_webhook(&cli.api_url, &webhook_id).await?;
+                crate::commands::webhook::delete_webhook(&cli.api_url, &webhook_id).await?;
             }
             WebhookCommands::Test { webhook_id } => {
                 log::debug!("Command: webhook test | id={}", webhook_id);
-                crate::webhook::test_webhook(&cli.api_url, &webhook_id).await?;
+                crate::commands::webhook::test_webhook(&cli.api_url, &webhook_id).await?;
             }
             WebhookCommands::Logs { webhook_id, limit } => {
                 log::debug!("Command: webhook logs | id={} limit={}", webhook_id, limit);
-                crate::webhook::webhook_logs(&cli.api_url, &webhook_id, limit).await?;
+                crate::commands::webhook::webhook_logs(&cli.api_url, &webhook_id, limit).await?;
             }
             WebhookCommands::Retry { delivery_id } => {
                 log::debug!("Command: webhook retry | delivery_id={}", delivery_id);
-                crate::webhook::retry_delivery(&cli.api_url, &delivery_id).await?;
+                crate::commands::webhook::retry_delivery(&cli.api_url, &delivery_id).await?;
             }
             WebhookCommands::VerifySig {
                 secret,
@@ -1371,7 +1389,7 @@ pub async fn dispatch_command(
                 signature,
             } => {
                 log::debug!("Command: webhook verify-sig");
-                crate::webhook::verify_signature_cmd(&secret, &payload, &signature)?;
+                crate::commands::webhook::verify_signature_cmd(&secret, &payload, &signature)?;
             }
         },
         // ── Contract verify command (#522) ───────────────────────────────────
@@ -1391,9 +1409,9 @@ pub async fn dispatch_command(
                     category,
                     format
                 );
-                crate::contract_list::run(
+                crate::commands::contract::list::run(
                     &cli.api_url,
-                    crate::contract_list::ListOptions {
+                    crate::commands::contract::list::ListOptions {
                         limit,
                         offset,
                         networks,
@@ -1427,9 +1445,9 @@ pub async fn dispatch_command(
                     cursor.is_some(),
                     pagination
                 );
-                crate::contract_search::run(
+                crate::commands::contract::search::run(
                     &cli.api_url,
-                    crate::search_pagination::SearchOptions {
+                    crate::support::search_pagination::SearchOptions {
                         query,
                         networks,
                         category,
@@ -1454,7 +1472,7 @@ pub async fn dispatch_command(
                     batch,
                     json
                 );
-                crate::contract_register::run(
+                crate::commands::contract::register::run(
                     &cli.api_url,
                     cfg_network,
                     file.as_deref(),
@@ -1489,7 +1507,8 @@ pub async fn dispatch_command(
                             verbose,
                             json
                         );
-                        crate::contract_verify::run_local(&wasm_path, verbose, json).await?;
+                        crate::commands::contract::verify::run_local(&wasm_path, verbose, json)
+                            .await?;
                     }
                     (None, Some(address)) => {
                         log::debug!(
@@ -1501,7 +1520,7 @@ pub async fn dispatch_command(
                             batch,
                             no_cache
                         );
-                        crate::contract_verify::run(
+                        crate::commands::contract::verify::run(
                             &cli.api_url,
                             &address,
                             &network,
@@ -1522,7 +1541,7 @@ pub async fn dispatch_command(
             }
             ContractCommands::Interfaces { wasm, json } => {
                 log::debug!("Command: contract interfaces | wasm={} json={}", wasm, json);
-                crate::contract_interfaces::run_local(&wasm, json).await?;
+                crate::commands::contract::interfaces::run_local(&wasm, json).await?;
             }
             ContractCommands::Provenance { manifest, json } => {
                 log::debug!(
@@ -1530,7 +1549,7 @@ pub async fn dispatch_command(
                     manifest,
                     json
                 );
-                crate::contract_provenance::run_local(&manifest, json).await?;
+                crate::commands::contract::provenance::run_local(&manifest, json).await?;
             }
             ContractCommands::VerifyBuild {
                 manifest,
@@ -1545,7 +1564,7 @@ pub async fn dispatch_command(
                     source_dir,
                     json
                 );
-                crate::contract_verify_build::run(
+                crate::commands::contract::verify_build::run(
                     &manifest,
                     &source_dir,
                     &expected_hash,
@@ -1571,8 +1590,8 @@ pub async fn dispatch_command(
                     fail_on,
                     json
                 );
-                let fail_on = crate::contract_compatibility::FailOn::parse(&fail_on)?;
-                crate::contract_compatibility::run(
+                let fail_on = crate::commands::contract::compatibility::FailOn::parse(&fail_on)?;
+                crate::commands::contract::compatibility::run(
                     &from,
                     &to,
                     from_network_passphrase,
@@ -1594,7 +1613,13 @@ pub async fn dispatch_command(
                     network,
                     json
                 );
-                crate::contracts::run_details(&cli.api_url, &address, &network, json).await?;
+                crate::commands::contract::info::run_details(
+                    &cli.api_url,
+                    &address,
+                    &network,
+                    json,
+                )
+                .await?;
             }
             ContractCommands::Deploy {
                 wasm_path,
@@ -1615,7 +1640,7 @@ pub async fn dispatch_command(
                     network,
                     interactive
                 );
-                crate::contract_deploy::run_deploy(
+                crate::commands::contract::deploy::run_deploy(
                     &cli.api_url,
                     &wasm_path,
                     name.as_deref(),
@@ -1644,7 +1669,7 @@ pub async fn dispatch_command(
                     threshold,
                     json
                 );
-                crate::contract_risk::run(
+                crate::commands::contract::risk::run(
                     &cli.api_url,
                     &address,
                     &network,
@@ -1717,7 +1742,7 @@ pub async fn dispatch_command(
                 json,
             } => {
                 log::debug!("Command: contract highlight | action={}", action);
-                crate::contract_highlight::run(
+                crate::commands::contract::highlight::run(
                     &cli.api_url,
                     address.as_deref(),
                     &action,
@@ -1732,7 +1757,8 @@ pub async fn dispatch_command(
                 json,
             } => {
                 log::debug!("Command: contract interaction | address={}", address);
-                crate::contract_interaction::run(&cli.api_url, &address, limit, json).await?;
+                crate::commands::contract::interaction::run(&cli.api_url, &address, limit, json)
+                    .await?;
             }
             ContractCommands::Dependencies {
                 address,
@@ -1748,15 +1774,19 @@ pub async fn dispatch_command(
                     network,
                     transitive
                 );
-                let opts = crate::contract_dependency_graph::GraphOptions {
+                let opts = crate::commands::contract::dependency_graph::GraphOptions {
                     network,
                     depth,
                     transitive,
                     include_telemetry,
                     json,
                 };
-                crate::contract_dependency_graph::dependencies(&cli.api_url, &address, &opts)
-                    .await?;
+                crate::commands::contract::dependency_graph::dependencies(
+                    &cli.api_url,
+                    &address,
+                    &opts,
+                )
+                .await?;
             }
             ContractCommands::Dependents {
                 address,
@@ -1772,14 +1802,19 @@ pub async fn dispatch_command(
                     network,
                     transitive
                 );
-                let opts = crate::contract_dependency_graph::GraphOptions {
+                let opts = crate::commands::contract::dependency_graph::GraphOptions {
                     network,
                     depth,
                     transitive,
                     include_telemetry,
                     json,
                 };
-                crate::contract_dependency_graph::dependents(&cli.api_url, &address, &opts).await?;
+                crate::commands::contract::dependency_graph::dependents(
+                    &cli.api_url,
+                    &address,
+                    &opts,
+                )
+                .await?;
             }
             ContractCommands::DependencyRisk {
                 address,
@@ -1796,9 +1831,9 @@ pub async fn dispatch_command(
                 );
                 let threshold = fail_on
                     .as_deref()
-                    .map(crate::contract_dependency_graph::Severity::parse)
+                    .map(crate::commands::contract::dependency_graph::Severity::parse)
                     .transpose()?;
-                let opts = crate::contract_dependency_graph::GraphOptions {
+                let opts = crate::commands::contract::dependency_graph::GraphOptions {
                     network,
                     depth,
                     // Risk is only meaningful over the closure: a direct-only
@@ -1808,7 +1843,7 @@ pub async fn dispatch_command(
                     include_telemetry: false,
                     json,
                 };
-                let breached = crate::contract_dependency_graph::risk(
+                let breached = crate::commands::contract::dependency_graph::risk(
                     &cli.api_url,
                     &address,
                     &opts,
@@ -1830,10 +1865,16 @@ pub async fn dispatch_command(
                     address,
                     depth
                 );
-                let fmt = crate::output_format::validate_format(&format)
-                    .unwrap_or(crate::output_format::OutputFormat::Table);
-                crate::contract_dependency::run(&cli.api_url, &address, depth, fmt, summary)
-                    .await?;
+                let fmt = crate::support::output_format::validate_format(&format)
+                    .unwrap_or(crate::support::output_format::OutputFormat::Table);
+                crate::commands::contract::dependency::run(
+                    &cli.api_url,
+                    &address,
+                    depth,
+                    fmt,
+                    summary,
+                )
+                .await?;
             }
             ContractCommands::Category { action } => match action {
                 CategoryCommands::List {
@@ -1846,9 +1887,14 @@ pub async fn dispatch_command(
                         network,
                         format
                     );
-                    let fmt = crate::output_format::validate_format(&format)?;
-                    crate::category::list(&cli.api_url, network.as_deref(), fmt, export.as_deref())
-                        .await?;
+                    let fmt = crate::support::output_format::validate_format(&format)?;
+                    crate::commands::category::list(
+                        &cli.api_url,
+                        network.as_deref(),
+                        fmt,
+                        export.as_deref(),
+                    )
+                    .await?;
                 }
                 CategoryCommands::Stats {
                     network,
@@ -1860,8 +1906,8 @@ pub async fn dispatch_command(
                         network,
                         format
                     );
-                    let fmt = crate::output_format::validate_format(&format)?;
-                    crate::category::stats(
+                    let fmt = crate::support::output_format::validate_format(&format)?;
+                    crate::commands::category::stats(
                         &cli.api_url,
                         network.as_deref(),
                         fmt,
@@ -1888,19 +1934,21 @@ pub async fn dispatch_command(
                         .filter(|s| !s.is_empty())
                         .collect::<Vec<_>>()
                 });
-                crate::contract_update::run(crate::contract_update::UpdateArgs {
-                    api_url: &cli.api_url,
-                    address: &address,
-                    name,
-                    description,
-                    category,
-                    tags: tags_vec,
-                    icon,
-                    homepage,
-                    dry_run,
-                    yes,
-                    json,
-                })
+                crate::commands::contract::update::run(
+                    crate::commands::contract::update::UpdateArgs {
+                        api_url: &cli.api_url,
+                        address: &address,
+                        name,
+                        description,
+                        category,
+                        tags: tags_vec,
+                        icon,
+                        homepage,
+                        dry_run,
+                        yes,
+                        json,
+                    },
+                )
                 .await?;
             }
             ContractCommands::Import {
@@ -1923,9 +1971,9 @@ pub async fn dispatch_command(
                     validate,
                     atomic
                 );
-                let dup_strategy = crate::import::OnDuplicate::parse(&on_duplicate)?;
-                let net_map = crate::import::parse_network_map(&network_map)?;
-                let opts = crate::import::ImportOptions {
+                let dup_strategy = crate::commands::import::OnDuplicate::parse(&on_duplicate)?;
+                let net_map = crate::commands::import::parse_network_map(&network_map)?;
+                let opts = crate::commands::import::ImportOptions {
                     api_url: &cli.api_url,
                     file_path: &input_file,
                     format: format.as_deref(),
@@ -1938,7 +1986,7 @@ pub async fn dispatch_command(
                     atomic,
                     report_output,
                 };
-                crate::import::run(opts).await?;
+                crate::commands::import::run(opts).await?;
             }
             ContractCommands::Audit {
                 lockfile,
@@ -1956,12 +2004,20 @@ pub async fn dispatch_command(
                     contracts
                 );
                 let fmt = if json { "json" } else { &format };
-                crate::contract_audit::run(&cli.api_url, &lockfile, fix, init, &contracts, fmt)
-                    .await?;
+                crate::commands::contract::audit::run(
+                    &cli.api_url,
+                    &lockfile,
+                    fix,
+                    init,
+                    &contracts,
+                    fmt,
+                )
+                .await?;
             }
             ContractCommands::Snapshot { id, output, json } => {
                 log::debug!("Command: contract snapshot | id={} output={}", id, output);
-                crate::contract_snapshot::run_export(&cli.api_url, &id, &output, json).await?;
+                crate::commands::contract::snapshot::run_export(&cli.api_url, &id, &output, json)
+                    .await?;
             }
 
             ContractCommands::VerifySnapshot {
@@ -1972,7 +2028,7 @@ pub async fn dispatch_command(
                 json,
             } => {
                 log::debug!("Command: contract verify-snapshot | file={}", file);
-                crate::contract_snapshot::run_verify(
+                crate::commands::contract::snapshot::run_verify(
                     &cli.api_url,
                     &file,
                     expect_key.as_deref(),
@@ -1999,7 +2055,7 @@ pub async fn dispatch_command(
                     reason,
                     replacement
                 );
-                crate::contract_deprecate::run(
+                crate::commands::contract::deprecate::run(
                     &cli.api_url,
                     &address,
                     &reason,
@@ -2024,7 +2080,7 @@ pub async fn dispatch_command(
                     address,
                     reason
                 );
-                crate::contract_deprecate::rollback(
+                crate::commands::contract::deprecate::rollback(
                     &cli.api_url,
                     &address,
                     &reason,
@@ -2056,7 +2112,7 @@ pub async fn dispatch_command(
                         target,
                     } => {
                         log::debug!("Command: contract notification subscribe | address={address}");
-                        crate::notification::subscribe(
+                        crate::commands::notification::subscribe(
                             &address,
                             split_list(&alerts),
                             split_list(&channels),
@@ -2070,11 +2126,11 @@ pub async fn dispatch_command(
                         log::debug!(
                             "Command: contract notification unsubscribe | address={address}"
                         );
-                        crate::notification::unsubscribe(&address)?;
+                        crate::commands::notification::unsubscribe(&address)?;
                     }
                     NotificationCommands::List { address, json } => {
                         log::debug!("Command: contract notification list");
-                        crate::notification::list(address.as_deref(), json)?;
+                        crate::commands::notification::list(address.as_deref(), json)?;
                     }
                     NotificationCommands::Configure {
                         address,
@@ -2086,7 +2142,7 @@ pub async fn dispatch_command(
                         target,
                     } => {
                         log::debug!("Command: contract notification configure | address={address}");
-                        crate::notification::configure(
+                        crate::commands::notification::configure(
                             &address,
                             alerts.as_deref().map(split_list),
                             channels.as_deref().map(split_list),
@@ -2098,7 +2154,7 @@ pub async fn dispatch_command(
                     }
                     NotificationCommands::Test { address } => {
                         log::debug!("Command: contract notification test | address={address}");
-                        crate::notification::test_notification(&address)?;
+                        crate::commands::notification::test_notification(&address)?;
                     }
                 }
             }
@@ -2110,20 +2166,25 @@ pub async fn dispatch_command(
                 json,
             } => {
                 log::debug!("Command: api-key create");
-                crate::api_key::create(&cli.api_url, expires.as_deref(), scopes.as_deref(), json)
-                    .await?;
+                crate::commands::api_key::create(
+                    &cli.api_url,
+                    expires.as_deref(),
+                    scopes.as_deref(),
+                    json,
+                )
+                .await?;
             }
             ApiKeyCommands::List { json } => {
                 log::debug!("Command: api-key list");
-                crate::api_key::list(&cli.api_url, json).await?;
+                crate::commands::api_key::list(&cli.api_url, json).await?;
             }
             ApiKeyCommands::Delete { id, json } => {
                 log::debug!("Command: api-key delete | id={}", id);
-                crate::api_key::delete(&cli.api_url, &id, false, json).await?;
+                crate::commands::api_key::delete(&cli.api_url, &id, false, json).await?;
             }
             ApiKeyCommands::Revoke { id, json } => {
                 log::debug!("Command: api-key revoke | id={}", id);
-                crate::api_key::delete(&cli.api_url, &id, true, json).await?;
+                crate::commands::api_key::delete(&cli.api_url, &id, true, json).await?;
             }
         },
         // ── Release Notes commands ───────────────────────────────────────────
@@ -2141,7 +2202,7 @@ pub async fn dispatch_command(
                     contract_id,
                     version
                 );
-                crate::release_notes::generate(
+                crate::commands::release_notes::generate(
                     &cli.api_url,
                     &contract_id,
                     &version,
@@ -2162,7 +2223,8 @@ pub async fn dispatch_command(
                     contract_id,
                     version
                 );
-                crate::release_notes::view(&cli.api_url, &contract_id, &version, json).await?;
+                crate::commands::release_notes::view(&cli.api_url, &contract_id, &version, json)
+                    .await?;
             }
             ReleaseNotesCommands::Edit {
                 contract_id,
@@ -2176,7 +2238,7 @@ pub async fn dispatch_command(
                     contract_id,
                     version
                 );
-                crate::release_notes::edit(
+                crate::commands::release_notes::edit(
                     &cli.api_url,
                     &contract_id,
                     &version,
@@ -2197,7 +2259,7 @@ pub async fn dispatch_command(
                     contract_id,
                     version
                 );
-                crate::release_notes::publish(
+                crate::commands::release_notes::publish(
                     &cli.api_url,
                     &contract_id,
                     &version,
@@ -2208,7 +2270,7 @@ pub async fn dispatch_command(
             }
             ReleaseNotesCommands::List { contract_id, json } => {
                 log::debug!("Command: release-notes list | contract_id={}", contract_id);
-                crate::release_notes::list(&cli.api_url, &contract_id, json).await?;
+                crate::commands::release_notes::list(&cli.api_url, &contract_id, json).await?;
             }
         },
 
@@ -2225,7 +2287,7 @@ pub async fn dispatch_command(
                     contract_path,
                     network
                 );
-                crate::cicd::run_pipeline(
+                crate::commands::cicd::run_pipeline(
                     &cli.api_url,
                     &contract_path,
                     &network,
@@ -2237,7 +2299,7 @@ pub async fn dispatch_command(
             }
             CicdCommands::Validate { contract_path } => {
                 log::debug!("Command: cicd validate | path={}", contract_path);
-                crate::cicd::validate_env(&contract_path).await?;
+                crate::commands::cicd::validate_env(&contract_path).await?;
             }
         },
 
@@ -2245,7 +2307,7 @@ pub async fn dispatch_command(
         Commands::Network { action } => match action {
             NetworkCommands::Status { json } => {
                 log::debug!("Command: network status");
-                crate::network::status(json).await?;
+                crate::commands::network::status(json).await?;
             }
         },
 
@@ -2262,7 +2324,7 @@ pub async fn dispatch_command(
                 net_str,
                 report_format
             );
-            crate::analyze::run(
+            crate::commands::analyze::run(
                 &cli.api_url,
                 &contract_id,
                 &net_str,
@@ -2285,7 +2347,7 @@ pub async fn dispatch_command(
                 dry_run,
                 publisher
             );
-            crate::batch_register::run_batch_register(
+            crate::commands::batch::register::run_batch_register(
                 &cli.api_url,
                 &manifest,
                 publisher.as_deref(),
@@ -2309,7 +2371,7 @@ pub async fn dispatch_command(
             json,
         } => {
             log::debug!("Command: batch-audit | file={}", file);
-            crate::batch_audit::run_batch_audit(
+            crate::commands::batch::audit::run_batch_audit(
                 &file,
                 &format,
                 output_dir.as_deref(),
@@ -2328,7 +2390,9 @@ pub async fn dispatch_command(
             json,
         } => {
             log::debug!("Command: batch-deploy | wasm={}", wasm_file);
-            crate::batch_deploy::run_batch_deploy(&wasm_file, &networks, &signer, atomic, json)?;
+            crate::commands::batch::deploy::run_batch_deploy(
+                &wasm_file, &networks, &signer, atomic, json,
+            )?;
         }
         Commands::BatchExport {
             output_dir,
@@ -2339,7 +2403,7 @@ pub async fn dispatch_command(
             json,
         } => {
             log::debug!("Command: batch-export | output_dir={}", output_dir);
-            crate::batch_export::run_batch_export(
+            crate::commands::batch::export::run_batch_export(
                 &cli.api_url,
                 &output_dir,
                 filter.as_deref(),
@@ -2359,16 +2423,18 @@ pub async fn dispatch_command(
             rollback_on_error,
             json,
         } => {
-            crate::batch_update::run_batch_update(crate::batch_update::BatchUpdateArgs {
-                api_url: &cli.api_url,
-                file: file.as_deref(),
-                filter: filter.as_deref(),
-                preview,
-                condition: condition.as_deref(),
-                user_id: user_id.as_deref(),
-                rollback_on_error,
-                json,
-            })
+            crate::commands::batch::update::run_batch_update(
+                crate::commands::batch::update::BatchUpdateArgs {
+                    api_url: &cli.api_url,
+                    file: file.as_deref(),
+                    filter: filter.as_deref(),
+                    preview,
+                    condition: condition.as_deref(),
+                    user_id: user_id.as_deref(),
+                    rollback_on_error,
+                    json,
+                },
+            )
             .await?;
         }
         Commands::BatchImport {
@@ -2381,7 +2447,7 @@ pub async fn dispatch_command(
             json,
         } => {
             log::debug!("Command: batch-import | input_dir={}", input_dir);
-            crate::batch_import::run_batch_import(
+            crate::commands::batch::import::run_batch_import(
                 &cli.api_url,
                 &input_dir,
                 format.as_deref(),
@@ -2415,7 +2481,7 @@ pub async fn dispatch_command(
                     .as_deref()
                     .ok_or_else(|| anyhow::anyhow!("batch notify requires --recipients"))?;
                 let message = contracts.join(" ");
-                crate::batch_notify::run_batch_notify(
+                crate::commands::batch::notify::run_batch_notify(
                     &cli.api_url,
                     &message,
                     recipients,
@@ -2434,7 +2500,7 @@ pub async fn dispatch_command(
                     contracts.len() >= 2,
                     "batch migrate requires SOURCE and DESTINATION"
                 );
-                crate::batch_migrate::run_batch_migrate(
+                crate::commands::batch::migrate::run_batch_migrate(
                     &contracts[0],
                     &contracts[1],
                     filter.as_deref(),
@@ -2446,8 +2512,8 @@ pub async fn dispatch_command(
                 .await?;
                 return Ok(());
             }
-            let op = crate::batch_ops::BatchOperation::parse(&operation)?;
-            crate::batch_ops::run(
+            let op = crate::commands::batch::ops::BatchOperation::parse(&operation)?;
+            crate::commands::batch::ops::run(
                 &cli.api_url,
                 op,
                 contracts,
@@ -2462,11 +2528,11 @@ pub async fn dispatch_command(
         Commands::Cache { action } => match action {
             CacheCommands::Clear { level, key } => {
                 log::debug!("Command: cache clear | level={} key={:?}", level, key);
-                crate::cache::clear(&level, key.as_deref())?;
+                crate::commands::cache::clear(&level, key.as_deref())?;
             }
             CacheCommands::Status { json } => {
                 log::debug!("Command: cache status | json={}", json);
-                crate::cache::status(json)?;
+                crate::commands::cache::status(json)?;
             }
             CacheCommands::Configure {
                 ttl,
@@ -2476,7 +2542,7 @@ pub async fn dispatch_command(
                 json,
             } => {
                 log::debug!("Command: cache configure");
-                crate::cache::configure(
+                crate::commands::cache::configure(
                     ttl,
                     max_size,
                     compression.as_deref(),
@@ -2486,7 +2552,7 @@ pub async fn dispatch_command(
             }
             CacheCommands::Optimize { json } => {
                 log::debug!("Command: cache optimize | json={}", json);
-                crate::cache::optimize(json)?;
+                crate::commands::cache::optimize(json)?;
             }
             CacheCommands::Export {
                 format,
@@ -2497,7 +2563,7 @@ pub async fn dispatch_command(
                     format,
                     include_stale
                 );
-                crate::cache::export(&format, include_stale)?;
+                crate::commands::cache::export(&format, include_stale)?;
             }
         },
         // ── Environment variable management (#843) ───────────────────────────
@@ -2514,7 +2580,7 @@ pub async fn dispatch_command(
                     env,
                     show_value
                 );
-                crate::env::set_var(&name, &value, env.as_deref(), show_value)?;
+                crate::commands::env::set_var(&name, &value, env.as_deref(), show_value)?;
             }
             EnvCommands::Get { name, env, json } => {
                 log::debug!(
@@ -2523,7 +2589,7 @@ pub async fn dispatch_command(
                     env,
                     json
                 );
-                crate::env::get_var(&name, env.as_deref(), json)?;
+                crate::commands::env::get_var(&name, env.as_deref(), json)?;
             }
             EnvCommands::List {
                 env,
@@ -2538,7 +2604,7 @@ pub async fn dispatch_command(
                     merged,
                     json
                 );
-                crate::env::list_vars(env.as_deref(), all, merged, json)?;
+                crate::commands::env::list_vars(env.as_deref(), all, merged, json)?;
             }
             EnvCommands::Copy {
                 from,
@@ -2551,11 +2617,11 @@ pub async fn dispatch_command(
                     to,
                     overwrite
                 );
-                crate::env::copy_env(&from, &to, overwrite)?;
+                crate::commands::env::copy_env(&from, &to, overwrite)?;
             }
             EnvCommands::Delete { name, env } => {
                 log::debug!("Command: env delete | name={} env={:?}", name, env);
-                crate::env::delete_var(&name, env.as_deref())?;
+                crate::commands::env::delete_var(&name, env.as_deref())?;
             }
             EnvCommands::Export {
                 env,
@@ -2568,23 +2634,23 @@ pub async fn dispatch_command(
                     format,
                     merged
                 );
-                crate::env::export_env(env.as_deref(), format.as_str(), merged)?;
+                crate::commands::env::export_env(env.as_deref(), format.as_str(), merged)?;
             }
             EnvCommands::Switch { environment } => {
                 log::debug!("Command: env switch | environment={}", environment);
-                crate::env::switch_env(&environment)?;
+                crate::commands::env::switch_env(&environment)?;
             }
         },
         Commands::Publisher { action } => match action {
             PublisherCommands::Doctor { json } => {
                 log::debug!("Command: publisher doctor | json={}", json);
-                crate::publisher::doctor(&cli.api_url, json).await?;
+                crate::commands::publisher::doctor(&cli.api_url, json).await?;
             }
         },
         Commands::Snapshot { action } => match action {
             SnapshotCommands::Export { output } => {
                 log::debug!("Command: snapshot export | output={}", output);
-                crate::snapshot::export(&cli.api_url, &output).await?;
+                crate::commands::snapshot::export(&cli.api_url, &output).await?;
             }
             SnapshotCommands::Sign { snapshot_file, key } => {
                 log::debug!(
@@ -2592,7 +2658,7 @@ pub async fn dispatch_command(
                     snapshot_file,
                     key
                 );
-                crate::snapshot::sign(&snapshot_file, &key).await?;
+                crate::commands::snapshot::sign(&snapshot_file, &key).await?;
             }
             SnapshotCommands::Verify {
                 snapshot_file,
@@ -2603,11 +2669,11 @@ pub async fn dispatch_command(
                     snapshot_file,
                     trust_key
                 );
-                crate::snapshot::verify(&snapshot_file, &trust_key).await?;
+                crate::commands::snapshot::verify(&snapshot_file, &trust_key).await?;
             }
             SnapshotCommands::Inspect { snapshot_file } => {
                 log::debug!("Command: snapshot inspect | file={}", snapshot_file);
-                crate::snapshot::inspect(&snapshot_file).await?;
+                crate::commands::snapshot::inspect(&snapshot_file).await?;
             }
         },
     }
