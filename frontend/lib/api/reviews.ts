@@ -1,5 +1,10 @@
 /**
  * Collaborative review endpoints.
+ *
+ * Every one of these is keyed by the *review* id, not the contract id. The
+ * routes are defined in `collaborative_review_routes()` in the backend's
+ * `routes.rs`; `/api/contracts/:id/reviews` is a different feature (public
+ * star ratings) and has nothing to do with these.
  */
 
 import { apiFetch } from "./client";
@@ -11,9 +16,11 @@ import type {
 } from "@/types";
 
 export async function fetchCollaborativeReview(
-  contractId: string,
+  reviewId: string,
 ): Promise<CollaborativeReviewDetails> {
-  return apiFetch<CollaborativeReviewDetails>(`/api/contracts/${contractId}/review`);
+  return apiFetch<CollaborativeReviewDetails>(
+    `/api/reviews/collaborative/${reviewId}`,
+  );
 }
 
 export async function createCollaborativeReview(
@@ -26,13 +33,16 @@ export async function createCollaborativeReview(
 }
 
 export async function addReviewComment(
-  contractId: string,
+  reviewId: string,
   comment: Partial<CollaborativeComment>,
 ): Promise<CollaborativeComment> {
-  return apiFetch<CollaborativeComment>(`/api/contracts/${contractId}/review/comments`, {
-    method: "POST",
-    body: JSON.stringify(comment),
-  });
+  return apiFetch<CollaborativeComment>(
+    `/api/reviews/collaborative/${reviewId}/comment`,
+    {
+      method: "POST",
+      body: JSON.stringify(comment),
+    },
+  );
 }
 
 export async function updateReviewerStatus(

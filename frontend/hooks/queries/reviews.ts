@@ -1,9 +1,8 @@
 /**
  * Collaborative review queries and mutations, over `lib/api/reviews.ts`.
  *
- * Note the asymmetry in the underlying API, which this layer does not hide:
- * `fetchCollaborativeReview` and `addReviewComment` are keyed by contract id,
- * while `updateReviewerStatus` is keyed by review id.
+ * Every id here is a *review* id. A contract id will 404: the collaborative
+ * review routes hang off `/api/reviews/collaborative`, not off the contract.
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
