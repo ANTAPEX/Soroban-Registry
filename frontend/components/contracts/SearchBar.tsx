@@ -2,8 +2,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
-import type { SearchSuggestion } from "@/types";
-import { api } from "@/lib/api";
+import { useContractSearchSuggestions } from "@/hooks/queries";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 interface SearchBarProps {
   value: string;
@@ -22,6 +22,8 @@ type MenuItem = {
 
 const RECENT_SEARCH_KEY = "contract-search-recent";
 const MAX_RECENT_SEARCHES = 5;
+const SUGGESTION_DEBOUNCE_MS = 220;
+const SUGGESTION_LIMIT = 8;
 const SEARCH_HINTS = [
   "Search by contract name, category, creator, or tag.",
   'Try "DeFi", "NFT", "token", or a publisher address.',
@@ -101,66 +103,49 @@ export function SearchBar({
   onCommit,
   placeholder = "Search contracts by name, category, or tag...",
 }: SearchBarProps) {
-  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasError, setHasError] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const latestQueryRef = useRef(value);
+
+  const debouncedValue = useDebouncedValue(value, SUGGESTION_DEBOUNCE_MS);
+  const {
+    data: suggestionData,
+    isFetching,
+    isError,
+  } = useContractSearchSuggestions(debouncedValue, SUGGESTION_LIMIT);
+
+  // While the debounce is still running the query is answering the previous
+  // value. Showing that answer would be the stale result the old code used a
+  // ref to guard against, so the gap counts as loading and shows nothing.
+  const isStale = debouncedValue !== value;
+  const isLoading = !!value.trim() && (isFetching || isStale);
+  const hasError = isError;
+  const suggestions = useMemo(
+    () =>
+      isStale
+        ? []
+        : [...(suggestionData?.items ?? [])].sort((a, b) =>
+            b.score !== a.score
+              ? b.score - a.score
+              : a.text.localeCompare(b.text),
+          ),
+    [suggestionData, isStale],
+  );
 
   useEffect(() => {
     requestAnimationFrame(() => setRecentSearches(loadRecentSearches()));
   }, []);
 
   useEffect(() => {
-    latestQueryRef.current = value;
-
     if (!value.trim()) {
-      requestAnimationFrame(() => {
-        setSuggestions([]);
-        setIsLoading(false);
-        setHasError(false);
-        setIsOpen(recentSearches.length > 0);
-        setHighlightedIndex(-1);
-      });
+      setIsOpen(recentSearches.length > 0);
+      setHighlightedIndex(-1);
       return;
     }
-
-    requestAnimationFrame(() => {
-      setIsLoading(true);
-      setHasError(false);
-    });
-
-    const delay = window.setTimeout(async () => {
-      try {
-        const result = await api.getContractSearchSuggestions(value, 8);
-        if (latestQueryRef.current !== value) return;
-
-        const sorted = [...result.items].sort((a, b) => {
-          if (b.score !== a.score) return b.score - a.score;
-          return a.text.localeCompare(b.text);
-        });
-
-        setSuggestions(sorted);
-        setIsOpen(true);
-        setHighlightedIndex(-1);
-      } catch {
-        if (latestQueryRef.current === value) {
-          setHasError(true);
-          setSuggestions([]);
-          setIsOpen(true);
-        }
-      } finally {
-        if (latestQueryRef.current === value) {
-          setIsLoading(false);
-        }
-      }
-    }, 220);
-
-    return () => window.clearTimeout(delay);
+    setIsOpen(true);
+    setHighlightedIndex(-1);
   }, [value, recentSearches.length]);
 
   useEffect(() => {

@@ -82,7 +82,10 @@ export const queryKeys = {
     ["custom-metrics-series", id, metric, resolution] as const,
   dependencyScan: (id: QueryId) => ["dependency-scan", id] as const,
   favoriteSearches: () => ["favorite-searches"] as const,
+  searchSuggestions: (query: string, limit: number) =>
+    ["search-suggestions", query, limit] as const,
   formalVerification: (id: QueryId) => ["formal-verification", id] as const,
+  preferences: () => ["preferences"] as const,
   publisher: (address: QueryId) => ["publisher", address] as const,
   releaseNotes: (id: QueryId) => ["release-notes", id] as const,
   stats: () => ["stats"] as const,

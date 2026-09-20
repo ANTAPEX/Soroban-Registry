@@ -26,6 +26,34 @@ import type {
   QueryNode,
 } from "@/types";
 
+/**
+ * Every page of a contract query, concatenated.
+ *
+ * The first request reports the page count, so `onProgress` can only say how
+ * far along it is from page one onwards. Pages are fetched in order rather than
+ * together: the export this backs is a background action, and a hundred
+ * parallel requests would be worse for the registry than a slow one.
+ */
+export async function fetchAllContracts(
+  params: ContractSearchParams = {},
+  onProgress?: (current: number, total: number) => void,
+): Promise<Contract[]> {
+  const pageSize = params.page_size ?? 100;
+  const first = await fetchContracts({ ...params, page: 1, page_size: pageSize });
+  const totalPages = Math.max(1, first.total_pages);
+  const items = [...first.items];
+
+  onProgress?.(1, totalPages);
+
+  for (let page = 2; page <= totalPages; page += 1) {
+    const next = await fetchContracts({ ...params, page, page_size: pageSize });
+    items.push(...next.items);
+    onProgress?.(page, totalPages);
+  }
+
+  return items;
+}
+
 export async function fetchContracts(
   params: ContractSearchParams = {},
 ): Promise<PaginatedResponse<Contract>> {

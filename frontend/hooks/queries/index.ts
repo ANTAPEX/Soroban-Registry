@@ -18,6 +18,7 @@ export * from "./contracts";
 export * from "./dependencies";
 export * from "./graph";
 export * from "./metrics";
+export * from "./preferences";
 export * from "./publishers";
 export * from "./registry";
 export * from "./releaseNotes";

@@ -4,12 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setFavorites } from "@/store/slices/favoritesSlice";
 import { useToast } from "./useToast";
-import { api } from "@/lib/api";
+import { usePreferences, useUpdatePreferences } from "./queries/preferences";
 
 const STORAGE_KEY = "soroban_registry_favorites";
 const AUTH_TOKEN_KEY = "soroban_registry_token";
 const MAX_FAVORITES = 500;
-const RETRY_DELAY_MS = 3000;
 
 function deduplicate(arr: string[]): string[] {
   return arr.filter((id, index) => arr.indexOf(id) === index);
@@ -37,6 +36,25 @@ function readFromLocalStorage(): string[] {
   }
 }
 
+/**
+ * Whether localStorage can actually be written to.
+ *
+ * This used to be a `try {} catch {}` around an empty block, so the warning
+ * below it could never fire. Private windows and blocked site data both make
+ * the write throw, which is the case worth telling someone about.
+ */
+function isStorageAvailable(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const probe = `${STORAGE_KEY}__probe`;
+    localStorage.setItem(probe, "1");
+    localStorage.removeItem(probe);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function writeToLocalStorage(favorites: string[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(favorites));
@@ -48,77 +66,55 @@ function writeToLocalStorage(favorites: string[]): void {
 export function useFavorites() {
   const dispatch = useAppDispatch();
   const items = useAppSelector((s) => s.favorites.items);
-  const [isLoading, setIsLoading] = useState(false);
   const { showError, showWarning } = useToast();
 
+  const [token, setToken] = useState<string | null>(null);
   const prevTokenRef = useRef<string | null>(null);
 
-  // Load initial favorites
-  useEffect(() => {
-    const token = getAuthToken();
-    prevTokenRef.current = token;
+  const { data: preferences, isLoading, isError } = usePreferences(token);
+  const updatePreferences = useUpdatePreferences(token);
 
-    if (token) {
-      setIsLoading(true);
-      api
-        .getPreferences(token)
-        .then((prefs) => {
-          dispatch(setFavorites(deduplicate(prefs.favorites)));
-        })
-        .catch(() => {
-          const local = readFromLocalStorage();
-          dispatch(setFavorites(deduplicate(local)));
-        })
-        .finally(() => setIsLoading(false));
-    } else {
-      const local = readFromLocalStorage();
-      if (local.length === 0) {
-        try {
-          // warn only if storage is unavailable
-        } catch {
-          showWarning(
-            "Favorites won't be saved — browser storage is unavailable",
-          );
-        }
+  // The token lives in localStorage, so it is read once on mount rather than
+  // during render; `usePreferences` stays disabled until it exists.
+  useEffect(() => {
+    const initial = getAuthToken();
+    prevTokenRef.current = initial;
+    setToken(initial);
+    if (!initial) {
+      if (!isStorageAvailable()) {
+        showWarning("Favorites won't be saved — browser storage is unavailable");
       }
-      dispatch(setFavorites(deduplicate(local)));
+      dispatch(setFavorites(deduplicate(readFromLocalStorage())));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auth change detection (merge on login, clear on logout)
+  // The server's answer, or the local copy if the request failed.
+  useEffect(() => {
+    if (!token) return;
+    if (preferences) {
+      dispatch(setFavorites(deduplicate(preferences.favorites)));
+    } else if (isError) {
+      dispatch(setFavorites(deduplicate(readFromLocalStorage())));
+    }
+  }, [dispatch, token, preferences, isError]);
+
+  // Auth change detection (merge on login, clear on logout).
   useEffect(() => {
     const checkAuthChange = () => {
       const currentToken = getAuthToken();
       const prevToken = prevTokenRef.current;
       if (currentToken === prevToken) return;
 
-      if (currentToken && !prevToken) {
-        // Guest -> authenticated: merge local with backend
-        const localFavorites = readFromLocalStorage();
-        setIsLoading(true);
-        api
-          .getPreferences(currentToken)
-          .then((prefs) => {
-            const merged = deduplicate([
-              ...localFavorites,
-              ...prefs.favorites,
-            ]).slice(0, MAX_FAVORITES);
-            dispatch(setFavorites(merged));
-            writeToLocalStorage(merged);
-            return api.updatePreferences(currentToken, merged);
-          })
-          .catch(() => {})
-          .finally(() => setIsLoading(false));
-      } else if (!currentToken && prevToken) {
-        // logout
+      prevTokenRef.current = currentToken;
+      setToken(currentToken);
+
+      if (!currentToken && prevToken) {
         dispatch(setFavorites([]));
         try {
           localStorage.removeItem(STORAGE_KEY);
         } catch {}
       }
-
-      prevTokenRef.current = currentToken;
     };
 
     const interval = setInterval(checkAuthChange, 1000);
@@ -133,31 +129,51 @@ export function useFavorites() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Guest -> authenticated: the local list and the server's are merged, and the
+  // result is written back. `usePreferences` did the fetch; this only reacts to
+  // its answer arriving for a token that was not there before.
+  const mergedForTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!token || !preferences) return;
+    if (mergedForTokenRef.current === token) return;
+    mergedForTokenRef.current = token;
+
+    const local = readFromLocalStorage();
+    if (local.length === 0) return;
+
+    const merged = deduplicate([...local, ...preferences.favorites]).slice(
+      0,
+      MAX_FAVORITES,
+    );
+    dispatch(setFavorites(merged));
+    writeToLocalStorage(merged);
+    updatePreferences.mutate(merged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, preferences, dispatch]);
+
   const toggleFavorite = useCallback(
     (id: string) => {
-      const currently = items.includes(id);
-      const optimistic = currently
-        ? items.filter((i) => i !== id)
-        : deduplicate([...items, id]).slice(0, MAX_FAVORITES);
+      const previous = items;
+      const optimistic = previous.includes(id)
+        ? previous.filter((i) => i !== id)
+        : deduplicate([...previous, id]).slice(0, MAX_FAVORITES);
+
       dispatch(setFavorites(optimistic));
       writeToLocalStorage(optimistic);
 
-      const token = getAuthToken();
-      if (token) {
-        api.updatePreferences(token, optimistic).catch(() => {
-          setTimeout(() => {
-            const retryToken = getAuthToken();
-            if (!retryToken) return;
-            api.updatePreferences(retryToken, optimistic).catch(() => {
-              // Revert on failure
-              dispatch(setFavorites(items));
-              writeToLocalStorage(items);
-              showError("Failed to save favorites. Please try again.");
-            });
-          }, RETRY_DELAY_MS);
-        });
-      }
+      if (!getAuthToken()) return;
+
+      // The mutation retries once after three seconds on its own; this only
+      // has to undo the optimistic write when that retry fails too.
+      updatePreferences.mutate(optimistic, {
+        onError: () => {
+          dispatch(setFavorites(previous));
+          writeToLocalStorage(previous);
+          showError("Failed to save favorites. Please try again.");
+        },
+      });
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [dispatch, items, showError],
   );
 
@@ -168,12 +184,12 @@ export function useFavorites() {
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {}
-    const token = getAuthToken();
-    if (token) {
-      api
-        .updatePreferences(token, [])
-        .catch(() => showError("Failed to clear favorites. Please try again."));
-    }
+    if (!getAuthToken()) return;
+    updatePreferences.mutate([], {
+      onError: () =>
+        showError("Failed to clear favorites. Please try again."),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch, showError]);
 
   return {
