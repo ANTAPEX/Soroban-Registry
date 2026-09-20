@@ -8,7 +8,7 @@ import { AlertCircle, Sparkles, ExternalLink, X } from 'lucide-react';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import type { DependencyGraphHandle } from '@/components/DependencyGraph';
 import { useTranslation } from '@/lib/i18n/client';
-import { useContractGraph } from "@/hooks/queries";
+import { useRegistryGraph } from "@/hooks/queries";
 
 // Generate synthetic demo data for testing at scale
 function generateDemoData(nodeCount: number): { nodes: GraphNode[]; edges: GraphEdge[] } {
@@ -129,7 +129,7 @@ export function GraphContent() {
         }
     }, []);
 
-    const { data: apiData, isLoading, error } = useContractGraph(networkFilter, {
+    const { data: apiData, isLoading, error } = useRegistryGraph(networkFilter, {
         enabled: !demoMode,
     });
 

@@ -86,6 +86,9 @@ export const queryKeys = {
   publisher: (address: QueryId) => ["publisher", address] as const,
   releaseNotes: (id: QueryId) => ["release-notes", id] as const,
   stats: () => ["stats"] as const,
+  /** The period-scoped statistics endpoint, which is not `stats()`. */
+  statsForPeriod: (period: string) => ["stats", "period", period] as const,
+  analytics: (period: string) => ["analytics", period] as const,
   templates: () => ["templates"] as const,
 } as const;
 

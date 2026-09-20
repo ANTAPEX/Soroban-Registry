@@ -11,7 +11,8 @@ import { queryKeys } from "@/lib/queryKeys";
 import type { QueryOpts } from "./types";
 import type { GraphResponse, Network } from "@/types";
 
-export function useContractGraph(
+/** The whole registry's graph, optionally scoped to one network. */
+export function useRegistryGraph(
   network?: Network | string,
   options?: QueryOpts<GraphResponse>,
 ) {
