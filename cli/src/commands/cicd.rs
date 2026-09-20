@@ -1,5 +1,5 @@
-use crate::commands::Network;
-use anyhow::{Context, Result};
+use crate::support::network::Network;
+use anyhow::Result;
 use colored::Colorize;
 use std::path::Path;
 use std::process::Command;
@@ -12,27 +12,27 @@ pub async fn validate_env(contract_path: &str) -> Result<()> {
     if !cargo_toml.exists() {
         anyhow::bail!("Cargo.toml not found at {}", cargo_toml.display());
     }
-    println!("  {} Cargo.toml found", "✓".green());
+    println!("  {} Cargo.toml found", "[OK]".green());
 
     // 2. Check for soroban CLI
     let soroban_check = Command::new("soroban").arg("--version").output();
     if soroban_check.is_err() {
         println!(
             "  {} soroban CLI not found (required for registration)",
-            "⚠".yellow()
+            "[WARN]".yellow()
         );
     } else {
-        println!("  {} soroban CLI found", "✓".green());
+        println!("  {} soroban CLI found", "[OK]".green());
     }
 
     // 3. Check for API environment variables
     if std::env::var("SOROBAN_REGISTRY_API_TOKEN").is_err() {
         println!(
             "  {} SOROBAN_REGISTRY_API_TOKEN not set (required for CI/CD)",
-            "⚠".yellow()
+            "[WARN]".yellow()
         );
     } else {
-        println!("  {} API Token found", "✓".green());
+        println!("  {} API Token found", "[OK]".green());
     }
 
     println!("\nEnvironment is ready for CI/CD integration framework.");
@@ -89,7 +89,7 @@ pub async fn run_pipeline(
     let name = "CI/CD Auto-registered Contract";
     let publisher = std::env::var("PUBLISHER_ADDRESS").unwrap_or_else(|_| "auto".to_string());
 
-    crate::commands::publish(
+    crate::commands::publish::publish(
         api_url,
         &contract_id,
         name,
@@ -118,7 +118,7 @@ pub async fn run_pipeline(
         println!("\n{}", "=".repeat(80).cyan());
         println!(
             "{}",
-            "✓ CI/CD Pipeline completed successfully!".green().bold()
+            "[OK] CI/CD Pipeline completed successfully!".green().bold()
         );
     }
 
@@ -133,15 +133,18 @@ async fn run_security_scans(path: &str, _json: bool) -> Result<()> {
         .output();
 
     match output {
-        Ok(out) if out.status.success() => println!("  {} cargo-audit passed", "✓".green()),
+        Ok(out) if out.status.success() => println!("  {} cargo-audit passed", "[OK]".green()),
         Ok(_) => println!(
             "  {} cargo-audit found vulnerabilities (continuing for demo)",
-            "⚠".yellow()
+            "[WARN]".yellow()
         ),
-        Err(_) => println!("  {} cargo-audit not installed, skipping", "⚠".yellow()),
+        Err(_) => println!(
+            "  {} cargo-audit not installed, skipping",
+            "[WARN]".yellow()
+        ),
     }
 
-    println!("  {} Security report generated.", "✓".green());
+    println!("  {} Security report generated.", "[OK]".green());
     Ok(())
 }
 
@@ -158,6 +161,6 @@ async fn build_contract(path: &str, _json: bool) -> Result<()> {
 
     println!("  {} Optimizing WASM binary...", "●".blue());
     // Mock optimize for now, as it requires soroban-cli
-    println!("  {} Build artifacts ready.", "✓".green());
+    println!("  {} Build artifacts ready.", "[OK]".green());
     Ok(())
 }
