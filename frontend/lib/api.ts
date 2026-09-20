@@ -1,19 +1,13 @@
-// Mock data: conditionally imported only in development/test.
-// In production (NEXT_PUBLIC_USE_MOCKS !== "true"), these are empty stubs
-// that never get reached (gated behind USE_MOCKS checks below).
-/* eslint-disable @typescript-eslint/no-explicit-any */
-let MOCK_CONTRACTS: any[] = [];
-let MOCK_EXAMPLES: Record<string, any[]> = {};
-let MOCK_VERSIONS: Record<string, any[]> = {};
-/* eslint-enable @typescript-eslint/no-explicit-any */
-if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
-  // Dynamic require ensures Next.js tree-shakes mock-data from production bundles
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const mocks = require("./mock-data");
-  MOCK_CONTRACTS = mocks.MOCK_CONTRACTS;
-  MOCK_EXAMPLES = mocks.MOCK_EXAMPLES;
-  MOCK_VERSIONS = mocks.MOCK_VERSIONS;
-}
+import type {
+  CompatibilityHistoryResponse,
+  CompatibilityNotification,
+  CompatibilityTestEntry,
+  CompatibilityTestMatrixResponse,
+  GraphResponse,
+  Network,
+  NetworkListResponse,
+  RunCompatibilityTestRequest,
+} from "@/types";
 import {
   CollaborativeComment,
   CollaborativeReviewDetails,
@@ -22,130 +16,56 @@ import {
   StatsResponse,
   TimePeriod,
 } from "@/types";
-export type { QueryNode } from "@/types";
+
+// Domain types live in `types/`; re-exported here so existing
+// `from "@/lib/api"` imports keep working.
+export type {
+  CompatibilityHistoryEntry,
+  CompatibilityHistoryResponse,
+  CompatibilityNotification,
+  CompatibilityTestEntry,
+  CompatibilityTestMatrixResponse,
+  CompatibilityTestStatus,
+  CompatibilityTestSummary,
+  ContractInteroperabilityResponse,
+  GraphEdge,
+  GraphNode,
+  GraphResponse,
+  InteroperabilityCapability,
+  InteroperabilityCapabilityKind,
+  InteroperabilityProtocolMatch,
+  InteroperabilitySuggestion,
+  InteroperabilitySummary,
+  Network,
+  NetworkEndpoints,
+  NetworkInfo,
+  NetworkListResponse,
+  NetworkStatus,
+  QueryNode,
+  RunCompatibilityTestRequest,
+} from "@/types";
 import { trackEvent } from "./analytics";
 import { fetchStats } from "./api/stats";
-import {
-  ApiError,
-  NetworkError,
-  extractErrorData,
-  createApiError,
-} from "./errors";
+import { ApiError } from "./errors";
 import { fetchAnalytics } from "./api/analytics";
+import { apiFetch } from "./api/client";
+import { API_URL, USE_MOCKS } from "@/lib/env";
 
-export type Network = "mainnet" | "testnet" | "futurenet";
-
-export type NetworkStatus = "online" | "offline" | "degraded";
-
-export interface NetworkEndpoints {
-  rpc_url: string;
-  health_url: string;
-  explorer_url: string;
-  friendbot_url?: string;
-}
-
-export interface NetworkInfo {
-  id: string;
-  name: string;
-  network_type: Network;
-  status: NetworkStatus;
-  endpoints: NetworkEndpoints;
-  last_checked_at: string;
-  last_indexed_ledger_height?: number;
-  last_indexed_at?: string;
-  consecutive_failures: number;
-  status_message?: string;
-}
-
-export interface NetworkListResponse {
-  networks: NetworkInfo[];
-  cached_at: string;
-}
-
-export interface GraphNode {
-  id: string;
-  contract_id: string;
-  name: string;
-  network: Network;
-  is_verified: boolean;
-  category?: string | null;
-  tags: string[];
-}
-
-export interface GraphEdge {
-  source: string;
-  target: string;
-  dependency_type: string;
-  call_frequency?: number | null;
-  call_volume?: number | null;
-  is_estimated?: boolean;
-  is_circular?: boolean;
-}
-
-export interface GraphResponse {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-}
-
-export type CompatibilityTestStatus = "compatible" | "warning" | "incompatible";
-
-export interface CompatibilityTestEntry {
-  sdk_version: string;
-  wasm_runtime: string;
-  network: string;
-  status: CompatibilityTestStatus;
-  tested_at: string;
-  test_duration_ms?: number | null;
-  error_message?: string | null;
-}
-
-export interface CompatibilityHistoryEntry {
-  id: string;
-  sdk_version: string;
-  wasm_runtime: string;
-  network: string;
-  previous_status?: CompatibilityTestStatus | null;
-  new_status: CompatibilityTestStatus;
-  changed_at: string;
-  change_reason?: string | null;
-}
-
-export interface CompatibilityTestSummary {
-  total_tests: number;
-  compatible_count: number;
-  warning_count: number;
-  incompatible_count: number;
-}
-
-export interface CompatibilityTestMatrixResponse {
-  contract_id: string;
-  sdk_versions: string[];
-  wasm_runtimes: string[];
-  networks: string[];
-  entries: CompatibilityTestEntry[];
-  summary: CompatibilityTestSummary;
-  last_tested?: string | null;
-}
-
-export interface RunCompatibilityTestRequest {
-  sdk_version: string;
-  wasm_runtime: string;
-  network: string;
-}
-
-export interface CompatibilityHistoryResponse {
-  contract_id: string;
-  changes: CompatibilityHistoryEntry[];
-  total: number;
-}
-
-export interface CompatibilityNotification {
-  id: string;
-  contract_id: string;
-  sdk_version: string;
-  message: string;
-  is_read: boolean;
-  created_at: string;
+// Mock data: conditionally imported only in development/test.
+// In production (NEXT_PUBLIC_USE_MOCKS !== "true"), these are empty stubs
+// that never get reached (gated behind USE_MOCKS checks below).
+/* eslint-disable @typescript-eslint/no-explicit-any */
+let MOCK_CONTRACTS: any[] = [];
+let MOCK_EXAMPLES: Record<string, any[]> = {};
+let MOCK_VERSIONS: Record<string, any[]> = {};
+/* eslint-enable @typescript-eslint/no-explicit-any */
+if (USE_MOCKS) {
+  // Dynamic require ensures Next.js tree-shakes mock-data from production bundles
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const mocks = require("./mock-data");
+  MOCK_CONTRACTS = mocks.MOCK_CONTRACTS;
+  MOCK_EXAMPLES = mocks.MOCK_EXAMPLES;
+  MOCK_VERSIONS = mocks.MOCK_VERSIONS;
 }
 
 export interface Comment {
@@ -294,66 +214,6 @@ export interface DependencyScanReport {
   vulnerable_dependency_count: number;
   last_scanned_at?: string | null;
   findings: DependencyVulnerabilityFinding[];
-}
-
-export type InteroperabilityCapabilityKind = "bridge" | "adapter";
-
-export interface InteroperabilityProtocolMatch {
-  slug: string;
-  name: string;
-  description: string;
-  status: "compliant" | "partial" | "unsupported";
-  matched_functions: string[];
-  missing_functions: string[];
-  optional_matches: string[];
-  compliance_score: number;
-}
-
-export interface InteroperabilityCapability {
-  kind: InteroperabilityCapabilityKind;
-  label: string;
-  confidence: number;
-  evidence: string[];
-}
-
-export interface InteroperabilitySuggestion {
-  contract_id: string;
-  contract_address: string;
-  contract_name: string;
-  network: Network;
-  category?: string | null;
-  is_verified: boolean;
-  score: number;
-  reason: string;
-  shared_protocols: string[];
-  shared_functions: string[];
-  relation_types: string[];
-}
-
-export interface InteroperabilitySummary {
-  protocol_matches: number;
-  compatible_contracts: number;
-  suggested_contracts: number;
-  graph_nodes: number;
-  graph_edges: number;
-  bridge_signals: number;
-  adapter_signals: number;
-}
-
-export interface ContractInteroperabilityResponse {
-  contract_id: string;
-  contract_address: string;
-  contract_name: string;
-  network: Network;
-  analyzed_at: string;
-  has_abi: boolean;
-  analyzed_functions: string[];
-  warnings: string[];
-  protocols: InteroperabilityProtocolMatch[];
-  capabilities: InteroperabilityCapability[];
-  suggestions: InteroperabilitySuggestion[];
-  graph: GraphResponse;
-  summary: InteroperabilitySummary;
 }
 
 export interface CompatibilityEntry {
@@ -819,9 +679,6 @@ export interface LegacyStatsResponse extends StatsResponse {
   total_publishers: number;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
-const AUTH_TOKEN_KEY = "soroban_registry_token";
-const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
 
 const CATEGORY_SYNONYMS: Record<string, string> = {
   defi: "DeFi",
@@ -941,81 +798,6 @@ function semanticScore(contract: Contract, queryTokens: string[], intent: Search
   const popularityBonus = Math.min(0.1, (contract.popularity_score || 0) / 1000);
 
   return Math.min(1, tokenScore * 0.6 + intentBonus + popularityBonus);
-}
-
-// The backend rejects browser mutation requests (POST/PUT/PATCH/DELETE)
-// without a matching x-csrf-token header + sr_csrf cookie pair (see
-// security.rs's csrf_and_origin_middleware). Fetch and cache the token once,
-// re-fetching if a request comes back CSRF-rejected (e.g. the cookie expired).
-const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-let csrfTokenPromise: Promise<string> | null = null;
-
-async function fetchCsrfToken(): Promise<string> {
-  const res = await fetch(`${API_URL}/api/auth/csrf`, { credentials: "include" });
-  if (!res.ok) throw new Error(`Failed to fetch CSRF token: ${res.status}`);
-  const data = (await res.json()) as { token: string };
-  return data.token;
-}
-
-function getCsrfToken(): Promise<string> {
-  if (!csrfTokenPromise) {
-    csrfTokenPromise = fetchCsrfToken().catch((err) => {
-      csrfTokenPromise = null;
-      throw err;
-    });
-  }
-  return csrfTokenPromise;
-}
-
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const url = `${API_URL}${path}`;
-  const method = (options?.method || "GET").toUpperCase();
-  const isMutating = MUTATING_METHODS.has(method);
-
-  const buildHeaders = (csrfToken?: string) => {
-    const headers = new Headers(options?.headers);
-    if (!headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
-    }
-    if (!headers.has("Authorization") && typeof window !== "undefined") {
-      try {
-        const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
-        if (token) headers.set("Authorization", `Bearer ${token}`);
-      } catch {
-        // Storage may be unavailable in hardened/private browsing contexts.
-      }
-    }
-    if (csrfToken) headers.set("x-csrf-token", csrfToken);
-    return headers;
-  };
-
-  const doFetch = async (csrfToken?: string) =>
-    fetch(url, {
-      credentials: "include",
-      ...options,
-      headers: buildHeaders(csrfToken),
-    });
-
-  let response: Response;
-  try {
-    response = isMutating ? await doFetch(await getCsrfToken()) : await doFetch();
-    // The cached token can go stale (cookie expiry); refresh once and retry.
-    if (isMutating && response.status === 403) {
-      const { details } = await extractErrorData(response.clone());
-      const errorCode = (details as { error_code?: string } | undefined)?.error_code;
-      if (errorCode?.startsWith("CSRF")) {
-        csrfTokenPromise = null;
-        response = await doFetch(await getCsrfToken());
-      }
-    }
-  } catch (err) {
-    throw new NetworkError(`Network request failed: ${String(err)}`);
-  }
-  if (!response.ok) {
-    const data = await extractErrorData(response);
-    throw createApiError(response.status, data, path);
-  }
-  return response.json() as Promise<T>;
 }
 
 // ─── Contracts ───────────────────────────────────────────────────────────────
@@ -1665,7 +1447,6 @@ export function getCompatibilityExportUrl(
   contractId: string,
   format: "csv" | "json",
 ): string {
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
   return `${API_URL}/api/contracts/${contractId}/compatibility-matrix/export?format=${format}`;
 }
 

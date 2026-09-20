@@ -1,5 +1,6 @@
 "use client";
 
+import { API_URL } from "@/lib/env";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Navbar from "@/components/Navbar";
 import CategoryDistributionPie from "@/components/analytics/CategoryDistributionPie";
@@ -118,7 +119,7 @@ export default function AnalyticsDashboard() {
 
       setError(false);
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
+        const baseUrl = API_URL;
         const dashRes = await fetch(
           `${baseUrl}/api/analytics/dashboard?${queryString}`,
         );

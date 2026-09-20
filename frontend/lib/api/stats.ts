@@ -1,7 +1,6 @@
+import { API_URL, USE_MOCKS } from "@/lib/env";
 import type { StatsResponse, TimePeriod } from "@/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
-const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
 
 export async function fetchStats(period: TimePeriod): Promise<StatsResponse> {
   if (!USE_MOCKS) {

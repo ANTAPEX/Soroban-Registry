@@ -1,3 +1,4 @@
+import { API_URL } from "@/lib/env";
 type MessageHandler = (data: unknown) => void;
 type ConnectionHandler = () => void;
 type ErrorHandler = (error: unknown) => void;
@@ -23,7 +24,7 @@ export class WebSocketService {
   }
 
   private getWebSocketUrl(): string {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
+    const baseUrl = API_URL;
     return baseUrl.replace(/^http/, "ws").replace(/\/$/, "");
   }
 
