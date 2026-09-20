@@ -17,12 +17,6 @@ export * from "./stats";
 export * from "./realtime";
 export * from "./favorites";
 export * from "./utils";
-export type {
-  CompatibilityHistoryEntry,
-  CompatibilityTestEntry,
-  CompatibilityTestMatrixResponse,
-  CompatibilityTestStatus,
-  ContractInteroperabilityResponse,
-  InteroperabilityCapability,
-  InteroperabilityProtocolMatch,
-} from "../lib/api";
+export * from "./models/graph";
+export * from "./models/compatibility";
+export * from "./models/interoperability";
