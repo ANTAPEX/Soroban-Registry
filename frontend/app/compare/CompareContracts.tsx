@@ -129,15 +129,6 @@ function UniqueMethodsSection({ contracts }: { contracts: ComparableContract[] }
 
 // ── Main page component ───────────────────────────────────────────────────────
 
-const DiffViewer = dynamic(() => import('@/components/comparison/DiffViewer'), {
-  ssr: false,
-  loading: () => (
-    <div className="rounded-2xl border border-border bg-card p-6">
-      <div className="text-sm font-semibold text-foreground">Loading diff viewer...</div>
-    </div>
-  ),
-});
-
 export default function CompareContracts() {
   const [viewMode, setViewMode] = useState<'table' | 'diff'>('table');
   const {

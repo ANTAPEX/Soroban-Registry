@@ -19,7 +19,6 @@ import {
   ShieldCheck, 
   FileCode, 
   Settings,
-  AlertCircle,
   CheckCircle2
 } from "lucide-react";
 

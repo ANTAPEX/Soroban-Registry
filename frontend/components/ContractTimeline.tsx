@@ -7,7 +7,6 @@ import { api } from '@/lib/api';
 import { 
   History, 
   Search, 
-  Filter, 
   Download, 
   Info,
   Calendar,

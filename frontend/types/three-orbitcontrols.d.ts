@@ -1,7 +1,7 @@
 // types/three-orbitcontrols.d.ts
 
 declare module "three/examples/jsm/controls/OrbitControls.js" {
-  import { Camera, EventDispatcher, MOUSE, TOUCH, Vector3 } from "three";
+  import { Camera, EventDispatcher, Vector3 } from "three";
 
   export class OrbitControls extends EventDispatcher {
     object: Camera;

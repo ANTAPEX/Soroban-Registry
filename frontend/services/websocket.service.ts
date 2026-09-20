@@ -54,7 +54,6 @@ export class WebSocketService {
           }
         };
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         this.ws.onerror = (_event) => {
           const error = new Error("WebSocket connection failed");
           this.errorHandlers.forEach((handler) => handler(error));
