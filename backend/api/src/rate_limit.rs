@@ -2306,7 +2306,10 @@ mod tests {
             &Method::POST,
             "/api/contracts/11111111-1111-1111-1111-111111111111/package-dependencies"
         ));
-        assert!(!is_dependency_scan_endpoint(&Method::POST, "/api/contracts"));
+        assert!(!is_dependency_scan_endpoint(
+            &Method::POST,
+            "/api/contracts"
+        ));
     }
 
     /// Build an app with separate limits for the dependency-scan bucket.

@@ -264,16 +264,8 @@ fn diff_functions(from: &[ScSpecEntry], to: &[ScSpecEntry], changes: &mut Vec<Ch
                         subject: name.to_string(),
                         description: format!(
                             "Function `{name}` return type changed ({} -> {})",
-                            f.outputs
-                                .iter()
-                                .map(type_str)
-                                .collect::<Vec<_>>()
-                                .join(","),
-                            g.outputs
-                                .iter()
-                                .map(type_str)
-                                .collect::<Vec<_>>()
-                                .join(",")
+                            f.outputs.iter().map(type_str).collect::<Vec<_>>().join(","),
+                            g.outputs.iter().map(type_str).collect::<Vec<_>>().join(",")
                         ),
                     });
                 }
@@ -433,9 +425,7 @@ fn diff_unions(from: &[ScSpecEntry], to: &[ScSpecEntry], changes: &mut Vec<Chang
                             category: ChangeCategory::Type,
                             level: CompatibilityLevel::Breaking,
                             subject: name.to_string(),
-                            description: format!(
-                                "Union `{name}` case `{case_name}` was removed"
-                            ),
+                            description: format!("Union `{name}` case `{case_name}` was removed"),
                         }),
                         Some(other_types) => {
                             if types != other_types {
@@ -526,8 +516,11 @@ fn diff_enums(from: &[ScSpecEntry], to: &[ScSpecEntry], changes: &mut Vec<Change
                 description: format!("Enum `{name}` was removed"),
             }),
             Some(other) => {
-                let ca: BTreeMap<&str, u32> =
-                    en.cases.iter().map(|c| (c.name.as_str(), c.value)).collect();
+                let ca: BTreeMap<&str, u32> = en
+                    .cases
+                    .iter()
+                    .map(|c| (c.name.as_str(), c.value))
+                    .collect();
                 let cb: BTreeMap<&str, u32> = other
                     .cases
                     .iter()
@@ -607,8 +600,11 @@ fn diff_error_enums(from: &[ScSpecEntry], to: &[ScSpecEntry], changes: &mut Vec<
                 description: format!("Error enum `{name}` was removed"),
             }),
             Some(other) => {
-                let ca: BTreeMap<&str, u32> =
-                    en.cases.iter().map(|c| (c.name.as_str(), c.value)).collect();
+                let ca: BTreeMap<&str, u32> = en
+                    .cases
+                    .iter()
+                    .map(|c| (c.name.as_str(), c.value))
+                    .collect();
                 let cb: BTreeMap<&str, u32> = other
                     .cases
                     .iter()
@@ -693,15 +689,12 @@ fn diff_events(from: &[ScSpecEntry], to: &[ScSpecEntry], changes: &mut Vec<Chang
                 description: format!("Event `{name}` was removed (breaking for indexers)"),
             }),
             Some(other) => {
-                if ev.data_format != other.data_format || ev.prefix_topics != other.prefix_topics
-                {
+                if ev.data_format != other.data_format || ev.prefix_topics != other.prefix_topics {
                     changes.push(Change {
                         category: ChangeCategory::Event,
                         level: CompatibilityLevel::Breaking,
                         subject: name.to_string(),
-                        description: format!(
-                            "Event `{name}` topic layout or data format changed"
-                        ),
+                        description: format!("Event `{name}` topic layout or data format changed"),
                     });
                 } else {
                     let pa: Vec<(&str, String, ScSpecEventParamLocationV0)> = ev
@@ -799,7 +792,11 @@ mod tests {
     use super::*;
     use crate::contract_spec::{ScSpecFunctionInputV0, ScSpecFunctionV0};
 
-    fn func(name: &str, inputs: Vec<(&str, ScSpecTypeDef)>, outputs: Vec<ScSpecTypeDef>) -> ScSpecEntry {
+    fn func(
+        name: &str,
+        inputs: Vec<(&str, ScSpecTypeDef)>,
+        outputs: Vec<ScSpecTypeDef>,
+    ) -> ScSpecEntry {
         ScSpecEntry::FunctionV0(ScSpecFunctionV0 {
             doc: "".into(),
             name: name.into(),
@@ -925,7 +922,12 @@ mod tests {
         let to_net = NetworkContext {
             passphrase: Some("Test SDF Network ; September 2015".into()),
         };
-        let report = compare(&SpecSource::Entries(a), &SpecSource::Entries(b), &from_net, &to_net);
+        let report = compare(
+            &SpecSource::Entries(a),
+            &SpecSource::Entries(b),
+            &from_net,
+            &to_net,
+        );
         assert_eq!(report.overall, CompatibilityLevel::Breaking);
         assert!(report
             .changes

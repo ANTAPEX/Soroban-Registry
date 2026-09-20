@@ -5091,13 +5091,12 @@ pub async fn get_publisher_summary(
             _ => db_internal_error("get publisher by id for summary", err),
         })?;
 
-    let contract_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM contracts WHERE publisher_id = $1",
-    )
-    .bind(publisher_uuid)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|err| db_internal_error("count publisher contracts", err))?;
+    let contract_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM contracts WHERE publisher_id = $1")
+            .bind(publisher_uuid)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|err| db_internal_error("count publisher contracts", err))?;
 
     let version_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM contract_versions cv JOIN contracts c ON c.id = cv.contract_id WHERE c.publisher_id = $1",
@@ -5243,7 +5242,11 @@ pub async fn get_publisher_contracts(
     })?;
 
     let limit = query.limit.clamp(1, 100);
-    let cursor = match query.cursor.as_deref().filter(|cursor| !cursor.trim().is_empty()) {
+    let cursor = match query
+        .cursor
+        .as_deref()
+        .filter(|cursor| !cursor.trim().is_empty())
+    {
         Some(raw) => Some(Cursor::decode(raw).map_err(|err| {
             ApiError::bad_request(
                 "InvalidPaginationCursor",
@@ -5317,7 +5320,9 @@ pub async fn get_publisher_contracts(
     }
 
     let next_cursor = if has_more {
-        items.last().map(|last| Cursor::new(last.created_at, last.id).encode())
+        items
+            .last()
+            .map(|last| Cursor::new(last.created_at, last.id).encode())
     } else {
         None
     };
