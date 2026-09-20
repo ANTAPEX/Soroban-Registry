@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRealtime } from "./useRealtime";
+import { queryKeys } from "@/lib/queryKeys";
 
 export function useContractAutoRefresh(contractId?: string) {
   const { subscribe } = useRealtime();
@@ -17,13 +18,13 @@ export function useContractAutoRefresh(contractId?: string) {
       if (typedData.contractId === contractId) {
         // Invalidate query to trigger refetch
         queryClient.invalidateQueries({
-          queryKey: ["contract", contractId],
+          queryKey: queryKeys.contract(contractId),
         });
         queryClient.invalidateQueries({
-          queryKey: ["contract-dependencies", contractId],
+          queryKey: queryKeys.contractDependencies(contractId),
         });
         queryClient.invalidateQueries({
-          queryKey: ["contract-deprecation", contractId],
+          queryKey: queryKeys.contractDeprecation(contractId),
         });
       }
     });
@@ -35,7 +36,7 @@ export function useContractAutoRefresh(contractId?: string) {
         const typedData = data as Record<string, unknown>;
         if (typedData.contractId === contractId) {
           queryClient.invalidateQueries({
-            queryKey: ["contract", contractId],
+            queryKey: queryKeys.contract(contractId),
           });
         }
       },
@@ -57,7 +58,7 @@ export function useContractListAutoRefresh() {
     const unsubscribe = subscribe("contract_deployed", () => {
       // Invalidate contract list queries
       queryClient.invalidateQueries({
-        queryKey: ["contracts"],
+        queryKey: queryKeys.contracts(),
       });
     });
 

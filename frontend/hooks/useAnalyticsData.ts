@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
-import { fetchAnalytics } from "@/lib/api/analytics";
+"use client";
+
+import { useCallback } from "react";
+import { useRegistryAnalytics } from "@/hooks/queries";
 import type { AnalyticsResponse, TimePeriod } from "@/types";
 
 interface UseAnalyticsDataReturn {
@@ -9,42 +11,22 @@ interface UseAnalyticsDataReturn {
   refetch: () => Promise<void>;
 }
 
+/**
+ * Registry analytics, keeping the `{ data, loading, error, refetch }` shape its
+ * callers already use. See `useStats` for the two differences that come with
+ * moving the hand-rolled polling onto React Query.
+ */
 export function useAnalyticsData(period: TimePeriod): UseAnalyticsDataReturn {
-  const [data, setData] = useState<AnalyticsResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<Error | null>(null);
+  const query = useRegistryAnalytics(period);
 
-  const loadData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const result = await fetchAnalytics(period);
-      setData(result);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err : new Error("Failed to fetch analytics"),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [period]);
+  const refetch = useCallback(async () => {
+    await query.refetch();
+  }, [query]);
 
-  useEffect(() => {
-    requestAnimationFrame(() => void loadData());
-
-    const intervalId = setInterval(() => {
-      if (
-        typeof document !== "undefined" &&
-        document.visibilityState === "hidden"
-      )
-        return;
-      fetchAnalytics(period)
-        .then(setData)
-        .catch(() => {});
-    }, 60000);
-
-    return () => clearInterval(intervalId);
-  }, [loadData, period]);
-
-  return { data, loading, error, refetch: loadData };
+  return {
+    data: query.data ?? null,
+    loading: query.isPending,
+    error: query.error ?? null,
+    refetch,
+  };
 }

@@ -1,8 +1,6 @@
 "use client";
 
 import { Suspense, useState, useEffect, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import type {
   Network,
   ContractVersion,
@@ -37,6 +35,16 @@ import { useContractAutoRefresh } from "@/hooks/useContractAutoRefresh";
 import ContractInteractionFlow from "@/components/contracts/ContractInteractionFlow";
 import ContractAbiMethodExplorer from "@/components/contracts/ContractAbiMethodExplorer";
 import VerificationBadge from "@/components/verification/VerificationBadge";
+import {
+  useContract,
+  useContractAbi,
+  useContractAnalyticsSummary,
+  useContractChangelog,
+  useContractDependencies,
+  useContractDeprecation,
+  useContractInteractionsPreview,
+  useContractVersions,
+} from "@/hooks/queries";
 
 const NETWORKS: Network[] = ["mainnet", "testnet", "futurenet"];
 const TAB_IDS = [
@@ -91,21 +99,13 @@ function ContractDetailsContent() {
     data: contract,
     isLoading,
     error,
-  } = useQuery({
-    queryKey: ["contract", id],
-    queryFn: () => api.fetchContract(id!),
-    enabled: !!id,
-  });
+  } = useContract(id);
 
-  useQuery({
-    queryKey: ["contract-dependencies", id],
-    queryFn: () => api.fetchDependencyTree(id!),
+  useContractDependencies(id, {
     enabled: !!id && !!contract && activeTab === "overview",
   });
 
-  const { data: versions = [] } = useQuery({
-    queryKey: ["contract-versions", id],
-    queryFn: () => api.fetchContractVersions(id!),
+  const { data: versions = [] } = useContractVersions(id, {
     enabled:
       !!id &&
       !!contract &&
@@ -120,28 +120,22 @@ function ContractDetailsContent() {
     )[0];
   }, [versions]);
 
-  const { data: abiResponse, isLoading: abiLoading } = useQuery({
-    queryKey: ["contract-abi", id, latestVersion?.version],
-    queryFn: () => api.fetchContractAbi(id!, latestVersion?.version),
-    enabled: !!id && !!contract && activeTab === "abi",
-  });
+  const { data: abiResponse, isLoading: abiLoading } = useContractAbi(
+    id,
+    latestVersion?.version,
+    { enabled: !!id && !!contract && activeTab === "abi" },
+  );
 
-  const { data: analyticsData } = useQuery({
-    queryKey: ["contract-analytics-summary", id],
-    queryFn: () => api.fetchContractAnalytics(id!),
+  const { data: analyticsData } = useContractAnalyticsSummary(id, {
     enabled:
       !!id && !!contract && ["interactions", "deployments"].includes(activeTab),
   });
 
-  const { data: interactionsData } = useQuery({
-    queryKey: ["contract-interactions", id],
-    queryFn: () => api.fetchContractInteractions(id!, { limit: 10, offset: 0 }),
+  const { data: interactionsData } = useContractInteractionsPreview(id, 10, {
     enabled: !!id && !!contract && activeTab === "interactions",
   });
 
-  const { data: changelog } = useQuery({
-    queryKey: ["contract-changelog", id],
-    queryFn: () => api.fetchContractChangelog(id!),
+  const { data: changelog } = useContractChangelog(id, {
     enabled: !!id && !!contract && activeTab === "history",
   });
 
@@ -190,9 +184,7 @@ function ContractDetailsContent() {
     });
   }, [error, id, logEvent]);
 
-  const { data: deprecationInfo } = useQuery({
-    queryKey: ["contract-deprecation", id],
-    queryFn: () => api.fetchDeprecationInfo(id!),
+  const { data: deprecationInfo } = useContractDeprecation(id, {
     enabled: !!id && !!contract,
   });
 

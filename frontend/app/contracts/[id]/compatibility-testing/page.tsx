@@ -1,23 +1,18 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
 import CompatibilityTestingMatrix from "@/components/CompatibilityTestingMatrix";
 import { ArrowLeft, FlaskConical } from "lucide-react";
 import Navbar from "@/components/Navbar";
+import { useContract } from "@/hooks/queries";
 
 export default function CompatibilityTestingPage() {
   const params = useParams<{ id?: string | string[] }>() ?? {};
   const idParam = params.id;
   const contractId = Array.isArray(idParam) ? idParam[0] : idParam;
 
-  const { data: contract } = useQuery({
-    queryKey: ["contract", contractId],
-    queryFn: () => api.fetchContract(contractId!),
-    enabled: !!contractId,
-  });
+  const { data: contract } = useContract(contractId);
 
   if (!contractId) {
     return (
