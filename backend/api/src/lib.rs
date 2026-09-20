@@ -124,7 +124,6 @@ pub mod partition_manager;
 pub mod query_analysis;
 pub mod query_monitor;
 pub mod report_handlers;
-pub mod routes_clean;
 pub mod search_postgres;
 pub mod security_log;
 pub mod signature_verification;
