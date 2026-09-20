@@ -1,3 +1,4 @@
+import { API_URL, ERROR_REPORTING_ENABLED } from "@/lib/env";
 /**
  * Custom error classes for API and network errors
  */
@@ -239,10 +240,8 @@ export function logError(error: Error, context?: Record<string, unknown>) {
 
 function reportError(error: NormalizedError, context: unknown) {
   if (typeof window === "undefined") return;
-  if (process.env.NEXT_PUBLIC_ERROR_REPORTING === "false") return;
-
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-  if (!apiUrl) return;
+  if (!ERROR_REPORTING_ENABLED) return;
+  if (!API_URL) return;
 
   const payload = {
     source: "frontend",
@@ -266,7 +265,7 @@ function reportError(error: NormalizedError, context: unknown) {
   };
 
   const body = JSON.stringify(payload);
-  const url = `${apiUrl.replace(/\/$/, "")}/api/errors/report`;
+  const url = `${API_URL}/api/errors/report`;
 
   try {
     if (navigator.sendBeacon) {

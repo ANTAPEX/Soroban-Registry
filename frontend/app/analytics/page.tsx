@@ -1,3 +1,4 @@
+import { API_URL } from "@/lib/env";
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -118,7 +119,7 @@ export default function AnalyticsDashboard() {
 
       setError(false);
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
+        const baseUrl = API_URL;
         const dashRes = await fetch(
           `${baseUrl}/api/analytics/dashboard?${queryString}`,
         );

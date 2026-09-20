@@ -1,3 +1,4 @@
+import { API_URL } from "@/lib/env";
 // Simple circuit breaker + exponential backoff utility for frontend API calls
 import { logError } from "./errors";
 
@@ -36,9 +37,9 @@ class CircuitBreaker {
     this.openedAt = null;
     this.trials = 0;
     try {
-      if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_URL) {
+      if (typeof window !== "undefined" && API_URL) {
         void fetch(
-          `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")}/api/observability/client_breaker`,
+          `${API_URL}/api/observability/client_breaker`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -77,9 +78,9 @@ class CircuitBreaker {
       logError(new Error("Circuit opened"), { endpoint: undefined });
     } catch {}
     try {
-      if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_URL) {
+      if (typeof window !== "undefined" && API_URL) {
         void fetch(
-          `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")}/api/observability/client_breaker`,
+          `${API_URL}/api/observability/client_breaker`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -208,9 +209,9 @@ export async function resilientCall<T>(
       breaker.recordSuccess();
       try {
         const endpointLabel = opts?.endpoint ?? key;
-        if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_URL) {
+        if (typeof window !== "undefined" && API_URL) {
           void fetch(
-            `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")}/api/observability/client_breaker`,
+            `${API_URL}/api/observability/client_breaker`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -237,10 +238,10 @@ export async function resilientCall<T>(
         if (
           !breaker.allowRequest() &&
           typeof window !== "undefined" &&
-          process.env.NEXT_PUBLIC_API_URL
+          API_URL
         ) {
           void fetch(
-            `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")}/api/observability/client_breaker`,
+            `${API_URL}/api/observability/client_breaker`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },

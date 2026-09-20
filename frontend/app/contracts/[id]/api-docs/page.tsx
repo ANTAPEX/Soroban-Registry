@@ -1,3 +1,4 @@
+import { API_URL } from "@/lib/env";
 "use client";
 
 import "swagger-ui-react/swagger-ui.css";
@@ -16,7 +17,6 @@ const SwaggerUI = dynamic(() => import("swagger-ui-react"), {
   ),
 });
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 function ApiDocsContent() {
   const params = useParams<{ id?: string | string[] }>() ?? {};
