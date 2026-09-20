@@ -28,6 +28,9 @@ Thumbs.db
 *.sublime-workspace
 *.sublime-project
 
+# Agentic-IDE scratch (Kiro spec sessions, not project sources)
+.kiro/
+
 # Rust
 target/
 # Cargo.lock is committed for binary crates (api, cli) for reproducible builds
