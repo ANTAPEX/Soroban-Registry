@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use elasticsearch::{
     http::transport::Transport,
-    indices::{IndicesCreateParts, IndicesDeleteParts, IndicesExistsParts, IndicesPutMappingParts},
+    indices::{IndicesCreateParts, IndicesExistsParts, IndicesPutMappingParts},
     params::Refresh,
     Elasticsearch, IndexParts, SearchParts,
 };
@@ -144,7 +144,7 @@ impl SearchClient {
             category: contract.category.clone(),
             author,
             tags: contract.tags.iter().map(|t| t.name.clone()).collect(),
-            network: contract.network.clone(),
+            network: contract.network,
             is_verified: contract.is_verified,
             is_deprecated: contract.is_deprecated,
             deprecation_status: contract.deprecation_status.as_str().to_string(),

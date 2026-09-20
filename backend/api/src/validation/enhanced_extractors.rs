@@ -6,7 +6,7 @@
 use axum::{
     body::Body,
     extract::{connect_info::ConnectInfo, MatchedPath},
-    http::{Request, StatusCode},
+    http::Request,
     middleware::Next,
     response::Response,
 };

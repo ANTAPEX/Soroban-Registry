@@ -4,7 +4,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use futures_util::stream::{self, StreamExt};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
@@ -669,7 +669,7 @@ async fn fetch_related_contracts(
     )
     .bind(contract_uuid)
     .bind(&contract.category)
-    .bind(&contract.network)
+    .bind(contract.network)
     .fetch_all(&state.db)
     .await
     .map_err(|err| db_internal_error("fetch v1 related contracts", err))?;
@@ -1005,7 +1005,7 @@ fn metadata_as_contract(row: &ContractMetadataRow) -> shared::Contract {
         slug: row.contract_id.clone(),
         description: row.description.clone(),
         publisher_id: row.publisher_id,
-        network: row.network.clone(),
+        network: row.network,
         is_verified: row.is_verified,
         verification_status: match row.verification_status.as_str() {
             "verified" => shared::VerificationStatus::Verified,

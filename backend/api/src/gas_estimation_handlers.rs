@@ -12,8 +12,6 @@
 
 use axum::extract::{Json, Path, Query, State};
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
-use serde_json::json;
 use uuid::Uuid;
 
 use shared::models::{
@@ -160,10 +158,10 @@ fn estimate_from_history(method_name: &str, row: CostEstimateRow) -> MethodGasEs
     let avg = row.avg_gas_cost;
     let min = row
         .min_gas_cost
-        .unwrap_or_else(|| ((avg as f64) * (1.0 - HEURISTIC_VARIANCE)) as i64);
+        .unwrap_or(((avg as f64) * (1.0 - HEURISTIC_VARIANCE)) as i64);
     let max = row
         .max_gas_cost
-        .unwrap_or_else(|| ((avg as f64) * (1.0 + HEURISTIC_VARIANCE)) as i64);
+        .unwrap_or(((avg as f64) * (1.0 + HEURISTIC_VARIANCE)) as i64);
 
     let confidence = match row.sample_count {
         n if n >= 10 => GasEstimateConfidence::High,

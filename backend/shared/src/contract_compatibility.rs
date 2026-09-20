@@ -186,7 +186,7 @@ fn index_by_name<'a, T>(
 ) -> BTreeMap<&'a str, &'a T> {
     entries
         .iter()
-        .filter_map(|e| select(e))
+        .filter_map(select)
         .map(|item| (name_of(item), item))
         .collect()
 }

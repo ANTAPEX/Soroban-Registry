@@ -410,10 +410,9 @@ fn parse_elapsed_dbg(s: &str) -> Option<f64> {
         (v, 1e-3)
     } else if let Some(v) = s.strip_suffix("ms") {
         (v, 1.0)
-    } else if let Some(v) = s.strip_suffix('s') {
-        (v, 1000.0)
     } else {
-        return None;
+        let v = s.strip_suffix('s')?;
+        (v, 1000.0)
     };
     num.trim().parse::<f64>().ok().map(|n| n * unit)
 }

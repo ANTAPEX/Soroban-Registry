@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use shared::models::Network;
 
 use crate::error::ApiError;
-use crate::search_postgres::{FacetCount, SearchFacets, SearchQuery, SearchResult};
+use crate::search_postgres::{FacetCount, SearchFacets, SearchQuery};
 use crate::state::AppState;
 
 // ── Query parameters ──────────────────────────────────────────────────────────
@@ -283,7 +283,7 @@ async fn search_via_elasticsearch(
     sort_by: &SortField,
     explain: bool,
 ) -> Result<Value, anyhow::Error> {
-    let mut must_queries = vec![serde_json::json!({
+    let must_queries = vec![serde_json::json!({
         "multi_match": {
             "query": query_str,
             "fields": ["name^3", "description^1.5", "category^2"],
@@ -327,7 +327,7 @@ async fn search_via_elasticsearch(
         SortField::Deployments => json!([{ "deployment_count": { "order": "desc" } }]),
     };
 
-    let body = json!({
+    let _body = json!({
         "explain": explain,
         "from": offset,
         "size": limit,
@@ -480,10 +480,10 @@ async fn search_via_postgres(
         .map_err(|e| ApiError::internal_error("SEARCH_ERROR", e.to_string()))?;
 
     // Apply post-filter for has_audit and min_deployments (not in pg_search yet)
-    let mut results: Vec<SearchHit> = pg_result
+    let results: Vec<SearchHit> = pg_result
         .contracts
         .into_iter()
-        .filter(|c| {
+        .filter(|_c| {
             // min_deployments filter — skip if field not available in pg result
             // (deployment_count not in ContractSearchResult; filter is best-effort here)
             true
@@ -555,7 +555,7 @@ async fn search_via_postgres(
 async fn build_pg_facets(
     state: &AppState,
     query_str: &str,
-    params: &AdvancedSearchParams,
+    _params: &AdvancedSearchParams,
 ) -> SearchFacets {
     // Category facets
     let category_rows: Vec<(Option<String>, i64)> = sqlx::query_as(

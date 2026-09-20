@@ -411,7 +411,7 @@ async fn fetch_abi(
     contract_uuid: Uuid,
     version: &str,
 ) -> Result<Option<Value>, sqlx::Error> {
-    let version_key = format!("{}@{}", contract_uuid.to_string(), version);
+    let version_key = format!("{}@{}", contract_uuid, version);
 
     // L1/L2: try cache first
     if let Some(cached) = state.cache.get_abi(&version_key, false).await {

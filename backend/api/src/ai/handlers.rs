@@ -130,7 +130,7 @@ pub async fn ai_chat_handler(
         .add_message(
             session_id,
             "user",
-            &payload
+            payload
                 .messages
                 .last()
                 .map(|m| m.content.as_str())
@@ -348,7 +348,7 @@ pub async fn analyze_contract_handler(
         contract_context: Some(ctx),
     };
 
-    let start = std::time::Instant::now();
+    let _start = std::time::Instant::now();
     let response = ai_service
         .chat(ai_req)
         .await
@@ -409,7 +409,7 @@ pub async fn check_vulnerabilities_handler(
         contract_context: None,
     };
 
-    let start = std::time::Instant::now();
+    let _start = std::time::Instant::now();
     let response = ai_service
         .chat(ai_req)
         .await
@@ -470,7 +470,7 @@ pub async fn explain_contract_handler(
         contract_context: None,
     };
 
-    let start = std::time::Instant::now();
+    let _start = std::time::Instant::now();
     let response = ai_service
         .chat(ai_req)
         .await
@@ -536,7 +536,7 @@ pub async fn suggest_code_handler(
         contract_context: None,
     };
 
-    let start = std::time::Instant::now();
+    let _start = std::time::Instant::now();
     let response = ai_service
         .chat(ai_req)
         .await

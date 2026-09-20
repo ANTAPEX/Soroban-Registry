@@ -1,7 +1,7 @@
 #![warn(unused_imports)]
 
 use anyhow::Result;
-use axum::extract::{MatchedPath, Request, State};
+use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::middleware;
 use axum::response::Response;
@@ -11,7 +11,7 @@ use sqlx::ConnectOptions;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 

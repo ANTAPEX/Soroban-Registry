@@ -277,7 +277,6 @@ async fn run_custom_metrics_aggregation(pool: &PgPool) -> Result<(), sqlx::Error
 /// refresh the `trending_contracts_mv` materialized view.
 async fn run_contract_stats_aggregation(pool: &PgPool) -> Result<(), sqlx::Error> {
     use chrono::Utc;
-    use uuid::Uuid;
 
     let now = Utc::now();
 

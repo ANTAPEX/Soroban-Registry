@@ -14,7 +14,6 @@ use shared::{
     CreateOrganizationRequest, InviteMemberRequest, Organization, OrganizationMember,
     OrganizationRole, UpdateOrganizationRequest,
 };
-use sqlx::postgres::PgRow;
 use sqlx::PgPool;
 use uuid::Uuid;
 

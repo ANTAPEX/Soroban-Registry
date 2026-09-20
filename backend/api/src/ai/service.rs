@@ -1,9 +1,8 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
-use tokio::time::timeout;
 use tracing::error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

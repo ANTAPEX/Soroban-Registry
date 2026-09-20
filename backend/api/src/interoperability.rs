@@ -114,8 +114,7 @@ pub async fn analyze_contract_interoperability(
     let target_is_bridge = has_capability(&capabilities, InteroperabilityCapabilityKind::Bridge);
     let target_is_adapter = has_capability(&capabilities, InteroperabilityCapabilityKind::Adapter);
 
-    let candidate_rows =
-        load_candidate_contracts(pool, contract.id, contract.network.clone()).await?;
+    let candidate_rows = load_candidate_contracts(pool, contract.id, contract.network).await?;
     let mut candidate_by_id = HashMap::new();
     let mut scored = Vec::new();
     for row in candidate_rows {
@@ -179,7 +178,7 @@ pub async fn analyze_contract_interoperability(
             contract_id: item.candidate.row.id,
             contract_address: item.candidate.row.contract_id.clone(),
             contract_name: item.candidate.row.name.clone(),
-            network: item.candidate.row.network.clone(),
+            network: item.candidate.row.network,
             category: item.candidate.row.category.clone(),
             is_verified: item.candidate.row.is_verified,
             score: item.score,
@@ -194,7 +193,7 @@ pub async fn analyze_contract_interoperability(
         contract_id: contract.id,
         contract_address: contract.contract_id,
         contract_name: contract.name,
-        network: contract.network.clone(),
+        network: contract.network,
         analyzed_at: Utc::now(),
         has_abi: contract.abi.is_some(),
         analyzed_functions: functions.into_iter().collect(),
@@ -786,7 +785,7 @@ fn to_graph_node(contract: &ContractAnalysisRow) -> GraphNode {
         id: contract.id,
         contract_id: contract.contract_id.clone(),
         name: contract.name.clone(),
-        network: contract.network.clone(),
+        network: contract.network,
         is_verified: contract.is_verified,
         category: contract.category.clone(),
         tags: contract

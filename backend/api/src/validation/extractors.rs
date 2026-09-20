@@ -6,7 +6,7 @@
 use axum::{
     async_trait,
     extract::{FromRequest, FromRequestParts, Request},
-    http::{request::Parts, StatusCode},
+    http::request::Parts,
     Json,
 };
 use chrono::{SecondsFormat, Utc};
@@ -435,6 +435,7 @@ impl ValidationBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::StatusCode;
 
     #[test]
     fn test_field_error() {
