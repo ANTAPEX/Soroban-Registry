@@ -1,6 +1,6 @@
-import { API_URL } from "@/lib/env";
 "use client";
 
+import { API_URL } from "@/lib/env";
 import "swagger-ui-react/swagger-ui.css";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";

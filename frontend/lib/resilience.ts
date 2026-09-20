@@ -1,5 +1,5 @@
-import { API_URL } from "@/lib/env";
 // Simple circuit breaker + exponential backoff utility for frontend API calls
+import { API_URL } from "@/lib/env";
 import { logError } from "./errors";
 
 type BreakerState = "closed" | "open" | "half-open";

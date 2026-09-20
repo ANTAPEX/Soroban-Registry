@@ -1,6 +1,6 @@
-import { API_URL } from "@/lib/env";
 "use client";
 
+import { API_URL } from "@/lib/env";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Navbar from "@/components/Navbar";
 import CategoryDistributionPie from "@/components/analytics/CategoryDistributionPie";

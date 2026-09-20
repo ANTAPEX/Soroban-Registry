@@ -1,7 +1,7 @@
-import { API_URL, ERROR_REPORTING_ENABLED } from "@/lib/env";
 /**
  * Custom error classes for API and network errors
  */
+import { API_URL, ERROR_REPORTING_ENABLED } from "@/lib/env";
 
 export class ApiError extends Error {
   constructor(
