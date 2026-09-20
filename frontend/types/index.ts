@@ -20,3 +20,8 @@ export * from "./utils";
 export * from "./models/graph";
 export * from "./models/compatibility";
 export * from "./models/interoperability";
+export * from "./models/recommendation";
+export * from "./models/dependency";
+export * from "./models/verification";
+export * from "./models/preferences";
+export * from "./models/stats";

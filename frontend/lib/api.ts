@@ -1,48 +1,164 @@
 import type {
+  ActivityFeedParams,
+  ActivityFeedResponse,
+  AnalyticsEvent,
+  CollaborativeReview,
+  Comment,
+  CommentListResponse,
   CompatibilityHistoryResponse,
   CompatibilityNotification,
   CompatibilityTestEntry,
   CompatibilityTestMatrixResponse,
+  Contract,
+  ContractAbiResponse,
+  ContractAnalyticsResponse,
+  ContractChangelogResponse,
+  ContractExample,
+  ContractGetResponse,
+  ContractHealth,
+  ContractRecommendationsResponse,
+  ContractSearchParams,
+  ContractVersion,
+  CreateCollaborativeReviewRequest,
+  DependencyScanReport,
+  DependencyTreeNode,
+  DeprecationInfo,
+  FavoriteSearch,
+  FormalVerificationReport,
+  GenerateReleaseNotesRequest,
   GraphResponse,
+  InteractionsListResponse,
+  InteractionsQueryParams,
+  LegacyStatsResponse,
+  MaintenanceWindow,
+  MetricCatalogEntry,
+  MetricSeriesResponse,
   Network,
   NetworkListResponse,
+  PackageDependency,
+  PackageDependencyInput,
+  PaginatedResponse,
+  PublishReleaseNotesRequest,
+  PublishRequest,
+  Publisher,
+  QueryNode,
+  ReleaseNotesResponse,
   RunCompatibilityTestRequest,
+  SearchIntent,
+  SearchIntentType,
+  SearchSuggestionsResponse,
+  SemanticContractSearchResponse,
+  Template,
+  UpdateReleaseNotesRequest,
+  UserPreferences,
 } from "@/types";
 import {
   CollaborativeComment,
   CollaborativeReviewDetails,
-  QueryNode,
-  VerificationLevel,
-  StatsResponse,
   TimePeriod,
 } from "@/types";
 
-// Domain types live in `types/`; re-exported here so existing
-// `from "@/lib/api"` imports keep working.
+// Every domain type lives in `types/`. They are re-exported here so that
+// existing `from "@/lib/api"` imports keep resolving.
 export type {
+  ActivityFeedParams,
+  ActivityFeedResponse,
+  AnalyticsEvent,
+  AnalyticsEventType,
+  CollaborativeReview,
+  Comment,
+  CommentListResponse,
+  CompatibilityEntry,
   CompatibilityHistoryEntry,
   CompatibilityHistoryResponse,
+  CompatibilityMatrix,
+  CompatibilityMatrixRow,
   CompatibilityNotification,
   CompatibilityTestEntry,
   CompatibilityTestMatrixResponse,
   CompatibilityTestStatus,
   CompatibilityTestSummary,
+  Contract,
+  ContractAbiResponse,
+  ContractAnalyticsResponse,
+  ContractChangelogEntry,
+  ContractChangelogResponse,
+  ContractExample,
+  ContractGetResponse,
+  ContractHealth,
+  ContractInteractionResponse,
   ContractInteroperabilityResponse,
+  ContractRecommendationsResponse,
+  ContractSearchParams,
+  ContractVersion,
+  CreateCollaborativeReviewRequest,
+  CustomMetricType,
+  DependencyScanReport,
+  DependencyScanStatus,
+  DependencyTreeNode,
+  DependencyVulnerabilityFinding,
+  DeploymentStats,
+  DeprecationInfo,
+  DeprecationStatus,
+  DiffSummary,
+  FavoriteSearch,
+  FormalVerificationFinding,
+  FormalVerificationProperty,
+  FormalVerificationPropertyDefinition,
+  FormalVerificationPropertyResult,
+  FormalVerificationReport,
+  FormalVerificationSession,
+  FunctionChange,
+  GenerateReleaseNotesRequest,
   GraphEdge,
   GraphNode,
   GraphResponse,
+  InteractionsListResponse,
+  InteractionsQueryParams,
+  InteractorStats,
   InteroperabilityCapability,
   InteroperabilityCapabilityKind,
   InteroperabilityProtocolMatch,
   InteroperabilitySuggestion,
   InteroperabilitySummary,
+  LegacyStatsResponse,
+  MaintenanceWindow,
+  MaturityLevel,
+  MetricCatalogEntry,
+  MetricSample,
+  MetricSeriesPoint,
+  MetricSeriesResponse,
   Network,
+  NetworkConfig,
   NetworkEndpoints,
   NetworkInfo,
   NetworkListResponse,
   NetworkStatus,
+  PackageDependency,
+  PackageDependencyInput,
+  PaginatedResponse,
+  ProofCertificate,
+  PublishReleaseNotesRequest,
+  PublishRequest,
+  Publisher,
   QueryNode,
+  RecommendationReason,
+  RecommendedContract,
+  ReleaseNotesResponse,
+  ReleaseNotesStatus,
   RunCompatibilityTestRequest,
+  SearchIntent,
+  SearchIntentType,
+  SearchSuggestion,
+  SearchSuggestionsResponse,
+  SemanticContractSearchResponse,
+  SemanticSearchMetadata,
+  Template,
+  TemplateParameter,
+  TimelineEntry,
+  TopUser,
+  UpdateReleaseNotesRequest,
+  UserPreferences,
 } from "@/types";
 import { trackEvent } from "./analytics";
 import { fetchStats } from "./api/stats";
@@ -68,616 +184,77 @@ if (USE_MOCKS) {
   MOCK_VERSIONS = mocks.MOCK_VERSIONS;
 }
 
-export interface Comment {
-  id: string;
-  author: string;
-  body: string;
-  created_at: string;
-  flagged: boolean;
-  score: number;
-  flag_count: number;
-  parent_id?: string | null;
-  line_number?: number | null;
-  file_path?: string | null;
-  abi_path?: string | null;
-}
-
-export interface CommentListResponse {
-  items: Comment[];
-  total: number;
-}
-
-export interface FavoriteSearch {
-  id: string;
-  name: string;
-  query_json: QueryNode;
-  created_at: string;
-}
-
-export interface TemplateParameter {
-  name: string;
-  type?: string;
-  description?: string;
-  default?: string | number;
-}
-
-export interface Template {
-  id: string;
-  slug: string;
-  name: string;
-  version: string;
-  category: string;
-  description?: string;
-  install_count: number;
-  parameters: TemplateParameter[];
-  created_at?: string;
-}
-
-export interface ContractExample {
-  id: string;
-  contract_id: string;
-  title: string;
-  category: string;
-  description?: string;
-  code_js?: string;
-  code_rust?: string;
-  rating_up: number;
-  rating_down: number;
-  repo_avatar_url?: string;
-  repo_avatar_blurhash?: string;
-  repo_avatar_placeholder_color?: string;
-  thumbnail_url?: string;
-  thumbnail_blurhash?: string;
-  thumbnail_placeholder_color?: string;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface FormalVerificationSession {
-  verifier_version: string;
-  created_at: string;
-}
-
-export interface FormalVerificationPropertyResult {
-  id: string;
-  status: "Proved" | "Violated" | "Unknown";
-  message?: string;
-  counterexample?: string | null;
-}
-
-export interface FormalVerificationPropertyDefinition {
-  property_id: string;
-  description?: string;
-  invariant?: string;
-}
-
-export interface FormalVerificationProperty {
-  property: FormalVerificationPropertyDefinition;
-  result: FormalVerificationPropertyResult;
-}
-
-export interface FormalVerificationFinding {
-  id: string;
-  title: string;
-  description: string;
-  severity: string;
-  category: string;
-  cwe_id?: string | null;
-  affected_functions: string[];
-  remediation: string;
-}
-
-export interface ProofCertificate {
-  properties_proved: number;
-  properties_violated: number;
-  properties_inconclusive: number;
-  overall_confidence: number;
-  summary: string;
-  generated_at: string;
-}
-
-export interface FormalVerificationReport {
-  session: FormalVerificationSession;
-  properties: FormalVerificationProperty[];
-  vulnerabilities: FormalVerificationFinding[];
-  certificate?: ProofCertificate | null;
-}
-
-export interface PackageDependency {
-  id: string;
-  contract_id: string;
-  package_name: string;
-  version: string;
-  created_at: string;
-}
-
-export interface PackageDependencyInput {
-  package_name: string;
-  version: string;
-}
-
-export interface DependencyVulnerabilityFinding {
-  package_name: string;
-  version: string;
-  cve_id: string;
-  severity: string;
-  description?: string | null;
-  recommended_version?: string | null;
-}
-
-export type DependencyScanStatus = "not_scanned" | "clean" | "vulnerable";
-
-export interface DependencyScanReport {
-  contract_id: string;
-  status: DependencyScanStatus;
-  dependencies_scanned: number;
-  vulnerable_dependency_count: number;
-  last_scanned_at?: string | null;
-  findings: DependencyVulnerabilityFinding[];
-}
-
-export interface CompatibilityEntry {
-  target_version: string;
-  is_compatible: boolean;
-  breaking_change_count: number;
-  breaking_changes: string[];
-}
-
-export interface CompatibilityMatrixRow {
-  source_version: string;
-  targets: CompatibilityEntry[];
-}
-
-export interface CompatibilityMatrix {
-  warnings: string[];
-  version_order: string[];
-  total_pairs: number;
-  rows: CompatibilityMatrixRow[];
-}
-
-/** Per-network config (Issue #43) */
-export interface NetworkConfig {
-  contract_id: string;
-  is_verified: boolean;
-  min_version?: string;
-  max_version?: string;
-}
-
-export interface Contract {
-  id: string;
-  contract_id: string;
-  wasm_hash: string;
-  name: string;
-  description?: string;
-  publisher_id: string;
-  network: Network;
-  is_verified: boolean;
-  verification_level?: VerificationLevel;
-  category?: string;
-  tags: string[];
-  popularity_score?: number;
-  downloads?: number;
-  average_rating?: number;
-  avg_rating?: number;
-  review_count?: number;
-  deployment_count?: number;
-  interaction_count?: number;
-  favorites_count?: number;
-  relevance_score?: number;
-  // Image fields for contract logo/icon
-  logo_url?: string;
-  created_at: string;
-  updated_at: string;
-  verified_at?: string;
-  last_accessed_at?: string;
-  is_maintenance?: boolean;
-  /** Logical contract grouping (Issue #43) */
-  logical_id?: string;
-  /** Per-network configs: { mainnet: {...}, testnet: {...} } */
-  network_configs?: Record<Network, NetworkConfig>;
-  artifact_scan_status?: "pending" | "passed" | "quarantined";
-  artifact_scan_findings?: string[];
-}
-
-/** GET /contracts/:id response when ?network= is used (Issue #43) */
-export interface ContractGetResponse extends Contract {
-  current_network?: Network;
-  network_config?: NetworkConfig;
-}
-
-export interface ContractHealth {
-  contract_id: string;
-  status: "healthy" | "warning" | "critical";
-  last_activity: string;
-  security_score: number;
-  audit_date?: string;
-  total_score: number;
-  recommendations: string[];
-  updated_at: string;
-}
-
-export interface ContractInteractionResponse {
-  id: string;
-  account: string | null;
-  method: string | null;
-  parameters: unknown;
-  return_value: unknown;
-  transaction_hash: string | null;
-  created_at: string;
-}
-
-export interface InteractionsQueryParams {
-  limit?: number;
-  offset?: number;
-  account?: string;
-  method?: string;
-  from_timestamp?: string;
-  to_timestamp?: string;
-}
-
-export interface InteractionsListResponse {
-  items: ContractInteractionResponse[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-/** Analytics timeline entry (one day) */
-export interface TimelineEntry {
-  date: string;
-  count: number;
-}
-
-export interface TopUser {
-  address: string;
-  count: number;
-}
-
-export interface InteractorStats {
-  unique_count: number;
-  top_users: TopUser[];
-}
-
-export interface DeploymentStats {
-  count: number;
-  unique_users: number;
-  by_network: Record<string, number>;
-}
-
-export interface ContractAnalyticsResponse {
-  contract_id: string;
-  deployments: DeploymentStats;
-  interactors: InteractorStats;
-  timeline: TimelineEntry[];
-}
-
-export interface ContractVersion {
-  id: string;
-  contract_id: string;
-  version: string;
-  wasm_hash: string;
-  source_url?: string;
-  commit_hash?: string;
-  release_notes?: string;
-  created_at: string;
-}
-
-export interface ContractAbiResponse {
-  abi: unknown;
-}
-
-export interface ContractChangelogEntry {
-  version: string;
-  created_at: string;
-  commit_hash?: string;
-  source_url?: string;
-  release_notes?: string;
-  breaking: boolean;
-  breaking_changes: string[];
-}
-
-export interface ContractChangelogResponse {
-  contract_id: string;
-  entries: ContractChangelogEntry[];
-}
-
-export interface RecommendationReason {
-  code: string;
-  message: string;
-  weight: number;
-}
-
-export interface RecommendedContract {
-  id: string;
-  contract_id: string;
-  name: string;
-  description?: string;
-  network: Network;
-  category?: string;
-  popularity_score: number;
-  similarity_score: number;
-  recommendation_score: number;
-  reasons: RecommendationReason[];
-  explanation: string;
-}
-
-export interface ContractRecommendationsResponse {
-  contract_id: string;
-  algorithm: string;
-  ab_variant: string;
-  cached: boolean;
-  generated_at: string;
-  recommendations: RecommendedContract[];
-}
-
-export interface Publisher {
-  id: string;
-  stellar_address: string;
-  username?: string;
-  email?: string;
-  github_url?: string;
-  website?: string;
-  // Image fields for publisher avatar
-  avatar_url?: string;
-  created_at: string;
-}
-
-export type AnalyticsEventType =
-  | "contract_published"
-  | "contract_verified"
-  | "contract_deployed"
-  | "version_created"
-  | "contract_updated"
-  | "publisher_created"
-  | "search_click";
-
-export interface AnalyticsEvent {
-  id: string;
-  event_type: AnalyticsEventType;
-  contract_id: string;
-  user_address: string | null;
-  network: Network | null;
-  metadata: Record<string, unknown> | null;
-  created_at: string;
-}
-
-export interface ActivityFeedParams {
-  cursor?: string;
-  limit?: number;
-  event_type?: AnalyticsEventType;
-  contract_id?: string;
-}
-
-export interface ActivityFeedResponse {
-  items: AnalyticsEvent[];
-  total: number;
-  limit: number;
-  next_cursor: string | null;
-}
-
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  page_size: number;
-  total_pages: number;
-}
-
-export interface DependencyTreeNode {
-  contract_id: string;
-  name: string;
-  current_version: string;
-  constraint_to_parent: string;
-  dependencies: DependencyTreeNode[];
-}
-
-export interface MaintenanceWindow {
-  message: string;
-  scheduled_end_at?: string;
-}
-
-export type MaturityLevel = "alpha" | "beta" | "stable" | "mature" | "legacy";
-
-export interface ContractSearchParams {
-  query?: string;
-  contract_id?: string;
-  network?: "mainnet" | "testnet" | "futurenet";
-  networks?: Array<"mainnet" | "testnet" | "futurenet">;
-  verified_only?: boolean;
-  favorites_only?: boolean;
-  favorites_list?: string[];
-  category?: string;
-  categories?: string[];
-  language?: string;
-  languages?: string[];
-  author?: string;
-  tags?: string[];
-  maturity?: "alpha" | "beta" | "stable" | "mature" | "legacy";
-  page?: number;
-  page_size?: number;
-  sort_by?:
-    | "name"
-    | "created_at"
-    | "updated_at"
-    | "popularity"
-    | "deployments"
-    | "interactions"
-    | "relevance"
-    | "downloads"
-    | "rating";
-  sort_order?: "asc" | "desc";
-  date_from?: string;
-  date_to?: string;
-}
-
-export interface SearchSuggestion {
-  text: string;
-  kind: string;
-  score: number;
-}
-
-export interface SearchSuggestionsResponse {
-  items: SearchSuggestion[];
-}
-
-export type SearchIntentType =
-  | "generic"
-  | "category"
-  | "network"
-  | "verification"
-  | "tag"
-  | "author";
-
-export interface SearchIntent {
-  type: SearchIntentType;
-  confidence: number;
-  extracted: {
-    categories: string[];
-    tags: string[];
-    networks: Network[];
-    verified_only: boolean;
-    author?: string;
-  };
-}
-
-export interface SemanticSearchMetadata {
-  raw_query: string;
-  interpreted_query: string;
-  intent: SearchIntent;
-  fallback_used: boolean;
-  query_suggestions: string[];
-}
-
-export interface SemanticContractSearchResponse
-  extends PaginatedResponse<Contract> {
-  semantic: SemanticSearchMetadata;
-}
-
-export interface PublishRequest {
-  contract_id: string;
-  wasm_hash: string;
-  name: string;
-  description?: string;
-  network: "mainnet" | "testnet" | "futurenet";
-  category?: string;
-  tags: string[];
-  source_url?: string;
-  publisher_address: string;
-}
-
-export type CustomMetricType = "counter" | "gauge" | "histogram";
-
-export interface MetricCatalogEntry {
-  metric_name: string;
-  metric_type: CustomMetricType;
-  last_seen: string;
-  sample_count: number;
-}
-
-export interface MetricSeriesPoint {
-  bucket_start: string;
-  bucket_end: string;
-  sample_count: number;
-  sum_value?: number;
-  avg_value?: number;
-  min_value?: number;
-  max_value?: number;
-  p50_value?: number;
-  p95_value?: number;
-  p99_value?: number;
-}
-
-export interface MetricSample {
-  timestamp: string;
-  value: number;
-  unit?: string;
-  metadata?: Record<string, unknown> | null;
-}
-
-export interface MetricSeriesResponse {
-  contract_id: string;
-  metric_name: string;
-  metric_type: CustomMetricType | null;
-  resolution: "hour" | "day" | "raw";
-  points?: MetricSeriesPoint[];
-  samples?: MetricSample[];
-}
-
-export type DeprecationStatus = "active" | "deprecated" | "superseded" | "retired";
-
-export type ReleaseNotesStatus = "draft" | "published";
-
-export interface FunctionChange {
-  name: string;
-  change_type: "added" | "removed" | "modified";
-  old_signature?: string;
-  new_signature?: string;
-  is_breaking: boolean;
-}
-
-export interface DiffSummary {
-  files_changed: number;
-  lines_added: number;
-  lines_removed: number;
-  function_changes: FunctionChange[];
-  has_breaking_changes: boolean;
-  features_count: number;
-  fixes_count: number;
-  breaking_count: number;
-}
-
-export interface ReleaseNotesResponse {
-  id: string;
-  contract_id: string;
-  version: string;
-  previous_version?: string;
-  diff_summary: DiffSummary;
-  changelog_entry?: string;
-  notes_text: string;
-  status: ReleaseNotesStatus;
-  generated_by: string;
-  created_at: string;
-  updated_at: string;
-  published_at?: string;
-}
-
-export interface GenerateReleaseNotesRequest {
-  version: string;
-  previous_version?: string;
-  source_url?: string;
-  changelog_content?: string;
-  contract_address?: string;
-}
-
-export interface UpdateReleaseNotesRequest {
-  notes_text: string;
-}
-
-export interface PublishReleaseNotesRequest {
-  update_version_record?: boolean;
-}
-
-export interface DeprecationInfo {
-  contract_id: string;
-  status: DeprecationStatus;
-  deprecated_at?: string | null;
-  retirement_at?: string | null;
-  replacement_contract_id?: string | null;
-  migration_guide_url?: string | null;
-  notes?: string | null;
-  deprecated_reason?: string | null;
-  grace_period_days?: number | null;
-  days_remaining?: number | null;
-  dependents_notified: number;
-  replacement_lineage?: string[];
-  warnings?: string[];
-}
-
-export interface LegacyStatsResponse extends StatsResponse {
-  total_contracts: number;
-  verified_contracts: number;
-  total_publishers: number;
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 const CATEGORY_SYNONYMS: Record<string, string> = {
@@ -1507,11 +1084,6 @@ export async function deleteFavoriteSearch(id: string): Promise<void> {
 
 // ─── Preferences ──────────────────────────────────────────────────────────────
 
-export interface UserPreferences {
-  favorites: string[];
-  // Add other preference fields as needed
-  [key: string]: unknown;
-}
 
 export async function fetchPreferences(token: string): Promise<UserPreferences> {
   if (USE_MOCKS) {
@@ -1590,20 +1162,7 @@ export async function fetchCollaborativeReview(
   return apiFetch<CollaborativeReviewDetails>(`/api/contracts/${contractId}/review`);
 }
 
-export interface CreateCollaborativeReviewRequest {
-  contract_id: string;
-  version: string;
-  reviewer_ids: string[];
-}
 
-export interface CollaborativeReview {
-  id: string;
-  contract_id: string;
-  version: string;
-  status: string;
-  created_at: string;
-  updated_at: string;
-}
 
 export async function createCollaborativeReview(
   request: CreateCollaborativeReviewRequest,

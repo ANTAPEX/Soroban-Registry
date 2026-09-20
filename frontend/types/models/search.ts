@@ -72,3 +72,10 @@ export type QueryOperator = "AND" | "OR";
 export type QueryNode =
   | QueryCondition
   | { operator: QueryOperator; conditions: QueryNode[] };
+
+export interface FavoriteSearch {
+  id: string;
+  name: string;
+  query_json: QueryNode;
+  created_at: string;
+}
