@@ -2,7 +2,6 @@ import type { Contract } from '@/types';
 import {
   Box,
   Check,
-  CheckCircle2,
   Clock,
   Copy,
   ExternalLink,
@@ -12,12 +11,11 @@ import {
   RefreshCw,
   Sparkles,
   Tag,
-  Star,
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import React, { useState } from 'react';
+import React from 'react';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useCopy } from '@/hooks/useCopy';
 import { formatContractId } from '@/lib/utils/formatting';

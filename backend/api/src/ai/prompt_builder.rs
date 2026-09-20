@@ -1,5 +1,4 @@
 use crate::ai::service::{ChatMessage, ContractContext};
-use serde_json::Value;
 
 /// Builds context-aware prompts for AI chat interactions
 pub struct PromptBuilder;

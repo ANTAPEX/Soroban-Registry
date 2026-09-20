@@ -33,18 +33,16 @@ const eslintConfig = [
       "@typescript-eslint": tsPlugin,
     },
     rules: {
-      // Base no-unused-vars
-      "no-unused-vars": [
-        "warn",
-        {
-          vars: "all",
-          args: "after-used",
-          ignoreRestSiblings: true,
-          argsIgnorePattern: "^_",
-          varsIgnorePattern: "^_",
-          caughtErrorsIgnorePattern: "^_",
-        },
-      ],
+      // The base rule must be off wherever its TypeScript counterpart is on:
+      // it only understands runtime bindings, so it reports every parameter
+      // name in a type-only position as unused. On this codebase that was 125
+      // false positives -- interface method signatures (types/realtime.ts),
+      // ambient declarations (types/webxr.d.ts, lib/analytics.ts) and
+      // constructor parameter properties (lib/errors.ts), which TypeScript
+      // turns into class fields -- plus 34 duplicates of warnings the
+      // @typescript-eslint rule below already reports. That rule reads the
+      // same options and handles all of those correctly.
+      "no-unused-vars": "off",
       "no-console": "warn",
       // TypeScript-specific rules — set to warn so inline disable comments are valid
       "@typescript-eslint/no-unused-vars": [

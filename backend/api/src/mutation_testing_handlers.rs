@@ -181,7 +181,7 @@ fn run_test_suite_against(mutation: &mut Mutation) {
         ),
         MutationOperator::ConditionRemoval => {
             // Simulate imperfect coverage: survived when UUID's last byte is even.
-            let survived = mutation.id.as_bytes()[15] % 3 == 0;
+            let survived = mutation.id.as_bytes()[15].is_multiple_of(3);
             if survived {
                 (
                     false,

@@ -256,6 +256,7 @@ export function SearchBar({
         <input
           ref={inputRef}
           type="text"
+          role="combobox"
           value={value}
           onChange={(e) => {
             onChange(e.target.value);
@@ -273,6 +274,7 @@ export function SearchBar({
           aria-keyshortcuts="/"
           aria-autocomplete="list"
           aria-expanded={isOpen}
+          aria-controls="search-suggestions"
           aria-activedescendant={
             highlightedIndex >= 0
               ? `search-suggestion-${highlightedIndex}`
@@ -315,7 +317,11 @@ export function SearchBar({
               <span>Loading suggestions...</span>
             </div>
           ) : menuItems.length > 0 ? (
-            <ul role="listbox" className="divide-y divide-border">
+            <ul
+              id="search-suggestions"
+              role="listbox"
+              className="divide-y divide-border"
+            >
               {menuItems.map((item, index) => (
                 <li
                   key={`${item.source}-${item.text}-${index}`}

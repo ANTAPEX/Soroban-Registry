@@ -456,7 +456,11 @@ mod tests {
     use super::*;
     use crate::contract_spec::{ScSpecFunctionInputV0, ScSpecFunctionV0};
 
-    fn func(name: &str, inputs: Vec<(&str, ScSpecTypeDef)>, outputs: Vec<ScSpecTypeDef>) -> ScSpecEntry {
+    fn func(
+        name: &str,
+        inputs: Vec<(&str, ScSpecTypeDef)>,
+        outputs: Vec<ScSpecTypeDef>,
+    ) -> ScSpecEntry {
         ScSpecEntry::FunctionV0(ScSpecFunctionV0 {
             doc: "some doc".into(),
             name: name.into(),
@@ -474,9 +478,20 @@ mod tests {
 
     #[test]
     fn identical_specs_produce_identical_fingerprints() {
-        let a = vec![func("transfer", vec![("to", ScSpecTypeDef::Address)], vec![ScSpecTypeDef::Bool])];
-        let b = vec![func("transfer", vec![("to", ScSpecTypeDef::Address)], vec![ScSpecTypeDef::Bool])];
-        assert_eq!(fingerprint_spec(&a).interface_id, fingerprint_spec(&b).interface_id);
+        let a = vec![func(
+            "transfer",
+            vec![("to", ScSpecTypeDef::Address)],
+            vec![ScSpecTypeDef::Bool],
+        )];
+        let b = vec![func(
+            "transfer",
+            vec![("to", ScSpecTypeDef::Address)],
+            vec![ScSpecTypeDef::Bool],
+        )];
+        assert_eq!(
+            fingerprint_spec(&a).interface_id,
+            fingerprint_spec(&b).interface_id
+        );
     }
 
     #[test]
@@ -508,7 +523,10 @@ mod tests {
     fn removing_a_function_changes_the_interface_id() {
         let a = vec![func("a", vec![], vec![]), func("b", vec![], vec![])];
         let b = vec![func("a", vec![], vec![])];
-        assert_ne!(fingerprint_spec(&a).interface_id, fingerprint_spec(&b).interface_id);
+        assert_ne!(
+            fingerprint_spec(&a).interface_id,
+            fingerprint_spec(&b).interface_id
+        );
     }
 
     #[test]

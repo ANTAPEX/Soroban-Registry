@@ -324,7 +324,7 @@ export default function ContractImportExportPanel() {
   const progressPercent = useMemo(() => {
     if (!progress.active || progress.total <= 0) return 0;
     return Math.min(100, Math.round((progress.current / progress.total) * 100));
-  }, [progress.active, progress.current, progress.total]);
+  }, [progress]);
 
   const onSelectImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];

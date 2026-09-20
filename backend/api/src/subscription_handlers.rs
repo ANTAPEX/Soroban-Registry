@@ -20,9 +20,8 @@ use crate::{
 use shared::{
     ContractSubscription, ContractSubscriptionSummary, CreateWebhookRequest, NotificationChannel,
     NotificationFrequency, NotificationQueueItem, NotificationType, PaginatedResponse,
-    SubscribeRequest, SubscriptionStatus, UpdateSubscriptionRequest,
-    UpdateUserNotificationPreferencesRequest, UserNotificationPreferences,
-    UserSubscriptionsResponse, WebhookConfiguration,
+    SubscribeRequest, UpdateSubscriptionRequest, UpdateUserNotificationPreferencesRequest,
+    UserNotificationPreferences, WebhookConfiguration,
 };
 
 // ─── Query / response types ────────────────────────────────────────────────
@@ -129,7 +128,7 @@ pub async fn subscribe_to_contract(
     .bind(&notification_types)
     .bind(&channels)
     .bind(&frequency)
-    .bind(&req.min_severity)
+    .bind(req.min_severity)
     .fetch_one(&state.db)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to create subscription: {}", e)))?;

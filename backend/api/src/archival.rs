@@ -448,9 +448,7 @@ async fn execute_archival_policy_with(
 fn validate_identifier(value: &str) -> Result<(), sqlx::Error> {
     let valid = !value.is_empty()
         && value.len() <= 63
-        && value
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_');
+        && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
 
     if valid {
         Ok(())
@@ -687,7 +685,12 @@ mod tests {
         let cutoff = cutoff_for(now, 90);
 
         // Scan runs have no status column; eligibility is purely age-based.
-        assert!(is_eligible(None, None, cutoff - chrono::Duration::seconds(1), cutoff));
+        assert!(is_eligible(
+            None,
+            None,
+            cutoff - chrono::Duration::seconds(1),
+            cutoff
+        ));
         assert!(!is_eligible(None, None, cutoff, cutoff));
     }
 

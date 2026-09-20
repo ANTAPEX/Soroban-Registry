@@ -24,7 +24,5 @@ export function useWebVitals() {
     } else {
       fetch(url, { body, method: 'POST', keepalive: true });
     }
-
-    console.log('[Web Vitals]', metric);
   });
 }

@@ -89,7 +89,7 @@ fn check_token(_email: &str, token: Option<&str>) -> bool {
             // to proceed as "pending".
             false
         }
-        Some(tok) if tok.is_empty() => false,
+        Some("") => false,
         Some(tok) => {
             // Accept any non-empty token for testing purposes.
             // Key invariant: the token must reference the email somehow.
@@ -107,8 +107,8 @@ fn check_token(_email: &str, token: Option<&str>) -> bool {
 /// Verify a publisher's email ownership and award the verification badge.
 ///
 /// Issue #603 acceptance criteria:
-///   ✅ Endpoint validates publisher identity.
-///   ✅ Returns appropriate verification status.
+///   - Endpoint validates publisher identity.
+///   - Returns appropriate verification status.
 pub async fn verify_publisher(
     State(state): State<AppState>,
     Path(publisher_id): Path<Uuid>,

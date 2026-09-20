@@ -287,7 +287,7 @@ impl QueryAnalyzer {
                 });
             }
         }
-        findings.sort_by(|a, b| b.occurrence_count.cmp(&a.occurrence_count));
+        findings.sort_by_key(|a| std::cmp::Reverse(a.occurrence_count));
         findings
     }
 
@@ -410,10 +410,9 @@ fn parse_elapsed_dbg(s: &str) -> Option<f64> {
         (v, 1e-3)
     } else if let Some(v) = s.strip_suffix("ms") {
         (v, 1.0)
-    } else if let Some(v) = s.strip_suffix('s') {
-        (v, 1000.0)
     } else {
-        return None;
+        let v = s.strip_suffix('s')?;
+        (v, 1000.0)
     };
     num.trim().parse::<f64>().ok().map(|n| n * unit)
 }
@@ -533,7 +532,7 @@ pub async fn get_frequent_queries(
 ) -> Json<Vec<PatternStat>> {
     let limit = p.limit.unwrap_or(20).clamp(1, 200);
     let mut stats = ANALYZER.snapshot();
-    stats.sort_by(|a, b| b.calls.cmp(&a.calls));
+    stats.sort_by_key(|a| std::cmp::Reverse(a.calls));
     stats.truncate(limit);
     Json(stats)
 }
@@ -626,7 +625,7 @@ pub async fn get_query_report(State(_state): State<AppState>) -> Json<QueryRepor
     let snapshot = ANALYZER.snapshot();
 
     let mut most_frequent = snapshot.clone();
-    most_frequent.sort_by(|a, b| b.calls.cmp(&a.calls));
+    most_frequent.sort_by_key(|a| std::cmp::Reverse(a.calls));
     most_frequent.truncate(10);
 
     let mut slowest: Vec<PatternStat> = snapshot;

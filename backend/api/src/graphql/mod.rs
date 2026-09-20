@@ -3,7 +3,6 @@ pub mod schema;
 pub mod types;
 
 use crate::graphql::schema::RegistrySchema;
-use crate::state::AppState;
 use async_graphql::http::{playground_source, GraphQLPlaygroundConfig};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::{

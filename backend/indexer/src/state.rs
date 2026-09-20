@@ -80,10 +80,10 @@ impl StateManager {
             .fetch_optional(&self.pool)
             .await
             .map_err(|e| StateError::DatabaseError(e.to_string()))?
-            .ok_or_else(|| StateError::StateNotFound(network.clone()))?;
+            .ok_or(StateError::StateNotFound(*network))?;
 
         Ok(IndexerState {
-            network: network.clone(),
+            network: *network,
             last_indexed_ledger_height: row
                 .try_get::<i64, _>("last_indexed_ledger_height")
                 .unwrap_or(0) as u64,

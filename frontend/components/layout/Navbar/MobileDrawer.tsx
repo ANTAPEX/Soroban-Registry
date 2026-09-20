@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { 
     Package, X, Search, Columns2, ShieldCheck, Users, 
     BarChart2, PieChart, Layers, GitBranch, Code2, Star,
-    User, Settings, Plus, LogOut, Home, ChevronRight
+    User, Settings, Plus, LogOut
 } from 'lucide-react';
 import styles from './Navbar.module.css';
 
@@ -16,14 +16,7 @@ interface MobileDrawerProps {
     isActive: (href: string) => boolean;
 }
 
-const formatBreadcrumbLabel = (segment: string) =>
-    decodeURIComponent(segment)
-        .replace(/[-_]/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase());
-
 export function MobileDrawer({ isOpen, onClose, pathname, favoritesCount, isActive }: MobileDrawerProps) {
-    const mobileCrumbs = pathname.split('/').filter(Boolean).slice(0, 3);
-
     return (
         <div
             className={`${styles.drawer} ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}

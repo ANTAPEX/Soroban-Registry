@@ -156,7 +156,7 @@ pub async fn create_contracts(
 
     for i in 0..count {
         let publisher = &publishers[i % publishers.len()];
-        let network = networks[i % networks.len()].clone();
+        let network = networks[i % networks.len()];
 
         let name = if let Some(data) = custom_data {
             if let Some(names) = data.get("contract_names").and_then(|v| v.as_array()) {
@@ -205,7 +205,7 @@ pub async fn create_contracts(
         .bind(slug)
         .bind(description)
         .bind(publisher.id)
-        .bind(&network)
+        .bind(network)
         .bind(&category)
         .bind(&tags)
         .bind(i % 3 == 0)

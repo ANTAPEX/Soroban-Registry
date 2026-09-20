@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import {
-  addFavorite,
-  removeFavorite,
-  setFavorites,
-} from "@/store/slices/favoritesSlice";
+import { setFavorites } from "@/store/slices/favoritesSlice";
 import { useToast } from "./useToast";
 import { api } from "@/lib/api";
 

@@ -132,8 +132,8 @@ pub async fn get_critical_contracts(
     Query(query): Query<CriticalContractsQuery>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let limit = query.limit.unwrap_or(20).clamp(1, 100);
-    let network = query.network.clone();
-    let report = build_report(&state, network.clone(), false).await?;
+    let network = query.network;
+    let report = build_report(&state, network, false).await?;
 
     let top: Vec<&CriticalContractScore> = report.critical_contracts.iter().take(limit).collect();
 
@@ -227,8 +227,8 @@ pub async fn get_subnetwork(
     Path(cluster_id): Path<usize>,
     Query(query): Query<GraphAnalysisQuery>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let network = query.network.clone();
-    let report = build_report(&state, network.clone(), false).await?;
+    let network = query.network;
+    let report = build_report(&state, network, false).await?;
 
     let cluster = report
         .clusters

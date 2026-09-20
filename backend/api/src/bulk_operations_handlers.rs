@@ -8,7 +8,6 @@
 use crate::{
     auth::AuthClaims,
     error::{ApiError, ApiResult},
-    handlers::{db_internal_error, track_contract_access},
     state::AppState,
     validation::extractors::ValidatedJson,
 };
@@ -19,19 +18,13 @@ use axum::{
     Json,
 };
 use once_cell::sync::Lazy;
-use serde_json::json;
 use shared::{
-    Contract, ContractExportAcceptedResponse, ContractExportFormat, ContractExportJobStatus,
-    ContractExportMetadata, ContractExportQueryParams, ContractExportRequest,
-    ContractExportStatusResponse, ContractImportAcceptedResponse, ContractImportItemResult,
-    ContractImportJobStatus, ContractImportRecord, ContractImportRequest, ContractImportResponse,
-    ContractImportStatusResponse, ContractMetadataExportEnvelope, ContractMetadataExportRecord,
-    ContractSearchParams, Network, Publisher, VerificationStatus, VisibilityType,
+    Contract, ContractExportAcceptedResponse, ContractExportFormat, ContractExportQueryParams,
+    ContractImportAcceptedResponse, ContractImportItemResult, ContractImportJobStatus,
+    ContractImportRecord, ContractImportRequest, ContractImportResponse,
+    ContractImportStatusResponse, ContractSearchParams, Publisher, VerificationStatus,
 };
-use sqlx::QueryBuilder;
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -179,7 +172,7 @@ async fn import_single_contract(
     let existing: Option<(Uuid,)> =
         sqlx::query_as("SELECT id FROM contracts WHERE contract_id = $1 AND network = $2")
             .bind(&record.contract_id)
-            .bind(&record.network)
+            .bind(record.network)
             .fetch_optional(db)
             .await
             .ok()
@@ -238,7 +231,7 @@ async fn import_single_contract(
     .bind(&slug)
     .bind(&record.description)
     .bind(publisher.id)
-    .bind(&record.network)
+    .bind(record.network)
     .bind(&record.category)
     .bind(is_verified)
     .bind(VerificationStatus::Unverified)
