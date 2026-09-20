@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { CollaborativeComment } from "@/types";
+import { queryKeys } from "@/lib/queryKeys";
 
 function ReviewContent() {
   const params = useParams();
@@ -36,19 +37,19 @@ function ReviewContent() {
   } | null>(null);
 
   const { data: contract } = useQuery({
-    queryKey: ["contract", contractId],
+    queryKey: queryKeys.contract(contractId),
     queryFn: () => api.getContract(contractId),
   });
 
   const { data: versions = [] } = useQuery({
-    queryKey: ["contract-versions", contractId],
+    queryKey: queryKeys.contractVersions(contractId),
     queryFn: () => api.getContractVersions(contractId),
   });
 
   const latestVersion = versions[0];
 
   const { data: sourceCode } = useQuery({
-    queryKey: ["contract-source", contractId, latestVersion?.source_url],
+    queryKey: queryKeys.contractSource(contractId, latestVersion?.source_url),
     queryFn: async () => {
       if (!latestVersion?.source_url) return "";
       const res = await fetch(latestVersion.source_url);
@@ -58,13 +59,13 @@ function ReviewContent() {
   });
 
   const { data: abiResponse } = useQuery({
-    queryKey: ["contract-abi", contractId, latestVersion?.version],
+    queryKey: queryKeys.contractAbi(contractId, latestVersion?.version),
     queryFn: () => api.getContractAbi(contractId, latestVersion?.version),
     enabled: !!latestVersion && activeView === "abi",
   });
 
   const { data: reviewDetails } = useQuery({
-    queryKey: ["collaborative-review", reviewId],
+    queryKey: queryKeys.collaborativeReview(reviewId),
     queryFn: () => api.getCollaborativeReview(reviewId!),
     enabled: !!reviewId,
   });
@@ -75,7 +76,7 @@ function ReviewContent() {
     ) => api.addCollaborativeComment(reviewId!, data),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["collaborative-review", reviewId],
+        queryKey: queryKeys.collaborativeReview(reviewId),
       });
       setCommentText("");
       setSelectedLocation(null);
@@ -86,7 +87,7 @@ function ReviewContent() {
     mutationFn: (status: string) => api.updateReviewerStatus(reviewId!, status),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["collaborative-review", reviewId],
+        queryKey: queryKeys.collaborativeReview(reviewId),
       });
     },
   });
@@ -119,7 +120,7 @@ function ReviewContent() {
     onSuccess: (review) => {
       router.push(`/contracts/${contractId}/review?reviewId=${review.id}`);
       queryClient.invalidateQueries({
-        queryKey: ["collaborative-review", review.id],
+        queryKey: queryKeys.collaborativeReview(review.id),
       });
     },
   });

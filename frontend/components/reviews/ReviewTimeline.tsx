@@ -10,6 +10,7 @@ import {
   User,
 } from "lucide-react";
 import type { CollaborativeComment, CollaborativeReviewer } from "@/types";
+import { queryKeys } from "@/lib/queryKeys";
 
 // Native replacement for date-fns `format(date, "MMM d, h:mm a")`
 function formatDateTime(dateStr: string): string {
@@ -30,7 +31,7 @@ interface ReviewTimelineProps {
 
 export default function ReviewTimeline({ reviewId }: ReviewTimelineProps) {
   const { data: details, isLoading } = useQuery({
-    queryKey: ["collaborative-review", reviewId],
+    queryKey: queryKeys.collaborativeReview(reviewId),
     queryFn: () => api.getCollaborativeReview(reviewId),
   });
 

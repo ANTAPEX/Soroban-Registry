@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface HealthWidgetProps {
   contract: Contract;
@@ -17,7 +18,7 @@ interface HealthWidgetProps {
 
 export default function HealthWidget({ contract }: HealthWidgetProps) {
   const { data: health, isLoading } = useQuery({
-    queryKey: ["health", contract.id],
+    queryKey: queryKeys.contractHealth(contract.id),
     queryFn: () => api.getContractHealth(contract.id),
     retry: false,
   });

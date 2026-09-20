@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { AlertTriangle, Gauge, TimerReset } from "lucide-react";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface PerformancePanelProps {
   contractId: string;
@@ -12,7 +13,7 @@ export default function PerformancePanel({
   contractId,
 }: PerformancePanelProps) {
   const { data, isLoading, error } = useQuery({
-    queryKey: ["contract-analytics", contractId],
+    queryKey: queryKeys.contractAnalytics(contractId),
     queryFn: () => api.getContractAnalytics(contractId),
   });
 

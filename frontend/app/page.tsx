@@ -17,6 +17,7 @@ import { useCopy } from '@/hooks/useCopy';
 import CodeCopyButton from '@/components/CodeCopyButton';
 import { buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { queryKeys } from "@/lib/queryKeys";
 
 export default function Home() {
   const { t } = useTranslation('common');
@@ -27,12 +28,12 @@ export default function Home() {
   const { copy, copied, isCopying } = useCopy();
 
   const { data: stats, isLoading: statsLoading } = useQuery({
-    queryKey: ['stats'],
+    queryKey: queryKeys.stats(),
     queryFn: () => api.getStats(),
   });
 
   const { data: recentContracts, isLoading: contractsLoading } = useQuery({
-    queryKey: ['contracts', 'recent'],
+    queryKey: queryKeys.contractsRecent(),
     queryFn: () => api.getContracts({ page: 1, page_size: 6 }),
   });
 

@@ -35,6 +35,7 @@ import {
   combineAdvancedQueryWithFilters,
   parseAdvancedContractQuery,
 } from "@/utils/advancedSearchSyntax";
+import { queryKeys } from "@/lib/queryKeys";
 
 const DEFAULT_PAGE_SIZE = 12;
 const CATEGORY_OPTIONS_NAMES = [
@@ -356,7 +357,7 @@ export function ContractsContent() {
     isLoading,
     isFetching,
   } = useQuery<ContractsResponse>({
-    queryKey: ["contracts", contractsQueryKey],
+    queryKey: queryKeys.contractsList(contractsQueryKey),
     queryFn: async () => {
       if (useAdvancedSearch && parsedQuery.queryNode) {
         const combined = combineAdvancedQueryWithFilters(
@@ -407,7 +408,7 @@ export function ContractsContent() {
   });
 
   const { data: stats } = useQuery({
-    queryKey: ["stats"],
+    queryKey: queryKeys.stats(),
     queryFn: () => api.getStats(),
   });
 

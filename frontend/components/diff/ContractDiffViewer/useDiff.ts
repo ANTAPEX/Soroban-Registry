@@ -12,6 +12,7 @@ import {
   downloadPatch,
 } from "./utils";
 import type { DiffComment } from "./CommentThread";
+import { queryKeys } from "@/lib/queryKeys";
 
 export function useDiff(contractId: string, contractName?: string) {
   const [viewMode, setViewMode] = useState<"unified" | "side-by-side">(
@@ -23,7 +24,7 @@ export function useDiff(contractId: string, contractName?: string) {
   const [openThread, setOpenThread] = useState<string | null>(null);
 
   const versionsQuery = useQuery({
-    queryKey: ["contract-versions", contractId],
+    queryKey: queryKeys.contractVersions(contractId),
     queryFn: () => api.getContractVersions(contractId),
     enabled: !!contractId,
   });
@@ -59,13 +60,13 @@ export function useDiff(contractId: string, contractName?: string) {
   }, []);
 
   const fromSourceQuery = useQuery({
-    queryKey: ["diff-source", contractId, effectiveFrom],
+    queryKey: queryKeys.diffSource(contractId, effectiveFrom),
     queryFn: () => sourceQuery(fromMeta),
     enabled: !!fromMeta,
   });
 
   const toSourceQuery = useQuery({
-    queryKey: ["diff-source", contractId, effectiveTo],
+    queryKey: queryKeys.diffSource(contractId, effectiveTo),
     queryFn: () => sourceQuery(toMeta),
     enabled: !!toMeta,
   });

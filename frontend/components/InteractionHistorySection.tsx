@@ -15,6 +15,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { AlertCircle, Users, Activity } from "lucide-react";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface InteractionHistorySectionProps {
   contractId: string;
@@ -35,7 +36,7 @@ export default function InteractionHistorySection({
     isLoading: analyticsLoading,
     error: analyticsError,
   } = useQuery({
-    queryKey: ["contract-analytics", contractId],
+    queryKey: queryKeys.contractAnalytics(contractId),
     queryFn: () => api.getContractAnalytics(contractId),
   });
 
@@ -44,7 +45,7 @@ export default function InteractionHistorySection({
     isLoading: listLoading,
     error: listError,
   } = useQuery({
-    queryKey: ["contract-interactions", contractId, listParams],
+    queryKey: queryKeys.contractInteractions(contractId, listParams),
     queryFn: () => api.getContractInteractions(contractId, listParams),
   });
 

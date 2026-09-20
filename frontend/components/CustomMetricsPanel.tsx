@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, MetricCatalogEntry } from "@/lib/api";
 import { Activity, BarChart3, Clock3, LineChart } from "lucide-react";
+import { queryKeys } from "@/lib/queryKeys";
 
 function toNumber(value?: number) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -51,7 +52,7 @@ export default function CustomMetricsPanel({ contractId }: Props) {
     isLoading: catalogLoading,
     isError: catalogError,
   } = useQuery({
-    queryKey: ["custom-metrics-catalog", contractId],
+    queryKey: queryKeys.customMetricsCatalog(contractId),
     queryFn: () => api.getCustomMetricCatalog(contractId),
   });
 
@@ -62,7 +63,7 @@ export default function CustomMetricsPanel({ contractId }: Props) {
     isLoading: seriesLoading,
     isError: seriesError,
   } = useQuery({
-    queryKey: ["custom-metrics-series", contractId, metricName, resolution],
+    queryKey: queryKeys.customMetricsSeries(contractId, metricName, resolution),
     queryFn: () =>
       api.getCustomMetricSeries(contractId, metricName || "", {
         resolution,

@@ -23,6 +23,7 @@ import {
 import type { TFunction } from 'i18next';
 import Link from 'next/link';
 import { useTranslation } from '@/lib/i18n/client';
+import { queryKeys } from "@/lib/queryKeys";
 
 const getEventConfig = (t: TFunction): Record<string, { icon: LucideIcon; label: string; color: string }> => ({
   contract_published: { icon: Upload, label: t('activityFeed.published'), color: 'text-blue-500 bg-blue-500/10' },
@@ -45,7 +46,7 @@ export default function ActivityFeed() {
 
   // Initial fetch
   const { isLoading, error, data } = useQuery<ActivityFeedResponse>({
-    queryKey: ['activity-feed', eventType],
+    queryKey: queryKeys.activityFeed(eventType),
     queryFn: () => api.getActivityFeed({
       event_type: eventType === 'all' ? undefined : eventType,
       limit: 20,

@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { api, ReleaseNotesResponse, ReleaseNotesStatus } from "@/lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface ReleaseNotesProps {
   contractId: string;
@@ -21,7 +22,7 @@ export default function ReleaseNotesPanel({ contractId }: ReleaseNotesProps) {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["release-notes", contractId],
+    queryKey: queryKeys.releaseNotes(contractId),
     queryFn: () => api.listReleaseNotes(contractId),
   });
 
@@ -31,7 +32,7 @@ export default function ReleaseNotesPanel({ contractId }: ReleaseNotesProps) {
       api.generateReleaseNotes(contractId, { version }),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["release-notes", contractId],
+        queryKey: queryKeys.releaseNotes(contractId),
       });
       setShowGenerateForm(false);
       setGenerateVersion("");
@@ -44,7 +45,7 @@ export default function ReleaseNotesPanel({ contractId }: ReleaseNotesProps) {
       api.updateReleaseNotes(contractId, version, { notes_text: text }),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["release-notes", contractId],
+        queryKey: queryKeys.releaseNotes(contractId),
       });
       setEditingVersion(null);
       setEditText("");
@@ -57,7 +58,7 @@ export default function ReleaseNotesPanel({ contractId }: ReleaseNotesProps) {
       api.publishReleaseNotes(contractId, version),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["release-notes", contractId],
+        queryKey: queryKeys.releaseNotes(contractId),
       });
     },
   });

@@ -21,6 +21,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface CompatibilityTestingMatrixProps {
   contractId: string;
@@ -207,19 +208,19 @@ export default function CompatibilityTestingMatrix({
     isError,
     error,
   } = useQuery({
-    queryKey: ["compatibility-matrix", contractId],
+    queryKey: queryKeys.compatibilityMatrix(contractId),
     queryFn: () => api.getCompatibilityMatrix(contractId),
     enabled: !!contractId,
   });
 
   const { data: history } = useQuery({
-    queryKey: ["compatibility-history", contractId],
+    queryKey: queryKeys.compatibilityHistory(contractId),
     queryFn: () => api.getCompatibilityHistory(contractId, 20),
     enabled: !!contractId && showHistory,
   });
 
   const { data: notifications } = useQuery({
-    queryKey: ["compatibility-notifications", contractId],
+    queryKey: queryKeys.compatibilityNotifications(contractId),
     queryFn: () => api.getCompatibilityNotifications(contractId),
     enabled: !!contractId,
   });
@@ -232,13 +233,13 @@ export default function CompatibilityTestingMatrix({
     }) => api.runCompatibilityTest(contractId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["compatibility-matrix", contractId],
+        queryKey: queryKeys.compatibilityMatrix(contractId),
       });
       queryClient.invalidateQueries({
-        queryKey: ["compatibility-history", contractId],
+        queryKey: queryKeys.compatibilityHistory(contractId),
       });
       queryClient.invalidateQueries({
-        queryKey: ["compatibility-notifications", contractId],
+        queryKey: queryKeys.compatibilityNotifications(contractId),
       });
     },
   });

@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, QueryNode } from '@/lib/api';
 import { Star, Trash2, Clock, Play, Loader2, Bookmark } from 'lucide-react';
+import { queryKeys } from "@/lib/queryKeys";
 
 interface FavoriteSearchesProps {
   onLoad: (query: QueryNode) => void;
@@ -13,14 +14,14 @@ export default function FavoriteSearches({ onLoad, className = '' }: FavoriteSea
   const queryClient = useQueryClient();
 
   const { data: favorites, isLoading } = useQuery({
-    queryKey: ['favorite-searches'],
+    queryKey: queryKeys.favoriteSearches(),
     queryFn: () => api.listFavoriteSearches(),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.deleteFavoriteSearch(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['favorite-searches'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.favoriteSearches() });
     },
   });
 

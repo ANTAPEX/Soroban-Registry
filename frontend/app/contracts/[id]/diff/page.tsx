@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import Navbar from "@/components/Navbar";
 import dynamic from "next/dynamic";
 import { ArrowLeft, GitCompare } from "lucide-react";
+import { queryKeys } from "@/lib/queryKeys";
 
 const ContractDiffViewer = dynamic(
   () => import("@/components/ContractDiffViewer"),
@@ -29,7 +30,7 @@ function DiffPageContent() {
   const contractId = Array.isArray(idParam) ? idParam[0] : (idParam ?? "");
 
   const contractQuery = useQuery({
-    queryKey: ["contract", contractId],
+    queryKey: queryKeys.contract(contractId),
     queryFn: () => api.fetchContract(contractId),
     enabled: !!contractId,
   });

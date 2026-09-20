@@ -10,6 +10,7 @@ import { PublisherContractsList } from "@/components/publisher/PublisherContract
 import { PublisherActivityTimeline } from "@/components/publisher/PublisherActivityTimeline";
 import Navbar from "@/components/Navbar";
 import { AlertCircle } from "lucide-react";
+import { queryKeys } from "@/lib/queryKeys";
 
 function PublisherProfileContent() {
   const params = useParams<{ address?: string | string[] }>() ?? {};
@@ -21,7 +22,7 @@ function PublisherProfileContent() {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["publisher", address],
+    queryKey: queryKeys.publisher(address),
     queryFn: () => getPublisher(address!),
     enabled: !!address,
   });

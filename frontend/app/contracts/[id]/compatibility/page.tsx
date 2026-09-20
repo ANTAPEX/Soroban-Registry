@@ -7,6 +7,7 @@ import { api, type CompatibilityMatrix } from "@/lib/api";
 import { CompatibilityMatrixDisplay } from "@/components/CompatibilityMatrix";
 import { ArrowLeft, GitCompare, Loader2 } from "lucide-react";
 import Navbar from "@/components/Navbar";
+import { queryKeys } from "@/lib/queryKeys";
 
 export default function CompatibilityPage() {
   const params = useParams<{ id?: string | string[] }>() ?? {};
@@ -14,7 +15,7 @@ export default function CompatibilityPage() {
   const contractId = Array.isArray(idParam) ? idParam[0] : idParam;
 
   const { data: contract } = useQuery({
-    queryKey: ["contract", contractId],
+    queryKey: queryKeys.contract(contractId),
     queryFn: () => api.fetchContract(contractId!),
     enabled: !!contractId,
   });
@@ -25,7 +26,7 @@ export default function CompatibilityPage() {
     isError,
     error,
   } = useQuery({
-    queryKey: ["compatibility", contractId],
+    queryKey: queryKeys.versionCompatibility(contractId),
     queryFn: async (): Promise<CompatibilityMatrix> => {
       const versions = await api.fetchContractVersions(contractId!);
       return {

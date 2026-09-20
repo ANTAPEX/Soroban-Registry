@@ -12,6 +12,7 @@ import {
   Flag,
   AlertTriangle,
 } from "lucide-react";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface ContractCommentsProps {
   contractId: string;
@@ -133,7 +134,7 @@ function CommentCard({
       api.voteComment(comment.id, contractId, direction),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["contract-comments", contractId],
+        queryKey: queryKeys.contractComments(contractId),
       });
     },
   });
@@ -142,7 +143,7 @@ function CommentCard({
     mutationFn: () => api.flagComment(comment.id, contractId, "spam"),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["contract-comments", contractId],
+        queryKey: queryKeys.contractComments(contractId),
       });
     },
   });
@@ -151,7 +152,7 @@ function CommentCard({
     mutationFn: (body: string) => api.postComment(contractId, body, comment.id),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["contract-comments", contractId],
+        queryKey: queryKeys.contractComments(contractId),
       });
       setReplyOpen(false);
       setReplyBody("");
@@ -295,7 +296,7 @@ export default function ContractComments({
   const [previewMode, setPreviewMode] = useState(false);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["contract-comments", contractId],
+    queryKey: queryKeys.contractComments(contractId),
     queryFn: () => api.getComments(contractId),
   });
 
@@ -303,7 +304,7 @@ export default function ContractComments({
     mutationFn: (body: string) => api.postComment(contractId, body),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["contract-comments", contractId],
+        queryKey: queryKeys.contractComments(contractId),
       });
       setCommentBody("");
       setPreviewMode(false);

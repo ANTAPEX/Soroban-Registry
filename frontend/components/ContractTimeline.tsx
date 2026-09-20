@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Zap
 } from 'lucide-react';
+import { queryKeys } from "@/lib/queryKeys";
 
 interface ContractTimelineProps {
   contractId: string;
@@ -30,7 +31,7 @@ export default function ContractTimeline({ contractId }: ContractTimelineProps) 
   const [selectedEvent, setSelectedEvent] = useState<AnalyticsEvent | null>(null);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['contract-timeline', contractId],
+    queryKey: queryKeys.contractTimeline(contractId),
     queryFn: () => api.getActivityFeed({ contract_id: contractId, limit: 100 }),
   });
 

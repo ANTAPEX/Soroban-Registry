@@ -12,6 +12,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useState } from "react";
+import { queryKeys } from "@/lib/queryKeys";
 
 export default function FormalVerificationPanel({
   contractId,
@@ -25,7 +26,7 @@ export default function FormalVerificationPanel({
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["formal-verification", contractId],
+    queryKey: queryKeys.formalVerification(contractId),
     queryFn: () => api.getFormalVerificationResults(contractId),
   });
 

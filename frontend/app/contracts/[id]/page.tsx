@@ -37,6 +37,7 @@ import { useContractAutoRefresh } from "@/hooks/useContractAutoRefresh";
 import ContractInteractionFlow from "@/components/contracts/ContractInteractionFlow";
 import ContractAbiMethodExplorer from "@/components/contracts/ContractAbiMethodExplorer";
 import VerificationBadge from "@/components/verification/VerificationBadge";
+import { queryKeys } from "@/lib/queryKeys";
 
 const NETWORKS: Network[] = ["mainnet", "testnet", "futurenet"];
 const TAB_IDS = [
@@ -92,19 +93,19 @@ function ContractDetailsContent() {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["contract", id],
+    queryKey: queryKeys.contract(id),
     queryFn: () => api.fetchContract(id!),
     enabled: !!id,
   });
 
   useQuery({
-    queryKey: ["contract-dependencies", id],
+    queryKey: queryKeys.contractDependencies(id),
     queryFn: () => api.fetchDependencyTree(id!),
     enabled: !!id && !!contract && activeTab === "overview",
   });
 
   const { data: versions = [] } = useQuery({
-    queryKey: ["contract-versions", id],
+    queryKey: queryKeys.contractVersions(id),
     queryFn: () => api.fetchContractVersions(id!),
     enabled:
       !!id &&
@@ -121,26 +122,26 @@ function ContractDetailsContent() {
   }, [versions]);
 
   const { data: abiResponse, isLoading: abiLoading } = useQuery({
-    queryKey: ["contract-abi", id, latestVersion?.version],
+    queryKey: queryKeys.contractAbi(id, latestVersion?.version),
     queryFn: () => api.fetchContractAbi(id!, latestVersion?.version),
     enabled: !!id && !!contract && activeTab === "abi",
   });
 
   const { data: analyticsData } = useQuery({
-    queryKey: ["contract-analytics-summary", id],
+    queryKey: queryKeys.contractAnalyticsSummary(id),
     queryFn: () => api.fetchContractAnalytics(id!),
     enabled:
       !!id && !!contract && ["interactions", "deployments"].includes(activeTab),
   });
 
   const { data: interactionsData } = useQuery({
-    queryKey: ["contract-interactions", id],
+    queryKey: queryKeys.contractInteractions(id),
     queryFn: () => api.fetchContractInteractions(id!, { limit: 10, offset: 0 }),
     enabled: !!id && !!contract && activeTab === "interactions",
   });
 
   const { data: changelog } = useQuery({
-    queryKey: ["contract-changelog", id],
+    queryKey: queryKeys.contractChangelog(id),
     queryFn: () => api.fetchContractChangelog(id!),
     enabled: !!id && !!contract && activeTab === "history",
   });
@@ -191,7 +192,7 @@ function ContractDetailsContent() {
   }, [error, id, logEvent]);
 
   const { data: deprecationInfo } = useQuery({
-    queryKey: ["contract-deprecation", id],
+    queryKey: queryKeys.contractDeprecation(id),
     queryFn: () => api.fetchDeprecationInfo(id!),
     enabled: !!id && !!contract,
   });

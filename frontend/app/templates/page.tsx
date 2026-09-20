@@ -7,6 +7,7 @@ import { Sparkles, Terminal } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { useAnalytics } from "@/hooks/useAnalytics";
 import { useEffect } from "react";
+import { queryKeys } from "@/lib/queryKeys";
 
 export default function TemplatesPage() {
   const {
@@ -14,7 +15,7 @@ export default function TemplatesPage() {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["templates"],
+    queryKey: queryKeys.templates(),
     queryFn: () => api.getTemplates(),
   });
   const { logEvent } = useAnalytics();

@@ -7,6 +7,7 @@ import ExampleCard from "./ExampleCard";
 import ExampleCardSkeleton from "./ExampleCardSkeleton";
 import { AlertCircle, Terminal, Search } from "lucide-react";
 import { useAnalytics } from "@/hooks/useAnalytics";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface ExampleGalleryProps {
   contractId: string;
@@ -18,7 +19,7 @@ export default function ExampleGallery({ contractId }: ExampleGalleryProps) {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["contract-examples", contractId],
+    queryKey: queryKeys.contractExamples(contractId),
     queryFn: () => api.getContractExamples(contractId),
   });
   const { logEvent } = useAnalytics();

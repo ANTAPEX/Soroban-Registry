@@ -8,6 +8,7 @@ import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { AlertCircle, ExternalLink, X, Info } from "lucide-react";
 import type { DependencyGraphHandle } from "@/components/DependencyGraph";
 import { useRouter } from "next/navigation";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface ContractInteractionFlowProps {
   contractId: string;
@@ -33,7 +34,7 @@ export default function ContractInteractionFlow({
     error,
     refetch,
   } = useQuery({
-    queryKey: ["contract-local-graph", contractId, depth],
+    queryKey: queryKeys.contractLocalGraph(contractId, depth),
     queryFn: () => api.getContractLocalGraph(contractId, depth),
   });
 

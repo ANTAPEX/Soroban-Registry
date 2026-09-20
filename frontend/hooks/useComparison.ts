@@ -17,6 +17,7 @@ import {
   parseContractIdsFromSearch,
   replaceUrlContractIds,
 } from "@/utils/urlState";
+import { queryKeys } from "@/lib/queryKeys";
 
 type ComparisonMetric = {
   key: ComparisonMetricKey;
@@ -61,7 +62,7 @@ export function useComparison() {
   }, [selectedIds]);
 
   const contractsSearchQuery = useQuery({
-    queryKey: ["compare", "contracts-search", searchQuery],
+    queryKey: queryKeys.compareSearch(searchQuery),
     queryFn: async () => {
       const res = await api.getContracts({
         query: searchQuery || undefined,
@@ -76,7 +77,7 @@ export function useComparison() {
   });
 
   const selectedContractsQuery = useQuery({
-    queryKey: ["compare", "selected-contracts", selectedIds],
+    queryKey: queryKeys.compareSelected(selectedIds),
     queryFn: async () => {
       const ids = selectedIds.slice(0, 4);
       if (ids.length === 0) return [];

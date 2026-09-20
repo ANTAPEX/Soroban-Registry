@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import CompatibilityTestingMatrix from "@/components/CompatibilityTestingMatrix";
 import { ArrowLeft, FlaskConical } from "lucide-react";
 import Navbar from "@/components/Navbar";
+import { queryKeys } from "@/lib/queryKeys";
 
 export default function CompatibilityTestingPage() {
   const params = useParams<{ id?: string | string[] }>() ?? {};
@@ -14,7 +15,7 @@ export default function CompatibilityTestingPage() {
   const contractId = Array.isArray(idParam) ? idParam[0] : idParam;
 
   const { data: contract } = useQuery({
-    queryKey: ["contract", contractId],
+    queryKey: queryKeys.contract(contractId),
     queryFn: () => api.fetchContract(contractId!),
     enabled: !!contractId,
   });

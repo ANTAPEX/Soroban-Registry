@@ -21,6 +21,7 @@ import { api } from "@/lib/api";
 import type { Contract, ContractSearchParams } from "@/types";
 import ContractCard from "@/components/ContractCard";
 import ContractCardSkeleton from "@/components/ContractCardSkeleton";
+import { queryKeys } from "@/lib/queryKeys";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -507,7 +508,7 @@ export function AdvancedContractSearch() {
   );
 
   const { data, isFetching, isPending } = useQuery({
-    queryKey: ["contracts", apiParams],
+    queryKey: queryKeys.contractsList(apiParams),
     queryFn: () => api.getContracts(apiParams),
     placeholderData: (prev) => prev,
     staleTime: 30_000,
