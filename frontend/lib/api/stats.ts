@@ -1,5 +1,5 @@
 import { API_URL, USE_MOCKS } from "@/lib/env";
-import type { StatsResponse, TimePeriod } from "@/types";
+import type { StatsResponse, TimePeriod, LegacyStatsResponse } from "@/types";
 
 
 export async function fetchStats(period: TimePeriod): Promise<StatsResponse> {
@@ -104,4 +104,39 @@ function generateTrendData(days: number): { date: string; count: number }[] {
     });
   }
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// Moved here from lib/api.ts (stage 5b)
+// ---------------------------------------------------------------------------
+
+export async function getStats(
+  period: TimePeriod = "all-time",
+): Promise<LegacyStatsResponse> {
+  const response = await fetch(`${API_URL}/api/stats?period=${encodeURIComponent(period)}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch stats: ${response.status}`);
+  }
+
+  const rawStats = (await response.json()) as {
+    total_contracts: number;
+    verified_contracts: number;
+    total_publishers: number;
+  };
+
+  return {
+    total_contracts: rawStats.total_contracts,
+    verified_contracts: rawStats.verified_contracts,
+    total_publishers: rawStats.total_publishers,
+    totalContracts: rawStats.total_contracts,
+    verifiedPercentage:
+      rawStats.total_contracts > 0
+        ? (rawStats.verified_contracts / rawStats.total_contracts) * 100
+        : 0,
+    totalPublishers: rawStats.total_publishers,
+    networkBreakdown: [],
+    contractsByCategory: [],
+    deploymentsTrend: [],
+    topPublishers: [],
+  };
 }

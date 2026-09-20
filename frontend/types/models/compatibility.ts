@@ -62,3 +62,22 @@ export interface CompatibilityNotification {
   is_read: boolean;
   created_at: string;
 }
+
+export interface CompatibilityEntry {
+  target_version: string;
+  is_compatible: boolean;
+  breaking_change_count: number;
+  breaking_changes: string[];
+}
+
+export interface CompatibilityMatrixRow {
+  source_version: string;
+  targets: CompatibilityEntry[];
+}
+
+export interface CompatibilityMatrix {
+  warnings: string[];
+  version_order: string[];
+  total_pairs: number;
+  rows: CompatibilityMatrixRow[];
+}

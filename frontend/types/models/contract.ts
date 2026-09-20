@@ -179,43 +179,78 @@ export interface ContractInteraction {
 }
 
 export interface InteractionsQueryParams {
-  method?: string;
-  caller?: string;
-  account?: string;
-  from_ledger?: number;
-  to_ledger?: number;
-  from_date?: string;
-  to_date?: string;
-  from_timestamp?: string;
-  to_timestamp?: string;
   limit?: number;
   offset?: number;
+  account?: string;
+  method?: string;
+  from_timestamp?: string;
+  to_timestamp?: string;
 }
 
 export interface InteractionsListResponse {
-  interactions: ContractInteraction[];
+  items: ContractInteractionResponse[];
   total: number;
   limit: number;
   offset: number;
 }
 
 export interface ContractInteractionResponse {
-  contract_id: string;
-  network: Network;
-  total_count: number;
-  recent_interactions: ContractInteraction[];
-  top_methods: Array<{ method: string; count: number }>;
-  top_callers: Array<{ caller: string; count: number }>;
+  id: string;
+  account: string | null;
+  method: string | null;
+  parameters: unknown;
+  return_value: unknown;
+  transaction_hash: string | null;
+  created_at: string;
 }
 
-export type PublishRequest = {
+export interface PublishRequest {
   contract_id: string;
-  publisher_id: string;
-  network: Network;
   wasm_hash: string;
-  name?: string;
+  name: string;
   description?: string;
+  network: "mainnet" | "testnet" | "futurenet";
   category?: string;
-  tags?: string[];
-  logo_url?: string;
-};
+  tags: string[];
+  source_url?: string;
+  publisher_address: string;
+}
+
+export interface ContractExample {
+  id: string;
+  contract_id: string;
+  title: string;
+  category: string;
+  description?: string;
+  code_js?: string;
+  code_rust?: string;
+  rating_up: number;
+  rating_down: number;
+  repo_avatar_url?: string;
+  repo_avatar_blurhash?: string;
+  repo_avatar_placeholder_color?: string;
+  thumbnail_url?: string;
+  thumbnail_blurhash?: string;
+  thumbnail_placeholder_color?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Template {
+  id: string;
+  slug: string;
+  name: string;
+  version: string;
+  category: string;
+  description?: string;
+  install_count: number;
+  parameters: TemplateParameter[];
+  created_at?: string;
+}
+
+export interface TemplateParameter {
+  name: string;
+  type?: string;
+  description?: string;
+  default?: string | number;
+}
