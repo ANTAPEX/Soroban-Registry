@@ -467,7 +467,7 @@ export function GraphContent() {
                         </div>
                         <div className="bg-card p-2.5 text-center">
                             <div className={`text-sm font-bold ${selectedNode.is_verified ? 'text-green-500' : 'text-muted-foreground'}`}>
-                                {selectedNode.is_verified ? `✓ ${t('common.yes', 'Yes')}` : '—'}
+                                {selectedNode.is_verified ? t('common.yes', 'Yes') : '—'}
                             </div>
                             <div className="text-[10px] text-muted-foreground">{t('graph.verified')}</div>
                         </div>
