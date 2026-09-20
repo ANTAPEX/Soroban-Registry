@@ -171,12 +171,15 @@ pub async fn check_org_role(
 
     let role = member_row.ok_or(StatusCode::FORBIDDEN)?.0;
 
-    let has_access = match (min_role, &role) {
-        (OrganizationRole::Admin, OrganizationRole::Admin) => true,
-        (OrganizationRole::Member, OrganizationRole::Admin | OrganizationRole::Member) => true,
-        (OrganizationRole::Viewer, _) => true,
-        _ => false,
-    };
+    let has_access = matches!(
+        (min_role, &role),
+        (OrganizationRole::Admin, OrganizationRole::Admin)
+            | (
+                OrganizationRole::Member,
+                OrganizationRole::Admin | OrganizationRole::Member
+            )
+            | (OrganizationRole::Viewer, _)
+    );
 
     if has_access {
         Ok(role)

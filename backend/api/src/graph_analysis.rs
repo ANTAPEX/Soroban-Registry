@@ -259,8 +259,8 @@ pub fn pagerank(g: &AnalysisGraph) -> Vec<f64> {
             * PAGERANK_DAMPING
             / n as f64;
 
-        for v in 0..n {
-            next[v] += dangling_mass;
+        for slot in next.iter_mut().take(n) {
+            *slot += dangling_mass;
         }
 
         for u in 0..n {

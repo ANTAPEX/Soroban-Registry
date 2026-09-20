@@ -46,7 +46,7 @@ use shared::{
 // NOTE: All types are now imported from the shared crate.
 // Duplicate definitions have been removed to maintain a single source of truth.
 // ────────────────────────────────────────────────────────────────────────────
-use sqlx::{error::DatabaseError, Postgres, QueryBuilder};
+use sqlx::{Postgres, QueryBuilder};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path as StdPath, PathBuf};
@@ -6298,15 +6298,6 @@ pub async fn update_contract_metadata(
     )
     .await?;
 
-    // Fetch before tags for audit log
-    let before_tag_names: Vec<String> = sqlx::query_scalar::<_, String>(
-        "SELECT t.name FROM tags t JOIN contract_tags ct ON t.id = ct.tag_id WHERE ct.contract_id = $1",
-    )
-    .bind(before.id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|err| db_internal_error("fetch before tags", err))?;
-
     let mut tx = state
         .db
         .begin()
@@ -6330,9 +6321,7 @@ pub async fn update_contract_metadata(
     .await
     .map_err(|err| db_internal_error("update contract metadata", err))?;
 
-    let mut after_tag_names = before_tag_names.clone();
     if let Some(tag_names) = &req.tags {
-        after_tag_names = tag_names.clone();
         sqlx::query("DELETE FROM contract_tags WHERE contract_id = $1")
             .bind(contract_uuid)
             .execute(&mut *tx)
@@ -8800,7 +8789,7 @@ pub async fn post_contract_interactions_batch(
         let interaction_type =
             parse_interaction_type(i.interaction_type.as_deref(), i.method.as_deref())?;
         let created_at = i.timestamp.unwrap_or_else(chrono::Utc::now);
-        let network = i.network.unwrap_or_else(|| contract_network);
+        let network = i.network.unwrap_or(contract_network);
         let target_contract_id = resolve_call_target_contract(
             &state.db,
             i.target_contract_id.as_deref(),

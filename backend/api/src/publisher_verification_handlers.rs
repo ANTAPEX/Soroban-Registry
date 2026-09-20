@@ -89,7 +89,7 @@ fn check_token(_email: &str, token: Option<&str>) -> bool {
             // to proceed as "pending".
             false
         }
-        Some(tok) if tok.is_empty() => false,
+        Some("") => false,
         Some(tok) => {
             // Accept any non-empty token for testing purposes.
             // Key invariant: the token must reference the email somehow.

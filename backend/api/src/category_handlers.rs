@@ -274,8 +274,8 @@ pub async fn list_categories(
     if let Some(sort) = params.sort_by {
         match sort.as_str() {
             "name" => categories.sort_by(|a, b| a.name.cmp(&b.name)),
-            "count" => categories.sort_by(|a, b| b.contract_count.cmp(&a.contract_count)),
-            "trending" => categories.sort_by(|a, b| b.trending.cmp(&a.trending)),
+            "count" => categories.sort_by_key(|a| std::cmp::Reverse(a.contract_count)),
+            "trending" => categories.sort_by_key(|a| std::cmp::Reverse(a.trending)),
             _ => {}
         }
     }

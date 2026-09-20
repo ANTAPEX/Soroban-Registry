@@ -3,14 +3,14 @@
 //! Two endpoints:
 //!
 //!   * `POST /api/contracts/:contract_id/checkout` (authed)
-//!       Creates a Stripe Checkout Session for the given plan and
-//!       records a row in `marketplace_stripe_payments` so the webhook
-//!       can find it on completion.
+//!     Creates a Stripe Checkout Session for the given plan and
+//!     records a row in `marketplace_stripe_payments` so the webhook
+//!     can find it on completion.
 //!
 //!   * `POST /api/marketplace/stripe/webhook` (public, HMAC-verified)
-//!       Receives Stripe webhook events. Verifies the `Stripe-Signature`
-//!       header, dedupes by event id (Stripe retries on 5xx), and
-//!       issues the license on `checkout.session.completed`.
+//!     Receives Stripe webhook events. Verifies the `Stripe-Signature`
+//!     header, dedupes by event id (Stripe retries on 5xx), and
+//!     issues the license on `checkout.session.completed`.
 //!
 //! The webhook handler accepts the raw request body bytes so the HMAC
 //! is computed over the exact payload Stripe signed; do NOT route this

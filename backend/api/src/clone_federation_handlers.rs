@@ -68,7 +68,7 @@ pub async fn clone_contract(
         })?;
 
     // Check if the new contract_id already exists on the target network
-    let target_network = req.network.unwrap_or_else(|| original.network);
+    let target_network = req.network.unwrap_or(original.network);
     let existing = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM contracts WHERE contract_id = $1 AND network = $2",
     )
@@ -107,7 +107,7 @@ pub async fn clone_contract(
     let tags_strings: Vec<String> = req
         .tags
         .as_ref()
-        .map(|tags| tags.iter().cloned().collect())
+        .map(|tags| tags.to_vec())
         .unwrap_or_else(|| original.tags.iter().map(|t| t.name.clone()).collect());
 
     // Insert the cloned contract

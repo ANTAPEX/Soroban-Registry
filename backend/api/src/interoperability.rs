@@ -525,17 +525,18 @@ fn has_capability(
     capabilities: &[InteroperabilityCapability],
     target_kind: InteroperabilityCapabilityKind,
 ) -> bool {
-    capabilities
-        .iter()
-        .any(|capability| match (&capability.kind, &target_kind) {
-            (InteroperabilityCapabilityKind::Bridge, InteroperabilityCapabilityKind::Bridge) => {
-                true
-            }
-            (InteroperabilityCapabilityKind::Adapter, InteroperabilityCapabilityKind::Adapter) => {
-                true
-            }
-            _ => false,
-        })
+    capabilities.iter().any(|capability| {
+        matches!(
+            (&capability.kind, &target_kind),
+            (
+                InteroperabilityCapabilityKind::Bridge,
+                InteroperabilityCapabilityKind::Bridge
+            ) | (
+                InteroperabilityCapabilityKind::Adapter,
+                InteroperabilityCapabilityKind::Adapter
+            )
+        )
+    })
 }
 
 fn count_capabilities(
@@ -544,14 +545,17 @@ fn count_capabilities(
 ) -> usize {
     capabilities
         .iter()
-        .filter(|capability| match (&capability.kind, &target_kind) {
-            (InteroperabilityCapabilityKind::Bridge, InteroperabilityCapabilityKind::Bridge) => {
-                true
-            }
-            (InteroperabilityCapabilityKind::Adapter, InteroperabilityCapabilityKind::Adapter) => {
-                true
-            }
-            _ => false,
+        .filter(|capability| {
+            matches!(
+                (&capability.kind, &target_kind),
+                (
+                    InteroperabilityCapabilityKind::Bridge,
+                    InteroperabilityCapabilityKind::Bridge
+                ) | (
+                    InteroperabilityCapabilityKind::Adapter,
+                    InteroperabilityCapabilityKind::Adapter
+                )
+            )
         })
         .count()
 }
