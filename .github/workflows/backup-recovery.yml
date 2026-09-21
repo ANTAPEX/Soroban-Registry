@@ -37,7 +37,7 @@ jobs:
     name: Lint backup scripts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Run shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
@@ -49,7 +49,7 @@ jobs:
     name: Point-in-time recovery rehearsal
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install PostgreSQL
         run: |
@@ -70,7 +70,7 @@ jobs:
     name: Validate the backup stack
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate compose files
         # Every variable the compose files mark required with :?. There is no
         # .env on a runner, and `docker compose` silently reads one when it
