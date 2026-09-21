@@ -19,6 +19,21 @@ use tower::ServiceExt;
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
+/// Serialises the tests in this file.
+///
+/// Every test here mutates process-global state: the `RATE_LIMIT_*` environment
+/// variables, and the shared `RATE_LIMIT_BYPASS_TOTAL` counters that several of
+/// them assert exact deltas against. `cargo test` runs the tests within a
+/// binary in parallel, so without this they clobber each other's environment
+/// and each other's counter deltas.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Take the serial lock, ignoring poisoning so one failing test does not
+/// cascade into spurious failures for the rest of the file.
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Build a minimal app that uses rate_limit_middleware backed by the given
 /// `RateLimitState`.  The single route always returns 200 OK.
 fn app_with_state(state: RateLimitState) -> Router {
@@ -48,6 +63,7 @@ async fn send(app: &Router, uri: &str, headers: Vec<(&str, &str)>) -> axum::resp
 /// needing a tracing subscriber shim in integration tests.
 #[tokio::test]
 async fn trusted_ip_bypasses_rate_limit_and_gets_200() {
+    let _serial = serial();
     // Very tight limit so normal traffic would be blocked immediately.
     let state = {
         // Set env vars before constructing the state so from_env picks them up.
@@ -75,6 +91,7 @@ async fn trusted_ip_bypasses_rate_limit_and_gets_200() {
 /// A request with a trusted API key must also bypass rate limiting.
 #[tokio::test]
 async fn trusted_api_key_bypasses_rate_limit_and_gets_200() {
+    let _serial = serial();
     let state = {
         std::env::set_var("RATE_LIMIT_TRUSTED_API_KEYS", "secret-key-abc");
         std::env::set_var("RATE_LIMIT_API_KEY_PER_MINUTE", "1");
@@ -98,6 +115,7 @@ async fn trusted_api_key_bypasses_rate_limit_and_gets_200() {
 /// A `Bearer` token listed in the trusted keys must also bypass the limiter.
 #[tokio::test]
 async fn trusted_bearer_token_bypasses_rate_limit() {
+    let _serial = serial();
     let state = {
         std::env::set_var("RATE_LIMIT_TRUSTED_API_KEYS", "bearer-token-xyz");
         std::env::set_var("RATE_LIMIT_API_KEY_PER_MINUTE", "1");
@@ -128,6 +146,7 @@ async fn trusted_bearer_token_bypasses_rate_limit() {
 /// Untrusted IPs must still be subject to the normal rate limit.
 #[tokio::test]
 async fn untrusted_ip_is_still_rate_limited() {
+    let _serial = serial();
     let state = {
         std::env::set_var("RATE_LIMIT_TRUSTED_IPS", "10.0.0.1");
         std::env::set_var("RATE_LIMIT_IP_PER_MINUTE", "2");
@@ -157,10 +176,12 @@ async fn untrusted_ip_is_still_rate_limited() {
 ///
 /// We read the counter value directly from the Lazy static — this is reliable
 /// because the static is process-global and `prometheus` counters are
-/// cumulative.  We subtract the baseline read at the start of the test to
-/// isolate our increments from any parallel test activity.
+/// cumulative. Baseline subtraction alone does NOT isolate this from sibling
+/// tests, which bump the same labels; the `serial()` lock above is what makes
+/// the delta meaningful.
 #[tokio::test]
 async fn bypass_increments_prometheus_counter() {
+    let _serial = serial();
     use api::metrics::RATE_LIMIT_BYPASS_TOTAL;
 
     // Snapshot the counter before we start.
@@ -233,6 +254,7 @@ async fn bypass_increments_prometheus_counter() {
 /// inspecting the atomic counter through the public API.
 #[tokio::test]
 async fn spike_detection_does_not_panic_and_counts_correctly() {
+    let _serial = serial();
     let state = {
         // Low spike threshold so we can cross it quickly.
         std::env::set_var("RATE_LIMIT_BYPASS_SPIKE_THRESHOLD", "3");

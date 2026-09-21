@@ -3,19 +3,52 @@
 // Unit tests for the usage_count migration.
 // Tests validate SQL syntax, constraint behavior, and index creation
 
+use std::path::PathBuf;
+
+/// Resolve the migration by its name suffix rather than its full filename.
+///
+/// The numeric version prefix is not stable: these migrations have already been
+/// renumbered once to resolve duplicate version numbers, which moved this file
+/// from 20260427000000 to 20260427000002 and left the hardcoded path here
+/// pointing at an unrelated migration. Matching on the suffix survives the next
+/// renumbering.
+fn migration_path() -> PathBuf {
+    const SUFFIX: &str = "_add_usage_count.sql";
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../database/migrations")
+        .canonicalize()
+        .expect("migrations directory should exist");
+
+    let mut matches: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .expect("migrations directory should be readable")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(SUFFIX))
+        })
+        .collect();
+    matches.sort();
+
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected exactly one migration ending in {SUFFIX} under {}, found {matches:?}",
+        dir.display()
+    );
+    matches.remove(0)
+}
+
 #[test]
 fn test_migration_file_exists() {
-    let migration_path = "../../database/migrations/20260427000000_add_usage_count.sql";
-    assert!(
-        std::path::Path::new(migration_path).exists(),
-        "Migration file should exist at {}",
-        migration_path
-    );
+    let path = migration_path();
+    assert!(path.exists(), "Migration file should exist at {path:?}");
 }
 
 #[test]
 fn test_migration_contains_required_elements() {
-    let migration_path = "../../database/migrations/20260427000000_add_usage_count.sql";
+    let migration_path = migration_path();
     let content =
         std::fs::read_to_string(migration_path).expect("Should be able to read migration file");
 
@@ -38,7 +71,7 @@ fn test_migration_contains_required_elements() {
 
 #[test]
 fn test_migration_sql_syntax() {
-    let migration_path = "../../database/migrations/20260427000000_add_usage_count.sql";
+    let migration_path = migration_path();
     let content =
         std::fs::read_to_string(migration_path).expect("Should be able to read migration file");
 
@@ -54,7 +87,7 @@ fn test_migration_sql_syntax() {
 
 #[test]
 fn test_constraint_name_follows_convention() {
-    let migration_path = "../../database/migrations/20260427000000_add_usage_count.sql";
+    let migration_path = migration_path();
     let content =
         std::fs::read_to_string(migration_path).expect("Should be able to read migration file");
 
@@ -66,7 +99,7 @@ fn test_constraint_name_follows_convention() {
 
 #[test]
 fn test_index_name_follows_convention() {
-    let migration_path = "../../database/migrations/20260427000000_add_usage_count.sql";
+    let migration_path = migration_path();
     let content =
         std::fs::read_to_string(migration_path).expect("Should be able to read migration file");
 

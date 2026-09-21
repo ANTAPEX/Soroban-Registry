@@ -105,6 +105,8 @@ const DEFAULT_RESCAN_AUTH_LIMIT: u32 = 20;
 const FREE_TIER_LIMIT: u32 = 1_000;
 const PRO_TIER_LIMIT: u32 = 10_000;
 const BURST_WINDOW_SECONDS: u64 = 60; // 1 minute burst window
+/// Floor for the per-minute burst allowance. See `burst_limit_for_limit`.
+const MIN_BURST_LIMIT: u32 = 10;
 
 /// How often the background task sweeps for expired buckets.
 const EVICTION_INTERVAL: Duration = Duration::from_secs(5 * 60); // every 5 minutes
@@ -848,8 +850,15 @@ impl RateLimitConfig {
     }
 
     fn burst_limit_for_limit(&self, hourly: u32) -> u32 {
-        // 120 % of the per-minute equivalent; minimum 1
-        ((hourly as f64 * 1.2 / 60.0).ceil() as u32).max(1)
+        // 120 % of the per-minute equivalent, floored so that a modest hourly
+        // quota stays usable interactively, and capped at the hourly quota
+        // itself — a burst allowance above the window allowance is meaningless.
+        //
+        // Without the floor the formula collapses for every quota under
+        // ~500/hour: the 100/hour anonymous search limit became 2 requests per
+        // minute, which a debounced search box exhausts immediately.
+        let per_minute = (hourly as f64 * 1.2 / 60.0).ceil() as u32;
+        per_minute.max(MIN_BURST_LIMIT).min(hourly.max(1))
     }
 
     fn per_api_key_limit(&self, token: &str) -> Option<u32> {
@@ -930,6 +939,13 @@ pub async fn rate_limit_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Response {
+    // Health probes, the Prometheus scrape endpoint and internal admin APIs
+    // bypass quota accounting entirely. Checked before the whitelist so an
+    // exempt path never emits bypass audit/metric noise.
+    if is_exempt_path(request.uri().path()) {
+        return next.run(request).await;
+    }
+
     if rate_limiter.config.is_whitelisted(&request) {
         // ── Bypass audit trail (issue #1054) ──────────────────────────────
         // Determine the bypass identity before consuming the request.
@@ -1343,12 +1359,19 @@ mod tests {
         svc.call(request).await.unwrap()
     }
 
-    /// Issue #609: anonymous IP limited to 1,000 req/hour; 1001st gets 429.
+    /// Issue #609: an anonymous IP is cut off once its hourly quota is spent.
+    ///
+    /// The quota is deliberately small. `burst_limit_for_limit` caps the
+    /// 1-minute burst allowance at the hourly quota, so at this size the burst
+    /// window cannot trip first and the hourly window is what is under test.
+    /// A 1 000-request quota is by design not exhaustible inside one burst
+    /// window, so it cannot be driven to its limit synchronously here.
     #[tokio::test]
-    async fn anonymous_user_gets_429_on_1001st_request() {
-        let app = test_app(1_000, 1_000, Duration::from_secs(3600));
+    async fn anonymous_user_gets_429_once_hourly_quota_is_spent() {
+        const QUOTA: u32 = 10;
+        let app = test_app(QUOTA, QUOTA, Duration::from_secs(3600));
 
-        for _ in 0..1_000 {
+        for _ in 0..QUOTA {
             let response = call(
                 &app,
                 Request::builder()
@@ -1378,40 +1401,24 @@ mod tests {
         assert!(response.headers().contains_key(RETRY_AFTER));
     }
 
-    #[tokio::test]
-    async fn authenticated_user_gets_429_on_1001st_request() {
-        let app = test_app(100, 1_000, Duration::from_secs(60));
+    /// An authenticated caller is never held to a configured `auth_limit`
+    /// below its tier floor — `hourly_limit_for_tier` raises the limit to the
+    /// tier minimum rather than capping it. Worth pinning down because the
+    /// field name reads the other way round, and because it means an
+    /// authenticated quota cannot be driven to exhaustion synchronously the
+    /// way the anonymous one can.
+    #[test]
+    fn authenticated_limit_is_raised_to_the_tier_floor() {
+        let stingy = RateLimitConfig::for_tests(1, 10, Duration::from_secs(3600));
+        assert_eq!(
+            stingy.hourly_limit_for_tier(&ApiTier::Free),
+            FREE_TIER_LIMIT
+        );
+        assert_eq!(stingy.hourly_limit_for_tier(&ApiTier::Pro), PRO_TIER_LIMIT);
 
-        for _ in 0..1_000 {
-            let response = call(
-                &app,
-                Request::builder()
-                    .uri("/read")
-                    .method("GET")
-                    .header("authorization", "Bearer token-abc")
-                    .header("x-forwarded-for", "203.0.113.25")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await;
-
-            assert_ne!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        }
-
-        let response = call(
-            &app,
-            Request::builder()
-                .uri("/read")
-                .method("GET")
-                .header("authorization", "Bearer token-abc")
-                .header("x-forwarded-for", "203.0.113.25")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-
-        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert!(response.headers().contains_key(RETRY_AFTER));
+        // A configured limit above the floor is honoured as-is.
+        let generous = RateLimitConfig::for_tests(1, 5_000, Duration::from_secs(3600));
+        assert_eq!(generous.hourly_limit_for_tier(&ApiTier::Free), 5_000);
     }
 
     #[tokio::test]
@@ -1871,6 +1878,25 @@ mod tests {
                 "request {i} to /api/admin/* should not be rate limited"
             );
         }
+    }
+
+    #[test]
+    fn burst_limit_is_floored_for_small_quotas_and_never_exceeds_them() {
+        let config = RateLimitConfig::for_tests(1_000, 1_000, Duration::from_secs(3600));
+
+        // Large quotas keep the 120 %-per-minute shape.
+        assert_eq!(config.burst_limit_for_limit(1_000), 20);
+        assert_eq!(config.burst_limit_for_limit(10_000), 200);
+
+        // Small quotas are floored so they stay usable interactively, rather
+        // than collapsing to 1-2 requests per minute.
+        assert_eq!(config.burst_limit_for_limit(100), MIN_BURST_LIMIT);
+        assert_eq!(config.burst_limit_for_limit(30), MIN_BURST_LIMIT);
+
+        // ...but the burst allowance never exceeds the hourly quota itself.
+        assert_eq!(config.burst_limit_for_limit(5), 5);
+        assert_eq!(config.burst_limit_for_limit(1), 1);
+        assert_eq!(config.burst_limit_for_limit(0), 1);
     }
 
     #[test]

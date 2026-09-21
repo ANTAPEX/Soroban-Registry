@@ -50,7 +50,8 @@ describe('FilterPanel', () => {
       (button) => button.textContent?.includes('Reset'),
     );
 
-    expect(container.textContent).toContain('2 active filters');
+    // activeFilterCount gates the reset control; the panel does not render a
+    // count label.
     expect(resetButton).toBeTruthy();
 
     act(() => {

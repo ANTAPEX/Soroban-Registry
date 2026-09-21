@@ -1,4 +1,3 @@
-import { describe, it, expect } from "vitest";
 import { resilientCall, getBreaker } from "../lib/resilience";
 
 describe("resilientCall", () => {

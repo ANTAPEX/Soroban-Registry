@@ -2,7 +2,9 @@
 //!
 //! Tokens are standard JOSE-format JWTs with `alg: EdDSA`:
 //!
-//!     header_b64url . claims_b64url . sig_b64url
+//! ```text
+//! header_b64url . claims_b64url . sig_b64url
+//! ```
 //!
 //! We sign with `ed25519-dalek` directly rather than going through
 //! `jsonwebtoken` so the env-var-provided seed can be used verbatim — no
@@ -12,7 +14,9 @@
 //! The signing key is loaded from `MARKETPLACE_LICENSE_SIGNING_KEY` as a
 //! base64-encoded 32-byte Ed25519 seed. Generate one with:
 //!
-//!     openssl rand -base64 32
+//! ```sh
+//! openssl rand -base64 32
+//! ```
 //!
 //! Public-key bytes are also exposed at the API so clients can verify
 //! tokens offline.
@@ -201,10 +205,12 @@ mod tests {
         let s = signer();
         let token = s.sign(&sample_claims()).unwrap();
         let mut parts: Vec<&str> = token.split('.').collect();
-        // Flip last byte of signature
+        // Flip last byte of signature. Must land on a *different* character —
+        // unconditionally pushing 'A' is a no-op whenever the signature already
+        // ends in 'A', which left this test failing roughly one run in 64.
         let mut sig = parts[2].to_string();
-        sig.pop();
-        sig.push('A');
+        let last = sig.pop().expect("signature segment is non-empty");
+        sig.push(if last == 'A' { 'B' } else { 'A' });
         parts[2] = &sig;
         let tampered = parts.join(".");
         assert!(matches!(

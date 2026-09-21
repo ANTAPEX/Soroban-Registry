@@ -4,7 +4,7 @@ use axum::{
 };
 use serde_json::json;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use api::auth::AuthManager;
@@ -49,6 +49,17 @@ async fn test_state() -> AppState {
         ai_service: None,
         state_monitor: None,
         rate_limit_state: Arc::new(RateLimitState::from_env()),
+        db_breaker: Arc::new(api::db_resilience::CircuitBreaker::new(
+            5,
+            Duration::from_secs(30),
+        )),
+        db_queue: Arc::new(api::db_resilience::DbQueue::new(
+            10,
+            100,
+            Duration::from_millis(500),
+        )),
+        feature_flags: Arc::new(api::feature_flags::FeatureFlagManager::new()),
+        encryption: Arc::new(api::crypto::EncryptionService::from_env()),
     }
 }
 
