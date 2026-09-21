@@ -16,8 +16,13 @@ npm run dev                    # http://localhost:3000
 
 `--legacy-peer-deps` is required, not a workaround for a broken machine: `@reduxjs/toolkit`
 1.9 declares a peer of React 18 and this app is on React 19, so a plain `npm ci` fails with
-`ERESOLVE`. The committed `package-lock.json` was resolved the same way. There are also
-`pnpm-lock.yaml` and `yarn.lock` in this directory; npm is what CI uses.
+`ERESOLVE`. The committed `package-lock.json` was resolved the same way.
+
+`package-lock.json` is the only lockfile, and that is deliberate. This directory used to
+carry `yarn.lock` and `pnpm-lock.yaml` as well, and Vercel picked Yarn 1 off the first of
+them, so the deployed site was built from a different lockfile than the one CI tested.
+`vercel.json` now pins the install command, so the tree that ships is the tree that was
+tested. Do not add a second lockfile back.
 
 ## How it is laid out
 
