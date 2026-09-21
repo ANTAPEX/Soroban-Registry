@@ -57,27 +57,27 @@ hex = { workspace = true }
 # `log::LevelFilter` for sqlx ConnectOptions::log_slow_statements (slow-query logging).
 log = "0.4"
 # secp256k1 ECDSA verification for the contract signature system (#888).
-k256 = { version = "0.13", features = ["ecdsa"] }
+k256 = { version = "0.14", features = ["ecdsa"] }
 moka = { version = "0.12.13", features = ["future"] }
 async-trait = "0.1.89"
-lru = "0.16.3"
+lru = "0.18.4"
 async-recursion = "1.1.1"
-ed25519-dalek = { version = "2.1", features = ["rand_core"] }
-jsonwebtoken = "9.3.0"
+ed25519-dalek = { version = "3.0", features = ["rand_core"] }
+jsonwebtoken = "11.1.0"
 tokio-tungstenite = { workspace = true }
 regex = "1.10"
 lazy_static = "1.4"
 wasmparser = { workspace = true }
 difference = "2.0"
 rust_decimal = { workspace = true }
-redis = { version = "0.28", features = ["tokio-rustls-comp", "json", "connection-manager", "tokio-comp"] }
+redis = { version = "1.7", features = ["tokio-rustls-comp", "json", "connection-manager", "tokio-comp"] }
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true, optional = true }
 async-graphql = { workspace = true }
 async-graphql-axum = { workspace = true }
 futures-util = "0.3"
 flate2 = "1.0"
-stellar-strkey = "0.0.16"
+stellar-strkey = "0.0.18"
 stellar-xdr = { version = "26.0.0", features = ["curr", "std", "base64"] }
 
 [dev-dependencies]
