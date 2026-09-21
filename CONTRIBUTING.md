@@ -76,8 +76,8 @@ cd backend
 # Build. No database is needed at compile time.
 cargo build
 
-# Run tests. Note: the api crate's test targets do not compile on main right
-# now, so this fails before running anything. The library builds clean.
+# Run tests. Passes on main: 1094 tests, 111 ignored. Note that `cargo build`
+# does not compile test targets, so it can succeed while this fails.
 cargo test
 
 # Run a service. The three binaries are api, indexer and seeder;
@@ -251,9 +251,8 @@ npm run test:watch
 npm test
 ```
 
-Five suites fail on `main` and are not your fault: `__tests__/lib/api.test.ts`,
-`ipfsMirror`, `contractsContentFilters`, `components/FilterPanel` and `resilience`.
-Baseline your branch against a clean `main` rather than expecting green.
+The suite passes on `main` (16 suites, 65 tests) and CI runs it on every pull
+request that touches `frontend/`, so a red suite is your branch's.
 
 ### Integration Tests
 
