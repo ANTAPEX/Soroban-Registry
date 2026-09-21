@@ -1,0 +1,61 @@
+version: 2
+
+# Keeps the dependency sets current without flooding the review queue.
+#
+# Every ecosystem is grouped into a single pull request per week, and each is
+# capped at two open at a time. This repository already carries a long-running
+# backlog of contributor pull requests, so an ungrouped configuration would be a
+# net loss: it would bury the human ones. Security updates are exempt from the
+# grouping and still arrive on their own.
+#
+# A registry has a sharper reason to care than most projects. It publishes a CLI
+# that other people install and run against their own contracts, so its
+# transitive dependency set is part of what consumers take on.
+
+updates:
+  - package-ecosystem: cargo
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    groups:
+      backend-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: /cli
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    groups:
+      cli-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    # The lockfile was resolved with --legacy-peer-deps (@reduxjs/toolkit 1.x
+    # declares a peer of react <= 18 against this project's react 19), and
+    # Dependabot resolves strictly. Major bumps here would open pull requests
+    # that cannot install; they are a deliberate migration, not a weekly chore.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      frontend-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    groups:
+      github-actions:
+        patterns: ["*"]

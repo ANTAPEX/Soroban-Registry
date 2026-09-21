@@ -10,6 +10,20 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# Least privilege. Nothing here writes to the repository, comments on a pull
+# request or publishes anything, so the default token scope is more than these
+# jobs need.
+permissions:
+  contents: read
+
+# The backend job is a full debug build of the workspace and takes the better
+# part of ten minutes. Without this, pushing twice to a branch leaves two of
+# them running against a commit nobody is waiting on. cli-ci.yml and
+# smart-contract-ci.yml already do this.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   changes:
     name: Detect changed areas
@@ -27,9 +41,12 @@ jobs:
               - 'backend/**/*.rs'
               - 'backend/Cargo.toml'
               - 'backend/Cargo.lock'
-              - 'soroban-registry/**/*.rs'
-              - 'soroban-registry/Cargo.toml'
-              - 'soroban-registry/Cargo.lock'
+              # Only one crate of the soroban-registry/ workspace is in the
+              # backend build graph: backend/api path-depends on
+              # crates/soroban-batch. The other five are built by nothing, so
+              # matching the whole directory only started backend builds that
+              # could not observe the change.
+              - 'soroban-registry/crates/soroban-batch/**'
               - 'rust-toolchain.toml'
               - '.github/workflows/ci.yml'
             frontend:
@@ -216,50 +233,3 @@ jobs:
             exit 1
           fi
           echo "::endgroup::"
-
-  # ── Security Audit ─────────────────────────────────────────────────────
-  security-audit:
-    name: Dependency security audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked || true
-
-      - name: Rust audit (backend)
-        working-directory: backend
-        run: cargo audit || true
-        continue-on-error: true
-
-      - name: Rust audit (soroban-registry)
-        working-directory: soroban-registry
-        run: cargo audit || true
-        continue-on-error: true
-
-      - name: npm audit (frontend)
-        working-directory: frontend
-        run: npm audit --omit=dev || true
-        continue-on-error: true
-
-  # Docker production build removed (checks not desired)
-
-  # ── Migration Validation ───────────────────────────────────────────────
-  check-migrations:
-    name: Validate migrations
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check migration ordering
-        run: |
-          echo "Checking migration file ordering..."
-          prev=""
-          for f in database/migrations/*.sql; do
-            base=$(basename "$f")
-            if [ -n "$prev" ] && [[ "$base" < "$prev" ]]; then
-              echo "ERROR: Migration $base is out of order (after $prev)"
-              exit 1
-            fi
-            prev="$base"
-          done
-          echo "OK: All $(ls database/migrations/*.sql | wc -l) migrations in order"

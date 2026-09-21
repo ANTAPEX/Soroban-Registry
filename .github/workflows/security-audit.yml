@@ -1,0 +1,73 @@
+name: Security Audit
+
+# Checks the dependency graph against the advisory databases.
+#
+# This used to be a job inside ci.yml with no path filter, so every pull request
+# — including one-line documentation changes — spent minutes on
+# `cargo install cargo-audit` before auditing a lockfile the branch had not
+# touched. What a dependency audit reports is a function of the lockfiles and of
+# the advisory database, and the database moves on its own, so a schedule is the
+# trigger that matches: a new advisory against an unchanged lockfile is exactly
+# the case the old placement could never catch.
+#
+# The steps stay non-blocking. There is a backlog of advisories in the pinned
+# dependency set, and failing here would make the workflow red on arrival —
+# the same reasoning that keeps clippy and eslint warnings out of ci.yml. What
+# did change is that `|| true` is gone from each command: the step now reports
+# its real result, so the advisories are visible in the run summary instead of
+# being swallowed on the way to a green tick.
+
+on:
+  schedule:
+    # Mondays, early. A weekly cadence is enough for a lockfile that changes
+    # rarely, and the run is cheap.
+    - cron: "0 5 * * 1"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "backend/Cargo.lock"
+      - "backend/Cargo.toml"
+      - "cli/Cargo.lock"
+      - "cli/Cargo.toml"
+      - "soroban-registry/Cargo.lock"
+      - "frontend/package-lock.json"
+      - "frontend/package.json"
+      - ".github/workflows/security-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Dependency security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Rust audit (backend)
+        working-directory: backend
+        run: cargo audit
+        continue-on-error: true
+
+      - name: Rust audit (cli)
+        working-directory: cli
+        run: cargo audit
+        continue-on-error: true
+
+      - name: Rust audit (soroban-registry)
+        working-directory: soroban-registry
+        run: cargo audit
+        continue-on-error: true
+
+      - name: npm audit (frontend)
+        working-directory: frontend
+        run: npm audit --omit=dev
+        continue-on-error: true
