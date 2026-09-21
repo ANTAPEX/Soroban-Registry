@@ -19,6 +19,16 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 2
+    # Minor and patch only. The first grouped run proposed twelve major bumps
+    # at once - ed25519-dalek 2 to 3, sha2 0.10 to 0.11, rand 0.8 to 0.9, toml
+    # 0.8 to 1.0 among them - rewrote three Cargo.toml files, and broke
+    # backend/shared with six compile errors. A Rust major is an API change and
+    # belongs in a pull request that explains it, not in a weekly batch of
+    # forty-one. This mirrors the npm entry below, which was capped from the
+    # start; leaving Cargo uncapped was an oversight.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       backend-dependencies:
         patterns: ["*"]
@@ -29,6 +39,16 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 2
+    # Minor and patch only. The first grouped run proposed twelve major bumps
+    # at once - ed25519-dalek 2 to 3, sha2 0.10 to 0.11, rand 0.8 to 0.9, toml
+    # 0.8 to 1.0 among them - rewrote three Cargo.toml files, and broke
+    # backend/shared with six compile errors. A Rust major is an API change and
+    # belongs in a pull request that explains it, not in a weekly batch of
+    # forty-one. This mirrors the npm entry below, which was capped from the
+    # start; leaving Cargo uncapped was an oversight.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       cli-dependencies:
         patterns: ["*"]
@@ -39,10 +59,11 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 2
-    # The lockfile was resolved with --legacy-peer-deps (@reduxjs/toolkit 1.x
-    # declares a peer of react <= 18 against this project's react 19), and
-    # Dependabot resolves strictly. Major bumps here would open pull requests
-    # that cannot install; they are a deliberate migration, not a weekly chore.
+    # Same cap as the Cargo entries above, for a second reason: the lockfile was
+    # resolved with --legacy-peer-deps (@reduxjs/toolkit 1.x declares a peer of
+    # react <= 18 against this project's react 19) and Dependabot resolves
+    # strictly, so major bumps here would open pull requests that cannot even
+    # install. They are a deliberate migration, not a weekly chore.
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
