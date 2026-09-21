@@ -135,8 +135,7 @@ pub async fn get_contract_recommendations(
         }
     }
 
-    let candidates =
-        fetch_recommendation_candidates(&state, contract_uuid, query.network.clone()).await?;
+    let candidates = fetch_recommendation_candidates(&state, contract_uuid, query.network).await?;
     let weights = weights_for_algorithm(&selected_algorithm);
     let scored = score_candidates(candidates, &weights);
 

@@ -1,8 +1,7 @@
+import { API_URL, USE_MOCKS } from "@/lib/env";
 import type { AnalyticsResponse, TimePeriod } from '@/types/analytics';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
-const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';
 
 export async function fetchAnalytics(period: TimePeriod): Promise<AnalyticsResponse> {
   if (!USE_MOCKS) {

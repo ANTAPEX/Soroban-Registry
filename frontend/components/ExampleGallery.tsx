@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import ExampleCard from "./ExampleCard";
 import ExampleCardSkeleton from "./ExampleCardSkeleton";
 import { AlertCircle, Terminal, Search } from "lucide-react";
 import { useAnalytics } from "@/hooks/useAnalytics";
+import { useContractExamples } from "@/hooks/queries";
 
 interface ExampleGalleryProps {
   contractId: string;
@@ -17,10 +16,7 @@ export default function ExampleGallery({ contractId }: ExampleGalleryProps) {
     data: examples,
     isLoading,
     error,
-  } = useQuery({
-    queryKey: ["contract-examples", contractId],
-    queryFn: () => api.getContractExamples(contractId),
-  });
+  } = useContractExamples(contractId);
   const { logEvent } = useAnalytics();
 
   const [selectedCategory, setSelectedCategory] = useState<string>("all");

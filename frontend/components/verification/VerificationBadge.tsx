@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { CheckCircle2, Info, ShieldAlert, ShieldCheck, ShieldX } from 'lucide-react';
+import { CheckCircle2, ShieldAlert, ShieldCheck, ShieldX } from 'lucide-react';
 import type { VerificationStatus } from '@/types/verification';
 import { useTranslation } from '@/lib/i18n/client';
 import type { TFunction } from 'i18next';

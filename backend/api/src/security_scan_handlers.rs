@@ -4,7 +4,6 @@
 use crate::validation::extractors::ValidatedJson;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     Json,
 };
 use serde::Deserialize;
@@ -18,9 +17,9 @@ use crate::{
     vulnerability_database,
 };
 use shared::{
-    ContractSecuritySummary, CreateSecurityScannerRequest, IssueSeverity, IssueStatus,
-    SecurityScan, SecurityScanHistoryResponse, SecurityScanSummary, SecurityScanner,
-    SecurityScoreHistory, TriggerSecurityScanRequest, UpdateSecurityIssueRequest,
+    ContractSecuritySummary, CreateSecurityScannerRequest, IssueSeverity, SecurityScan,
+    SecurityScanHistoryResponse, SecurityScanSummary, SecurityScanner, SecurityScoreHistory,
+    TriggerSecurityScanRequest, UpdateSecurityIssueRequest,
 };
 
 /// Query parameters for listing security scans
@@ -599,7 +598,7 @@ async fn persist_pattern_scan(
         .bind(contract_version_id)
         .bind(finding.title)
         .bind(finding.description)
-        .bind(&finding.severity)
+        .bind(finding.severity)
         .bind(finding.category)
         .bind(finding.cwe_id)
         .bind(finding.cve_id)

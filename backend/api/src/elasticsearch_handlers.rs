@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use shared::models::Network;
 
 use crate::error::ApiError;
-use crate::search_postgres::{SearchQuery, SearchResult};
+use crate::search_postgres::SearchQuery;
 use crate::state::AppState;
 
 // ── Request / response types ──────────────────────────────────────────────────

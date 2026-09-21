@@ -107,7 +107,7 @@ pub fn label_propagation(g: &AnalysisGraph) -> Vec<usize> {
         // Randomised update order reduces oscillation.
         let mut order: Vec<usize> = (0..n).collect();
         // Deterministic shuffle using a simple LCG so results are reproducible.
-        // EXEMPTION: This deterministic seed is secure against blind-rerun attacks 
+        // EXEMPTION: This deterministic seed is secure against blind-rerun attacks
         // since repeated runs on the same graph will yield the exact same order.
         let mut rng = 6364136223846793005u64;
         for i in (1..n).rev() {
@@ -259,8 +259,8 @@ pub fn pagerank(g: &AnalysisGraph) -> Vec<f64> {
             * PAGERANK_DAMPING
             / n as f64;
 
-        for v in 0..n {
-            next[v] += dangling_mass;
+        for slot in next.iter_mut().take(n) {
+            *slot += dangling_mass;
         }
 
         for u in 0..n {

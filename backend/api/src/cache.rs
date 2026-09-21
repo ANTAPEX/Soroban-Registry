@@ -290,7 +290,7 @@ impl CacheLayer {
             let key = format!("abi:{}", contract_id);
             let mut conn = cm.clone();
             if let Err(e) = conn
-                .set_ex::<_, _, ()>(&key, &abi, self.config.abi_ttl_secs as u64)
+                .set_ex::<_, _, ()>(&key, &abi, self.config.abi_ttl_secs)
                 .await
             {
                 tracing::warn!("Redis put_abi error: {}", e);
@@ -451,7 +451,7 @@ impl CacheLayer {
             let rkey = format!("contracts:{}", key);
             let mut conn = cm.clone();
             if let Err(e) = conn
-                .set_ex::<_, _, ()>(&rkey, &value, self.config.metadata_ttl_secs as u64)
+                .set_ex::<_, _, ()>(&rkey, &value, self.config.metadata_ttl_secs)
                 .await
             {
                 tracing::warn!("Redis put_contracts error: {}", e);
@@ -543,7 +543,7 @@ impl CacheLayer {
         if let Some(cm) = &self.redis_cm {
             let mut conn = cm.clone();
             if let Err(e) = conn
-                .set_ex::<_, _, ()>(&ns_key, &value, self.config.metadata_ttl_secs as u64)
+                .set_ex::<_, _, ()>(&ns_key, &value, self.config.metadata_ttl_secs)
                 .await
             {
                 tracing::warn!("Redis put_contract_meta error: {}", e);
@@ -756,7 +756,7 @@ impl CacheLayer {
         if let Some(cm) = &self.redis_cm {
             let mut conn = cm.clone();
             if let Err(e) = conn
-                .set_ex::<_, _, ()>(&ns_key, &value, self.config.search_ttl_secs as u64)
+                .set_ex::<_, _, ()>(&ns_key, &value, self.config.search_ttl_secs)
                 .await
             {
                 tracing::warn!("Redis put_search error: {}", e);
@@ -812,7 +812,7 @@ impl CacheLayer {
         if let Some(cm) = &self.redis_cm {
             let mut conn = cm.clone();
             if let Err(e) = conn
-                .set_ex::<_, _, ()>(&ns_key, &value, self.config.stats_ttl_secs as u64)
+                .set_ex::<_, _, ()>(&ns_key, &value, self.config.stats_ttl_secs)
                 .await
             {
                 tracing::warn!("Redis put_stats error: {}", e);

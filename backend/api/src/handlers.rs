@@ -46,7 +46,7 @@ use shared::{
 // NOTE: All types are now imported from the shared crate.
 // Duplicate definitions have been removed to maintain a single source of truth.
 // ────────────────────────────────────────────────────────────────────────────
-use sqlx::{error::DatabaseError, Postgres, QueryBuilder};
+use sqlx::{Postgres, QueryBuilder};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path as StdPath, PathBuf};
@@ -783,7 +783,7 @@ async fn fetch_network_catalog(db: &sqlx::PgPool) -> Result<NetworkListResponse,
              FROM indexer_state
              WHERE network = $1",
         )
-        .bind(&definition.network_type)
+        .bind(definition.network_type)
         .fetch_optional(db)
         .await?;
 
@@ -3075,10 +3075,10 @@ pub async fn get_contract(
             })?
     } else {
         // Fetch by slug
-        let network = query.network.clone().unwrap_or(Network::Mainnet);
+        let network = query.network.unwrap_or(Network::Mainnet);
         sqlx::query_as("SELECT * FROM contracts WHERE slug = $1 AND network = $2")
             .bind(&id)
-            .bind(&network)
+            .bind(network)
             .fetch_one(&state.db)
             .await
             .map_err(|err| match err {
@@ -3162,7 +3162,7 @@ pub async fn get_contract(
         }
     }
 
-    let current_network = query.network.clone();
+    let current_network = query.network;
     let network_config = if let Some(ref net) = current_network {
         let configs: Option<std::collections::HashMap<String, NetworkConfig>> = contract
             .network_configs
@@ -3173,7 +3173,7 @@ pub async fn get_contract(
         if let Some(ref cfg) = config {
             contract.contract_id = cfg.contract_id.clone();
             contract.is_verified = cfg.is_verified;
-            contract.network = net.clone();
+            contract.network = *net;
         }
         config
     } else {
@@ -4690,7 +4690,7 @@ async fn publish_contract_inner(
         "SELECT * FROM contracts WHERE contract_id = $1 AND network = $2",
     )
     .bind(&req.contract_id)
-    .bind(&req.network)
+    .bind(req.network)
     .fetch_optional(&state.db)
     .await
     .map_err(|err| db_internal_error("check existing contract", err))?
@@ -4746,7 +4746,7 @@ async fn publish_contract_inner(
     .bind(&slug)
     .bind(&req.description)
     .bind(publisher_id)
-    .bind(&req.network)
+    .bind(req.network)
     .bind(&req.category)
     .bind(&req.tags)
     .bind(Option::<Uuid>::None as Option<Uuid>)
@@ -4936,7 +4936,7 @@ async fn publish_contract_inner(
 
     if req.is_cicd {
         crate::events::emit_cicd_pipeline(
-            &state,
+            state,
             contract.contract_id.clone(),
             "published".to_string(),
             4, // Step 4 of 5
@@ -5100,13 +5100,12 @@ pub async fn get_publisher_summary(
             _ => db_internal_error("get publisher by id for summary", err),
         })?;
 
-    let contract_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM contracts WHERE publisher_id = $1",
-    )
-    .bind(publisher_uuid)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|err| db_internal_error("count publisher contracts", err))?;
+    let contract_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM contracts WHERE publisher_id = $1")
+            .bind(publisher_uuid)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|err| db_internal_error("count publisher contracts", err))?;
 
     let version_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM contract_versions cv JOIN contracts c ON c.id = cv.contract_id WHERE c.publisher_id = $1",
@@ -5252,7 +5251,11 @@ pub async fn get_publisher_contracts(
     })?;
 
     let limit = query.limit.clamp(1, 100);
-    let cursor = match query.cursor.as_deref().filter(|cursor| !cursor.trim().is_empty()) {
+    let cursor = match query
+        .cursor
+        .as_deref()
+        .filter(|cursor| !cursor.trim().is_empty())
+    {
         Some(raw) => Some(Cursor::decode(raw).map_err(|err| {
             ApiError::bad_request(
                 "InvalidPaginationCursor",
@@ -5326,7 +5329,9 @@ pub async fn get_publisher_contracts(
     }
 
     let next_cursor = if has_more {
-        items.last().map(|last| Cursor::new(last.created_at, last.id).encode())
+        items
+            .last()
+            .map(|last| Cursor::new(last.created_at, last.id).encode())
     } else {
         None
     };
@@ -6302,15 +6307,6 @@ pub async fn update_contract_metadata(
     )
     .await?;
 
-    // Fetch before tags for audit log
-    let before_tag_names: Vec<String> = sqlx::query_scalar::<_, String>(
-        "SELECT t.name FROM tags t JOIN contract_tags ct ON t.id = ct.tag_id WHERE ct.contract_id = $1",
-    )
-    .bind(before.id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|err| db_internal_error("fetch before tags", err))?;
-
     let mut tx = state
         .db
         .begin()
@@ -6334,9 +6330,7 @@ pub async fn update_contract_metadata(
     .await
     .map_err(|err| db_internal_error("update contract metadata", err))?;
 
-    let mut after_tag_names = before_tag_names.clone();
     if let Some(tag_names) = &req.tags {
-        after_tag_names = tag_names.clone();
         sqlx::query("DELETE FROM contract_tags WHERE contract_id = $1")
             .bind(contract_uuid)
             .execute(&mut *tx)
@@ -8804,10 +8798,7 @@ pub async fn post_contract_interactions_batch(
         let interaction_type =
             parse_interaction_type(i.interaction_type.as_deref(), i.method.as_deref())?;
         let created_at = i.timestamp.unwrap_or_else(chrono::Utc::now);
-        let network = i
-            .network
-            .clone()
-            .unwrap_or_else(|| contract_network.clone());
+        let network = i.network.unwrap_or(contract_network);
         let target_contract_id = resolve_call_target_contract(
             &state.db,
             i.target_contract_id.as_deref(),

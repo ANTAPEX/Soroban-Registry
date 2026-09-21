@@ -318,7 +318,10 @@ mod tests {
             "reproducibility": { "status": "not_checked" }
         }"#;
         let p: BuildProvenance = serde_json::from_str(json).expect("should deserialize");
-        assert_eq!(p.source.repository.as_deref(), Some("https://github.com/example/contract"));
+        assert_eq!(
+            p.source.repository.as_deref(),
+            Some("https://github.com/example/contract")
+        );
         assert_eq!(p.reproducibility.status, ReproducibilityStatus::NotChecked);
     }
 

@@ -76,14 +76,31 @@ recorded in an `#[ignore = "..."]` message next to the test:
 
 Run them explicitly with `-- --ignored` if you are working on the underlying feature.
 
+## Where things live
+
+```
+src/main.rs        parses, sets up logging, hands off
+src/cli.rs         the clap types: every command, flag and help string
+src/dispatch.rs    one match arm per command
+src/commands/      what each command does, one module per command
+src/commands/contract/   the `contract` subcommands
+src/commands/batch/      `batch` and its `batch-*` siblings
+src/support/       HTTP, caching, output rendering, conversions
+src/config/        config resolution and user preferences
+```
+
+A new command touches `cli.rs`, `dispatch.rs` and one file under `commands/`. Put
+anything several commands share in `support/` rather than reaching across to a
+sibling command's module.
+
 ## Guarding the command tree
 
-`cli/src/main.rs` defines every command as a `clap` derive enum. A subcommand can be
+`cli/src/cli.rs` defines every command as a `clap` derive enum. A subcommand can be
 deleted from that tree while its module and its `match` arm survive, and the result still
 compiles -- the command simply vanishes from `--help`. This has happened repeatedly through
 merge conflict resolutions (issue #1156).
 
-`mod command_tree_tests` in `cli/src/main.rs` guards against it:
+`mod command_tree_tests` in `cli/src/cli.rs` guards against it:
 
 - `command_tree_is_valid` runs clap's own `debug_assert` over the whole tree.
 - `every_subcommand_has_help_text` fails on any command that would render with no
@@ -92,7 +109,8 @@ merge conflict resolutions (issue #1156).
   is present.
 - `restored_commands_are_reachable` names the specific commands previously lost.
 
-If you add a command, add it to the enum **and** the dispatch arm, then run
+If you add a command, add it to the enum in `cli.rs` **and** the dispatch arm in
+`dispatch.rs`, then run
 `cargo test --manifest-path cli/Cargo.toml --locked command_tree`.
 
 Note that these tests run the clap tree walk on a spawned thread with a larger stack, via

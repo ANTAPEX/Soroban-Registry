@@ -5,7 +5,6 @@ use crate::{
 };
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     Json,
 };
 use shared::models::{Contract, ContractMetadataVersion, MetadataDiff, MetadataHistoryResponse};

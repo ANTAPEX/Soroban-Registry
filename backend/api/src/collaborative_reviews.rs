@@ -16,7 +16,6 @@ use shared::models::{
     CollaborativeReviewDetails, CollaborativeReviewStatus, CollaborativeReviewer,
     CreateCollaborativeReviewRequest, UpdateReviewerStatusRequest,
 };
-use sqlx::Row;
 use std::collections::HashMap;
 use uuid::Uuid;
 

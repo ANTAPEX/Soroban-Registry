@@ -1,9 +1,12 @@
 import type { StorybookConfig } from "@storybook/nextjs-vite";
 
 const config: StorybookConfig = {
+  // The scaffold's own ../stories directory is gone, and this glob never
+  // covered the project's stories, which live beside the components they
+  // document. Storybook was loading the demo and nothing else.
   stories: [
-    "../stories/**/*.mdx",
-    "../stories/**/*.stories.@(js|jsx|mjs|ts|tsx)",
+    "../components/**/*.mdx",
+    "../components/**/*.stories.@(js|jsx|mjs|ts|tsx)",
   ],
   addons: [
     "@chromatic-com/storybook",

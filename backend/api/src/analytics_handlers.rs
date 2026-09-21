@@ -14,7 +14,7 @@ use crate::validation::extractors::ValidatedJson;
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     Json,
 };
 use chrono::{Datelike, Duration, NaiveDate, Utc};
@@ -1050,6 +1050,7 @@ pub async fn get_analytics_timeseries(
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1259,7 +1260,7 @@ pub async fn get_analytics_dashboard(
           AND ($3::BOOL IS NULL OR c.is_verified = $3)
         "#,
     )
-    .bind(params.network.clone())
+    .bind(params.network)
     .bind(params.category.as_deref())
     .bind(params.verified)
     .fetch_one(&state.db)
@@ -1280,7 +1281,7 @@ pub async fn get_analytics_dashboard(
     )
     .bind(start_date)
     .bind(end_date)
-    .bind(params.network.clone())
+    .bind(params.network)
     .bind(params.category.as_deref())
     .bind(params.verified)
     .fetch_one(&state.db)
@@ -1301,7 +1302,7 @@ pub async fn get_analytics_dashboard(
     )
     .bind(month_start)
     .bind(end_date)
-    .bind(params.network.clone())
+    .bind(params.network)
     .bind(params.category.as_deref())
     .bind(params.verified)
     .fetch_one(&state.db)
@@ -1328,7 +1329,7 @@ pub async fn get_analytics_dashboard(
             "#,
     )
     .bind(limit)
-    .bind(params.network.clone())
+    .bind(params.network)
     .bind(params.category.as_deref())
     .bind(params.verified)
     .fetch_all(&state.db)
@@ -1361,7 +1362,7 @@ pub async fn get_analytics_dashboard(
         ORDER  BY count DESC
         "#,
     )
-    .bind(params.network.clone())
+    .bind(params.network)
     .bind(params.category.as_deref())
     .bind(params.verified)
     .fetch_all(&state.db)
@@ -1387,7 +1388,7 @@ pub async fn get_analytics_dashboard(
         LIMIT  10
         "#,
     )
-    .bind(params.network.clone())
+    .bind(params.network)
     .bind(params.category.as_deref())
     .bind(params.verified)
     .fetch_all(&state.db)
@@ -1432,7 +1433,7 @@ pub async fn get_analytics_dashboard(
     )
     .bind(start_date)
     .bind(end_date)
-    .bind(params.network.clone())
+    .bind(params.network)
     .bind(params.category.as_deref())
     .bind(params.verified)
     .fetch_all(&state.db)
@@ -1469,7 +1470,7 @@ pub async fn get_analytics_dashboard(
     )
     .bind(start_date)
     .bind(end_date)
-    .bind(params.network.clone())
+    .bind(params.network)
     .bind(params.category.as_deref())
     .bind(params.verified)
     .fetch_all(&state.db)
@@ -1505,7 +1506,7 @@ pub async fn get_analytics_dashboard(
     )
     .bind(start_date)
     .bind(end_date)
-    .bind(params.network.clone())
+    .bind(params.network)
     .bind(params.category.as_deref())
     .bind(params.verified)
     .bind(top_limit)

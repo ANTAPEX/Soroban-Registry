@@ -21,6 +21,7 @@ import { useCopy } from "@/hooks/useCopy";
 import { useCollections } from "@/hooks/useCollections";
 import CollectionsModal from "@/components/favorites/CollectionsModal";
 import AddToCollectionMenu from "@/components/favorites/AddToCollectionMenu";
+import { queryKeys } from "@/lib/queryKeys";
 
 export default function FavoritesPage() {
   const {
@@ -46,7 +47,7 @@ export default function FavoritesPage() {
   // Fetch contract data for each displayed ID in parallel
   const contractQueries = useQueries({
     queries: displayIds.map((id) => ({
-      queryKey: ["contract", id],
+      queryKey: queryKeys.contract(id),
       queryFn: () => api.getContract(id),
       retry: false,
     })),

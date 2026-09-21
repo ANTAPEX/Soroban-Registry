@@ -59,7 +59,10 @@ pub struct ScSpecUdtStructV0 {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ScSpecUdtUnionCaseV0 {
-    Void { doc: String, name: String },
+    Void {
+        doc: String,
+        name: String,
+    },
     Tuple {
         doc: String,
         name: String,
@@ -231,10 +234,9 @@ impl fmt::Display for SpecParseError {
             SpecParseError::UnexpectedEof { at } => {
                 write!(f, "unexpected end of contractspecv0 section at byte {at}")
             }
-            SpecParseError::InvalidDiscriminant { at, value } => write!(
-                f,
-                "unrecognized XDR discriminant {value} at byte {at}"
-            ),
+            SpecParseError::InvalidDiscriminant { at, value } => {
+                write!(f, "unrecognized XDR discriminant {value} at byte {at}")
+            }
             SpecParseError::InvalidUtf8 { at } => {
                 write!(f, "invalid UTF-8 string at byte {at}")
             }

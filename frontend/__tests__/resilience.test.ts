@@ -28,7 +28,7 @@ describe("resilientCall", () => {
         maxRetries: 1,
         failureThreshold: 1,
       });
-    } catch (e) {
+    } catch {
       // ignore
     }
 

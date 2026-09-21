@@ -14,7 +14,7 @@ const getInitial = (): Theme => {
       ) as Theme | null;
       if (v) return v;
     }
-  } catch (e) {
+  } catch {
     // ignore
   }
   return "system";
@@ -32,7 +32,7 @@ const slice = createSlice({
         if (typeof window !== "undefined") {
           window.localStorage.setItem("soroban-registry-theme", action.payload);
         }
-      } catch (e) {}
+      } catch {}
     },
   },
 });

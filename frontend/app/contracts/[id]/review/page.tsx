@@ -1,9 +1,8 @@
 "use client";
 
 import { Suspense, useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { api } from "@/lib/api";
 import Navbar from "@/components/Navbar";
 import ReviewTimeline from "@/components/reviews/ReviewTimeline";
 import { AnnotationWrapper } from "@/components/reviews/AnnotationLayer";
@@ -18,12 +17,21 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { CollaborativeComment } from "@/types";
+import { queryKeys } from "@/lib/queryKeys";
+import {
+  useAddReviewComment,
+  useCollaborativeReview,
+  useContract,
+  useContractAbi,
+  useContractVersions,
+  useCreateCollaborativeReview,
+  useUpdateReviewerStatus,
+} from "@/hooks/queries";
 
 function ReviewContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const queryClient = useQueryClient();
 
   const contractId = params?.id as string;
   const reviewId = searchParams?.get("reviewId");
@@ -35,20 +43,14 @@ function ReviewContent() {
     abi_path?: string;
   } | null>(null);
 
-  const { data: contract } = useQuery({
-    queryKey: ["contract", contractId],
-    queryFn: () => api.getContract(contractId),
-  });
+  const { data: contract } = useContract(contractId);
 
-  const { data: versions = [] } = useQuery({
-    queryKey: ["contract-versions", contractId],
-    queryFn: () => api.getContractVersions(contractId),
-  });
+  const { data: versions = [] } = useContractVersions(contractId);
 
   const latestVersion = versions[0];
 
   const { data: sourceCode } = useQuery({
-    queryKey: ["contract-source", contractId, latestVersion?.source_url],
+    queryKey: queryKeys.contractSource(contractId, latestVersion?.source_url),
     queryFn: async () => {
       if (!latestVersion?.source_url) return "";
       const res = await fetch(latestVersion.source_url);
@@ -57,39 +59,22 @@ function ReviewContent() {
     enabled: !!latestVersion?.source_url && activeView === "source",
   });
 
-  const { data: abiResponse } = useQuery({
-    queryKey: ["contract-abi", contractId, latestVersion?.version],
-    queryFn: () => api.getContractAbi(contractId, latestVersion?.version),
-    enabled: !!latestVersion && activeView === "abi",
-  });
+  const { data: abiResponse } = useContractAbi(
+    contractId,
+    latestVersion?.version,
+    { enabled: !!latestVersion && activeView === "abi" },
+  );
 
-  const { data: reviewDetails } = useQuery({
-    queryKey: ["collaborative-review", reviewId],
-    queryFn: () => api.getCollaborativeReview(reviewId!),
-    enabled: !!reviewId,
-  });
+  const { data: reviewDetails } = useCollaborativeReview(reviewId);
 
-  const addCommentMutation = useMutation({
-    mutationFn: (
-      data: Pick<CollaborativeComment, "content" | "line_number" | "abi_path">,
-    ) => api.addCollaborativeComment(reviewId!, data),
+  const addCommentMutation = useAddReviewComment(reviewId, {
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["collaborative-review", reviewId],
-      });
       setCommentText("");
       setSelectedLocation(null);
     },
   });
 
-  const updateStatusMutation = useMutation({
-    mutationFn: (status: string) => api.updateReviewerStatus(reviewId!, status),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["collaborative-review", reviewId],
-      });
-    },
-  });
+  const updateStatusMutation = useUpdateReviewerStatus(reviewId);
 
   const handleAddComment = () => {
     if (!commentText.trim()) return;
@@ -109,18 +94,9 @@ function ReviewContent() {
     return map;
   }, [reviewDetails]);
 
-  const startReviewMutation = useMutation({
-    mutationFn: (reviewerIds: string[]) =>
-      api.createCollaborativeReview({
-        contract_id: contractId,
-        version: latestVersion?.version || "1.0.0",
-        reviewer_ids: reviewerIds,
-      }),
+  const startReviewMutation = useCreateCollaborativeReview({
     onSuccess: (review) => {
       router.push(`/contracts/${contractId}/review?reviewId=${review.id}`);
-      queryClient.invalidateQueries({
-        queryKey: ["collaborative-review", review.id],
-      });
     },
   });
 
@@ -145,7 +121,13 @@ function ReviewContent() {
           </p>
         </div>
         <button
-          onClick={() => startReviewMutation.mutate([contract.publisher_id])}
+          onClick={() =>
+            startReviewMutation.mutate({
+              contract_id: contractId,
+              version: latestVersion?.version || "1.0.0",
+              reviewer_ids: [contract.publisher_id],
+            })
+          }
           disabled={startReviewMutation.isPending}
           className="inline-flex items-center gap-3 px-10 py-5 rounded-2xl bg-primary text-primary-foreground font-black text-lg hover:opacity-90 transition-all shadow-2xl shadow-primary/40 active:scale-95"
         >

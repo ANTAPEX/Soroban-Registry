@@ -5,7 +5,7 @@ import { languages } from '@/lib/i18n/settings'
 import { useState, useEffect } from 'react'
 
 export default function LanguageSelector({ lng }: { lng: string }) {
-  const { t, i18n } = useTranslation(lng)
+  const { i18n } = useTranslation(lng)
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {

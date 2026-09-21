@@ -1,7 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import {
   MessageSquare,
   CheckCircle2,
@@ -10,6 +8,7 @@ import {
   User,
 } from "lucide-react";
 import type { CollaborativeComment, CollaborativeReviewer } from "@/types";
+import { useCollaborativeReview } from "@/hooks/queries";
 
 // Native replacement for date-fns `format(date, "MMM d, h:mm a")`
 function formatDateTime(dateStr: string): string {
@@ -29,10 +28,7 @@ interface ReviewTimelineProps {
 }
 
 export default function ReviewTimeline({ reviewId }: ReviewTimelineProps) {
-  const { data: details, isLoading } = useQuery({
-    queryKey: ["collaborative-review", reviewId],
-    queryFn: () => api.getCollaborativeReview(reviewId),
-  });
+  const { data: details, isLoading } = useCollaborativeReview(reviewId);
 
   if (isLoading)
     return (

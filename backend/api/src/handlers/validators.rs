@@ -238,7 +238,7 @@ pub async fn submit_attestation(
         let message = format!(
             "{}:{}:{}",
             req.task_id,
-            req.decision.to_string(),
+            req.decision,
             req.compiled_wasm_hash.as_deref().unwrap_or("")
         );
 

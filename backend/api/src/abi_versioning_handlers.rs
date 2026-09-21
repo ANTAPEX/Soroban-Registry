@@ -105,7 +105,7 @@ pub async fn publish_abi(
 
     // Backfill ABI cache for fast subsequent reads (both uuid@version and uuid keys).
     if let Ok(abi_str) = serde_json::to_string(&req.abi) {
-        let version_key = format!("{}@{}", contract_id.to_string(), &req.version);
+        let version_key = format!("{}@{}", contract_id, req.version);
         let _ = state.cache.put_abi(&version_key, abi_str.clone()).await;
         let _ = state.cache.put_abi(&contract_id.to_string(), abi_str).await;
     }
@@ -252,7 +252,7 @@ async fn fetch_abi_record(
     version: &str,
 ) -> ApiResult<ContractAbiRecord> {
     // First try L1/L2 cache for the ABI payload to avoid fetching large ABI blobs from Postgres.
-    let version_key = format!("{}@{}", contract_id.to_string(), version);
+    let version_key = format!("{}@{}", contract_id, version);
     if let Some(cached) = state.cache.get_abi(&version_key, false).await {
         // Parse cached ABI JSON into a Value and fetch metadata (without ABI) from DB.
         let abi_val: Value = serde_json::from_str(&cached)

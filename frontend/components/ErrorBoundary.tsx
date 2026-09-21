@@ -98,7 +98,7 @@ export default class ErrorBoundary extends Component<
 
       // Prevent the browser default logging (optional)
       // event.preventDefault();
-    } catch (e) {
+    } catch {
       // swallow to avoid infinite loops
     }
   };
@@ -115,7 +115,7 @@ export default class ErrorBoundary extends Component<
       logError(err, { source: "unhandledrejection" });
       this.setState({ hasError: true, error: err, errorInfo: null });
       // event.preventDefault();
-    } catch (e) {
+    } catch {
       // swallow
     }
   };

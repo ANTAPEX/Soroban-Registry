@@ -1,3 +1,4 @@
+import { ANALYTICS_PROVIDER, GA_ID } from "@/lib/env";
 import type { Metadata } from "next";
 import { Inter, Fraunces } from "next/font/google";
 import "./globals.css";
@@ -11,8 +12,8 @@ import acceptLanguage from 'accept-language';
 
 acceptLanguage.languages(languages);
 
-const GA_PROVIDER = process.env.NEXT_PUBLIC_ANALYTICS_PROVIDER || 'ga'
-const GA_ID = process.env.NEXT_PUBLIC_GA_ID
+const GA_PROVIDER = ANALYTICS_PROVIDER
+
 
 const inter = Inter({
   subsets: ["latin"],

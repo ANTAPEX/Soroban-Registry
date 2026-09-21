@@ -470,14 +470,12 @@ pub async fn rotate_key(
     .await
     .map_err(|e| ApiError::internal_error("ROTATE_INSERT_ERROR", e.to_string()))?;
 
-    sqlx::query(
-        "UPDATE signing_keys SET status = 'rotated', rotated_to = $1 WHERE key_id = $2",
-    )
-    .bind(&new_key_id)
-    .bind(&old_key_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| ApiError::internal_error("ROTATE_UPDATE_ERROR", e.to_string()))?;
+    sqlx::query("UPDATE signing_keys SET status = 'rotated', rotated_to = $1 WHERE key_id = $2")
+        .bind(&new_key_id)
+        .bind(&old_key_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ApiError::internal_error("ROTATE_UPDATE_ERROR", e.to_string()))?;
 
     tx.commit()
         .await

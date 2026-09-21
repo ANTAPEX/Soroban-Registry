@@ -1,19 +1,15 @@
-use async_graphql::{
-    dataloader::DataLoader, Context, Enum, Error, Object, Result, SimpleObject, Union,
-};
+use async_graphql::{dataloader::DataLoader, Context, Enum, Error, Object, Result, SimpleObject};
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde_json::Value;
 use shared::models::{
-    AlertSeverity, AuditActionType, Contract, ContractAuditLog, ContractInteraction,
-    ContractPerformanceSummaryResponse, ContractVersion, DependencyNode, DependencyResponse,
-    MetricType, Network, Organization, PerformanceAlert, PerformanceBenchmark,
-    PerformanceMetricSnapshot, PerformanceRegression, PerformanceTrendPoint, Publisher,
-    VisibilityType,
+    Contract, ContractAuditLog, ContractInteraction, ContractPerformanceSummaryResponse,
+    ContractVersion, DependencyNode, DependencyResponse, Network, Organization, PerformanceAlert,
+    PerformanceBenchmark, PerformanceMetricSnapshot, PerformanceRegression, PerformanceTrendPoint,
+    Publisher, VisibilityType,
 };
 
-use crate::handlers::ContractChangelogEntry;
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -59,7 +55,7 @@ impl ContractType {
         self.description.as_deref()
     }
     async fn network(&self) -> NetworkType {
-        self.network.clone().into()
+        self.network.into()
     }
     async fn is_verified(&self) -> bool {
         self.is_verified

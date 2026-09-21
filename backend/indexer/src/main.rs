@@ -132,7 +132,7 @@ impl IndexerService {
                     e
                 );
                 IndexerState {
-                    network: self.config.network.network.clone(),
+                    network: self.config.network.network,
                     last_indexed_ledger_height: 0,
                     last_indexed_ledger_hash: None,
                     last_checkpoint_ledger_height: 0,

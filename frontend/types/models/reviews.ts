@@ -38,3 +38,28 @@ export interface CollaborativeReviewDetails {
   reviewers: CollaborativeReviewer[];
   comments: CollaborativeComment[];
 }
+
+export interface Comment {
+  id: string;
+  author: string;
+  body: string;
+  created_at: string;
+  flagged: boolean;
+  score: number;
+  flag_count: number;
+  parent_id?: string | null;
+  line_number?: number | null;
+  file_path?: string | null;
+  abi_path?: string | null;
+}
+
+export interface CommentListResponse {
+  items: Comment[];
+  total: number;
+}
+
+export interface CreateCollaborativeReviewRequest {
+  contract_id: string;
+  version: string;
+  reviewer_ids: string[];
+}

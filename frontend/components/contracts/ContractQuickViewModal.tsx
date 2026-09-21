@@ -11,6 +11,7 @@ import {
   getQuickViewVerificationStatus,
 } from "@/lib/contractQuickView";
 import VerificationBadge from "@/components/verification/VerificationBadge";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface ContractQuickViewModalProps {
   contract: Contract;
@@ -26,7 +27,7 @@ export default function ContractQuickViewModal(
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const { data: contractDetails, isFetching: isContractRefreshing } = useQuery({
-    queryKey: ["contract-quick-view", contract.id],
+    queryKey: queryKeys.contractQuickView(contract.id),
     queryFn: () => api.getContract(contract.id),
     enabled: isOpen,
   });
@@ -36,7 +37,7 @@ export default function ContractQuickViewModal(
     isLoading: isAbiLoading,
     error: abiError,
   } = useQuery({
-    queryKey: ["contract-quick-view-abi", contract.id],
+    queryKey: queryKeys.contractQuickViewAbi(contract.id),
     queryFn: () => api.getContractAbi(contract.id),
     enabled: isOpen,
   });

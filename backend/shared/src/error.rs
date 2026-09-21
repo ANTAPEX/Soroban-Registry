@@ -207,7 +207,7 @@ impl RegistryError {
     }
 
     pub fn database(err: sqlx::Error) -> Self {
-        let err_clone = format!("{}", &err);
+        let err_clone = format!("{}", err);
         let error = Self::new(RegistryErrorKind::Database(err), ErrorCategory::Database);
         tracing::error!(
             category = "database",
@@ -311,7 +311,7 @@ impl RegistryError {
     }
 
     pub fn io(err: std::io::Error) -> Self {
-        let err_str = format!("{}", &err);
+        let err_str = format!("{}", err);
         let error = Self::new(RegistryErrorKind::Io(err), ErrorCategory::Internal);
         tracing::error!(
             category = "io",
@@ -375,7 +375,7 @@ impl From<sqlx::Error> for RegistryError {
 
 impl From<serde_json::Error> for RegistryError {
     fn from(err: serde_json::Error) -> Self {
-        let err_str = format!("{}", &err);
+        let err_str = format!("{}", err);
         let error = Self::new(RegistryErrorKind::Serde(err), ErrorCategory::Internal);
         tracing::error!(
             category = "serialization",
@@ -395,7 +395,7 @@ impl From<std::io::Error> for RegistryError {
 
 impl From<anyhow::Error> for RegistryError {
     fn from(err: anyhow::Error) -> Self {
-        let err_str = format!("{}", &err);
+        let err_str = format!("{}", err);
         let backtrace = capture_backtrace();
         let error = Self {
             kind: RegistryErrorKind::Anyhow(err),
