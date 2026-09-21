@@ -65,21 +65,26 @@ Example: `fix/issue-42-rate-limiting-bug` or `docs/issue-15-api-documentation`
 
 ## Development Setup
 
+The [README](README.md) has the full walkthrough, including the three environment
+variables `.env.example` is missing. The short version:
+
 ### Backend (Rust)
 
 ```bash
 cd backend
 
-# Install dependencies
+# Build. No database is needed at compile time.
 cargo build
 
-# Run tests
+# Run tests. Note: the api crate's test targets do not compile on main right
+# now, so this fails before running anything. The library builds clean.
 cargo test
 
-# Run specific service
+# Run a service. The three binaries are api, indexer and seeder;
+# verifier and shared are libraries.
 cargo run --bin api
 cargo run --bin indexer
-cargo run --bin verifier
+cargo run --bin seeder -- --count 50
 ```
 
 ### Frontend (Next.js)
@@ -87,41 +92,39 @@ cargo run --bin verifier
 ```bash
 cd frontend
 
-# Install dependencies
-pnpm install
+# Install dependencies. --legacy-peer-deps is required: @reduxjs/toolkit 1.9
+# declares a peer of React 18 and this app is on React 19.
+npm ci --legacy-peer-deps
 
 # Run development server
-pnpm dev
+npm run dev
 
-# Build for production
-pnpm build
+# Build for production. Run this before every push -- tsc and eslint both miss
+# errors that the Vercel build catches.
+npm run build
 ```
 
 ### CLI (Rust)
 
+`cli/` is a standalone Cargo package, not a workspace member, so `cargo` from the
+repository root will not find it.
+
 ```bash
-cd cli
-
-# Build
-cargo build --release
-
-# Run
-cargo run -- --help
+cargo build --manifest-path cli/Cargo.toml --locked --all-targets
+cargo run --manifest-path cli/Cargo.toml --bin soroban-registry -- --help
 ```
 
 ### Database
 
 ```bash
-# Create database
 createdb soroban_registry
-
-# Set environment variable
 export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/soroban_registry"
-
-# Run migrations
-cd backend
-sqlx migrate run --source ../database/migrations
 ```
+
+That is usually all you need: the API applies every migration in
+`database/migrations/` itself on startup. To apply them by hand instead, install
+the SQLx CLI and run `sqlx migrate run --source database/migrations` from the
+repository root.
 
 ## Making Changes
 
@@ -239,25 +242,29 @@ cargo test test_dependency_validation
 cd frontend
 
 # Run tests
-pnpm test
+npx jest --runInBand
 
 # Watch mode
-pnpm test:watch
+npm run test:watch
 
-# Coverage
-pnpm test:coverage
+# With coverage (this is what `npm test` does)
+npm test
 ```
+
+Five suites fail on `main` and are not your fault: `__tests__/lib/api.test.ts`,
+`ipfsMirror`, `contractsContentFilters`, `components/FilterPanel` and `resilience`.
+Baseline your branch against a clean `main` rather than expecting green.
 
 ### Integration Tests
 
-- Add integration tests to `backend/tests/` directory
+- Add integration tests to the crate they exercise: `backend/api/tests/`, `backend/indexer/tests/`, `backend/shared/tests/` or `backend/registry_client/tests/`. There is no top-level `backend/tests/`.
 - Name tests clearly: `test_contract_dependency_api.rs`
 - Test edge cases and error conditions
 
 ### Manual Testing
 
-1. **Start the API**: `cargo run --bin api`
-2. **Start the frontend**: `pnpm dev`
+1. **Start the API**: `cargo run --bin api` from `backend/`
+2. **Start the frontend**: `npm run dev` from `frontend/`
 3. **Test the feature** using the UI or API endpoints
 4. **Check different networks** (Mainnet, Testnet, Futurenet)
 
@@ -266,7 +273,7 @@ pnpm test:coverage
 ### Before Submitting
 
 - [ ] Code follows project style guidelines
-- [ ] Tests pass locally (`cargo test`, `pnpm test`)
+- [ ] Tests pass locally (`cargo test`, `npx jest --runInBand`)
 - [ ] No console errors or warnings
 - [ ] Documentation is updated if needed
 - [ ] Commits are atomic and well-messaged
@@ -358,14 +365,14 @@ cargo test
 ### Frontend Code Standards
 
 ```bash
-# Format and lint
-pnpm lint --fix
+# Lint
+npx eslint . --fix
 
 # Type check
-pnpm type-check
+npx tsc --noEmit
 
 # Test
-pnpm test
+npx jest --runInBand
 ```
 
 ### Documentation
@@ -432,4 +439,4 @@ Contributors are recognized in:
 
 ---
 
-Thank you for contributing! We appreciate your effort in making Soroban Registry better. 🚀
+Thank you for contributing! We appreciate your effort in making Soroban Registry better.
