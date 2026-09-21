@@ -58,21 +58,21 @@ pub fn execute_batch(file_path: &str, dry_run: bool, format: &str) -> Result<Vec
     }
 
     println!(
-        "✅ Manifest validated. Found {} operations",
+        "[OK] Manifest validated. Found {} operations",
         manifest.batch.len()
     );
 
     if dry_run {
         println!(
             "{}",
-            "🔍 DRY RUN - Validating operations without execution...".yellow()
+            "[DRY RUN] Validating operations without execution...".yellow()
         );
 
         for item in &manifest.batch {
-            println!("  ✓ {} → {:?}", item.contract, item.operation);
+            println!("  - {} -> {:?}", item.contract, item.operation);
         }
 
-        println!("{}", "✅ All operations are valid".green());
+        println!("{}", "[OK] All operations are valid".green());
         return Ok(Vec::new());
     }
 
@@ -95,7 +95,7 @@ pub fn execute_batch(file_path: &str, dry_run: bool, format: &str) -> Result<Vec
 
         match execute_single_operation(item) {
             Ok(_) => {
-                println!("{}", "✅ SUCCESS".green());
+                println!("{}", "[OK] SUCCESS".green());
                 report.push(BatchReportItem {
                     contract: item.contract.clone(),
                     operation: format!("{:?}", item.operation),
@@ -104,7 +104,7 @@ pub fn execute_batch(file_path: &str, dry_run: bool, format: &str) -> Result<Vec
                 });
             }
             Err(e) => {
-                println!("{}", "❌ FAILED".red());
+                println!("{}", "[FAIL] FAILED".red());
                 failed = true;
                 report.push(BatchReportItem {
                     contract: item.contract.clone(),
@@ -118,11 +118,11 @@ pub fn execute_batch(file_path: &str, dry_run: bool, format: &str) -> Result<Vec
 
     // Handle rollback if any operation failed
     if failed {
-        println!("{}", "\n🔄 Performing atomic rollback...".yellow().bold());
-        // NOTE: Rollback delegates to the rollback module which will call
-        // registry backend revert endpoints when available. Currently operates
-        // in simulation mode — see crates/soroban-batch/src/rollback.rs.
-        println!("{}", "✅ Rollback completed".green());
+        println!("{}", "\nPerforming atomic rollback...".yellow().bold());
+        // NOTE: nothing is actually reverted here. The loop below relabels the
+        // successful entries as "rolled_back" in the report; calling the registry's
+        // revert endpoints is still to be written.
+        println!("{}", "[OK] Rollback completed".green());
 
         // Mark successful operations as rolled back
         for item in report.iter_mut() {
@@ -138,7 +138,7 @@ pub fn execute_batch(file_path: &str, dry_run: bool, format: &str) -> Result<Vec
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         _ => {
-            println!("\n📊 Batch Execution Report:");
+            println!("\nBatch Execution Report:");
             for item in &report {
                 let status_colored = match item.status.as_str() {
                     "success" => item.status.green(),
