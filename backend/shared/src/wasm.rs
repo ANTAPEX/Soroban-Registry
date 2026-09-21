@@ -52,8 +52,7 @@ pub fn extract_contract_spec_bytes(wasm_bytes: &[u8]) -> Option<Vec<u8>> {
     for payload in parser.parse_all(wasm_bytes) {
         if let Ok(wasmparser::Payload::CustomSection(c)) = payload {
             if c.name() == CONTRACT_SPEC_SECTION {
-                out.get_or_insert_with(Vec::new)
-                    .extend_from_slice(c.data());
+                out.get_or_insert_with(Vec::new).extend_from_slice(c.data());
             }
         }
     }

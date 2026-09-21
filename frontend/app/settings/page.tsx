@@ -15,7 +15,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
 
 export default function SettingsPage() {
     const { theme, setTheme } = useTheme();
-    const { t, i18n } = useTranslation('common');
+    const { i18n } = useTranslation('common');
     const currentLng = i18n.resolvedLanguage || 'en';
 
     const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [

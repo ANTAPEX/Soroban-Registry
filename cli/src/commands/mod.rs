@@ -1,0 +1,59 @@
+//! The commands the CLI runs.
+//!
+//! One module per command, and a directory for a command that has subcommands
+//! of its own.
+
+pub mod analytics;
+pub mod analyze;
+pub mod api_key;
+pub mod audit;
+pub mod auth;
+pub mod backup;
+pub mod batch;
+pub mod breaking_changes;
+pub mod cache;
+pub mod category;
+pub mod cicd;
+pub mod compare;
+pub mod completion;
+pub mod config;
+pub mod contract;
+pub mod coverage;
+pub mod dashboard;
+pub mod deploy;
+pub mod deps;
+pub mod doc;
+pub mod env;
+pub mod export;
+pub mod formal_verification;
+pub mod fuzz;
+pub mod import;
+pub mod incident;
+pub mod list;
+pub mod migration;
+pub mod multisig;
+pub mod network;
+pub mod notification;
+pub mod openapi;
+pub mod package_signing;
+pub mod patch;
+pub mod perf;
+pub mod plugins;
+pub mod profile;
+pub mod publish;
+pub mod publisher;
+pub mod release_notes;
+pub mod scan_deps;
+pub mod search;
+pub mod shell;
+pub mod sla;
+pub mod snapshot;
+pub mod state;
+pub mod stats;
+pub mod test;
+pub mod track_deployment;
+pub mod upgrade;
+pub mod verification;
+pub mod version;
+pub mod webhook;
+pub mod wizard;

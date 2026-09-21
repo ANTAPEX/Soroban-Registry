@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api, AnalyticsEvent, AnalyticsEventType, ActivityFeedResponse } from '@/lib/api';
+import { api, AnalyticsEvent, AnalyticsEventType } from '@/lib/api';
 import { ContractDeploymentEvent, ContractUpdateEvent } from '@/types/realtime';
 import { useRealtime } from '@/hooks/useRealtime';
 import { formatPublicKey, formatShortenedText } from '@/lib/utils/formatting';
@@ -23,6 +22,7 @@ import {
 import type { TFunction } from 'i18next';
 import Link from 'next/link';
 import { useTranslation } from '@/lib/i18n/client';
+import { useActivityFeed } from "@/hooks/queries";
 
 const getEventConfig = (t: TFunction): Record<string, { icon: LucideIcon; label: string; color: string }> => ({
   contract_published: { icon: Upload, label: t('activityFeed.published'), color: 'text-blue-500 bg-blue-500/10' },
@@ -43,14 +43,8 @@ export default function ActivityFeed() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
 
-  // Initial fetch
-  const { isLoading, error, data } = useQuery<ActivityFeedResponse>({
-    queryKey: ['activity-feed', eventType],
-    queryFn: () => api.getActivityFeed({
-      event_type: eventType === 'all' ? undefined : eventType,
-      limit: 20,
-    }),
-  });
+  // Initial fetch. Paging past it is cursor-based and stays below in fetchMore.
+  const { isLoading, error, data } = useActivityFeed(eventType);
 
   // Update items when data changes
   useEffect(() => {

@@ -73,7 +73,7 @@ impl ContractEventEnvelope {
         RealtimeEvent::VersionCreated {
             contract_id: contract.contract_id.clone(),
             version: version.version.clone(),
-            network: contract.network.clone(),
+            network: contract.network,
             timestamp: Utc::now().to_rfc3339(),
         }
     }
@@ -85,7 +85,7 @@ impl ContractEventEnvelope {
             publisher: publisher_address.unwrap_or_default(),
             version: "".to_string(),
             timestamp: Utc::now().to_rfc3339(),
-            network: contract.network.clone(),
+            network: contract.network,
         }
     }
 
@@ -280,11 +280,7 @@ impl SubscriptionFilter {
             }
         }
 
-        if !self.include_private && matches!(visibility, Some(ContractEventVisibility::Private)) {
-            return false;
-        }
-
-        true
+        !(!self.include_private && matches!(visibility, Some(ContractEventVisibility::Private)))
     }
 }
 

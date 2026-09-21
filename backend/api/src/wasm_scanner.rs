@@ -13,7 +13,7 @@ pub struct WasmScanResult {
 
 pub fn scan(bytes: &[u8], expected_hash: &str) -> WasmScanResult {
     let mut findings = Vec::new();
-    if bytes.len() < 8 || &bytes[..4] != b"\0asm" || &bytes[4..8] != [1, 0, 0, 0] {
+    if bytes.len() < 8 || &bytes[..4] != b"\0asm" || bytes[4..8] != [1, 0, 0, 0] {
         findings.push("malformed_wasm_header".to_string());
     } else if let Err(error) = wasmparser::Validator::new().validate_all(bytes) {
         findings.push(format!("malformed_wasm: {}", error));

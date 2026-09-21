@@ -66,7 +66,7 @@ pub fn init_logging(config: LogConfig) {
 
     let writer: BoxMakeWriter = if let Some(log_dir) = &config.log_dir {
         let file_appender =
-            tracing_appender::rolling::daily(log_dir, format!("{}.log", &config.service_name));
+            tracing_appender::rolling::daily(log_dir, format!("{}.log", config.service_name));
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
         let _ = LOG_GUARD.set(guard);
         BoxMakeWriter::new(non_blocking)

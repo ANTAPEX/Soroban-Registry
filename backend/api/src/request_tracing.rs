@@ -21,7 +21,6 @@ use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use opentelemetry::global;
 use opentelemetry::propagation::{Extractor, Injector};
-use opentelemetry::trace::TraceContextExt;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
@@ -349,13 +348,13 @@ pub fn inject_business_context(
 ) {
     let span = tracing::Span::current();
     if let Some(uid) = user_id {
-        span.record("user_id", &uid);
+        span.record("user_id", uid);
     }
     if let Some(cid) = contract_id {
-        span.record("contract_id", &cid);
+        span.record("contract_id", cid);
     }
     if let Some(oid) = org_id {
-        span.record("organization_id", &oid);
+        span.record("organization_id", oid);
     }
 }
 

@@ -765,7 +765,7 @@ fn sha256_bytes(data: &[u8]) -> Vec<u8> {
 fn decode_proof_bytes(encoded: &str) -> Result<Vec<u8>, String> {
     let trimmed = encoded.trim();
     // Try hex first (64-char blocks are common for field elements)
-    if trimmed.len() % 2 == 0 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+    if trimmed.len().is_multiple_of(2) && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
         return hex::decode(trimmed).map_err(|e| format!("Hex decode error: {}", e));
     }
     // Fallback to base64

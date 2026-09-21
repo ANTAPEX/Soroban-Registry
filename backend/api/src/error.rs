@@ -459,7 +459,9 @@ mod tests {
             .with_retry_after(42)
             .into_response();
         assert_eq!(
-            with.headers().get(RETRY_AFTER).and_then(|v| v.to_str().ok()),
+            with.headers()
+                .get(RETRY_AFTER)
+                .and_then(|v| v.to_str().ok()),
             Some("42")
         );
     }

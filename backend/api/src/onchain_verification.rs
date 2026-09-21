@@ -609,6 +609,12 @@ impl OnChainVerifier {
     }
 }
 
+impl Default for OnChainVerifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn build_contract_instance_ledger_key(contract_id: &str) -> Result<String, RegistryError> {
     let contract = parse_contract_strkey(contract_id)?;
     let key = LedgerKey::ContractData(LedgerKeyContractData {

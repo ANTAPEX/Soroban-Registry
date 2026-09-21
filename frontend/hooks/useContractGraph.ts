@@ -1,55 +1,55 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, GraphEdge, GraphNode } from "@/lib/api";
+import { useCallback, useMemo } from "react";
+import { useContractLocalGraph } from "@/hooks/queries";
+import type { GraphEdge, GraphNode } from "@/types";
 
 export interface ContractGraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
 }
 
+const EMPTY: ContractGraphData = { nodes: [], edges: [] };
+
+/**
+ * A contract's local graph plus the export and counting helpers the 3D view
+ * needs, over `useContractLocalGraph`.
+ *
+ * This used to fetch the endpoint itself, so the 3D view and the interaction
+ * flow held separate copies of the same graph. Both now read the same cache,
+ * and share an entry whenever they ask for the same contract and depth.
+ */
 export function useContractGraph(contractId: string, depth = 2) {
-  const [graph, setGraph] = useState<ContractGraphData>({ nodes: [], edges: [] });
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const query = useContractLocalGraph(contractId, depth, {
+    enabled: !!contractId,
+  });
 
-  const refresh = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await api.getContractLocalGraph(contractId, depth);
-      setGraph({ nodes: response.nodes, edges: response.edges });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load graph";
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [contractId, depth]);
+  const graph = useMemo<ContractGraphData>(
+    () =>
+      query.data
+        ? { nodes: query.data.nodes, edges: query.data.edges }
+        : EMPTY,
+    [query.data],
+  );
 
-  useEffect(() => {
-    if (!contractId) {
-      setGraph({ nodes: [], edges: [] });
-      setIsLoading(false);
-      return;
-    }
-    void refresh();
-  }, [contractId, refresh]);
-
-  const exportAsJson = useCallback(() => JSON.stringify(graph, null, 2), [graph]);
+  const exportAsJson = useCallback(
+    () => JSON.stringify(graph, null, 2),
+    [graph],
+  );
 
   const stats = useMemo(
-    () => ({
-      nodeCount: graph.nodes.length,
-      edgeCount: graph.edges.length,
-    }),
+    () => ({ nodeCount: graph.nodes.length, edgeCount: graph.edges.length }),
     [graph.edges.length, graph.nodes.length],
   );
 
+  const refresh = useCallback(async () => {
+    await query.refetch();
+  }, [query]);
+
   return {
     graph,
-    isLoading,
-    error,
+    isLoading: query.isPending,
+    error: query.error ? query.error.message : null,
     stats,
     refresh,
     exportAsJson,

@@ -1,13 +1,10 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import type { AnalyticsEventType, AnalyticsEvent } from '@/types';
-import { api } from '@/lib/api';
 import { 
   History, 
   Search, 
-  Filter, 
   Download, 
   Info,
   Calendar,
@@ -20,6 +17,7 @@ import {
   ShieldCheck,
   Zap
 } from 'lucide-react';
+import { useContractTimeline } from "@/hooks/queries";
 
 interface ContractTimelineProps {
   contractId: string;
@@ -30,10 +28,7 @@ export default function ContractTimeline({ contractId }: ContractTimelineProps) 
   const [typeFilter, setTypeFilter] = useState<AnalyticsEventType | 'all'>('all');
   const [selectedEvent, setSelectedEvent] = useState<AnalyticsEvent | null>(null);
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['contract-timeline', contractId],
-    queryFn: () => api.getActivityFeed({ contract_id: contractId, limit: 100 }),
-  });
+  const { data, isLoading, error } = useContractTimeline(contractId);
 
   const filteredEvents = useMemo(() => {
     if (!data?.items) return [];

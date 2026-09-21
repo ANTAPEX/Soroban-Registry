@@ -17,9 +17,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{ApiError, ApiResult},
-    formal_verification::{
-        FormalVerificationReport, ProofStatus, VulnerabilitySeverity, WasmBytecodeAnalyzer,
-    },
+    formal_verification::{FormalVerificationReport, VulnerabilitySeverity, WasmBytecodeAnalyzer},
     state::AppState,
 };
 
@@ -164,13 +162,12 @@ async fn fetch_wasm_bytes(
             // Fallback: if the source_url references an uploaded WASM file, try that.
             if let Some(url) = source_url {
                 if url.ends_with(".wasm") {
-                    match state
+                    if let Ok(bytes) = state
                         .source_storage
                         .retrieve_source(&storage_backend, &url)
                         .await
                     {
-                        Ok(bytes) => return Ok(bytes),
-                        Err(_) => {}
+                        return Ok(bytes);
                     }
                 }
             }

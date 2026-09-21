@@ -1,3 +1,9 @@
+import {
+  GA_ID,
+  IS_PRODUCTION,
+  MIXPANEL_TOKEN,
+  PLAUSIBLE_DOMAIN,
+} from "@/lib/env";
 // lib/analytics.ts
 declare global {
   interface Window {
@@ -18,10 +24,10 @@ const provider = process.env
 
 // Initialize based on provider
 export const initAnalytics = () => {
-  if (provider === "ga" && process.env.NEXT_PUBLIC_GA_ID) {
+  if (provider === "ga" && GA_ID) {
     if (!window.gtag) {
       const script = document.createElement("script");
-      script.src = `https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_ID}`;
+      script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
       script.async = true;
       document.head.appendChild(script);
 
@@ -36,21 +42,21 @@ export const initAnalytics = () => {
       // Wait for GA script to fully load before calling config
       script.onload = () => {
         if (window.gtag) {
-          window.gtag("config", process.env.NEXT_PUBLIC_GA_ID, {
+          window.gtag("config", GA_ID, {
             anonymize_ip: true,
-            ...(process.env.NODE_ENV !== "production" && { debug_mode: true }),
+            ...(!IS_PRODUCTION && { debug_mode: true }),
           });
         }
       };
     }
   }
 
-  if (provider === "plausible" && process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN) {
+  if (provider === "plausible" && PLAUSIBLE_DOMAIN) {
     if (!window.plausible) {
       const script = document.createElement("script");
       script.src = `https://plausible.io/js/plausible.js`;
       script.defer = true;
-      script.dataset.domain = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN;
+      script.dataset.domain = PLAUSIBLE_DOMAIN;
       document.head.appendChild(script);
       window.plausible = (
         eventName: string,
@@ -73,13 +79,13 @@ export const initAnalytics = () => {
     }
   }
 
-  if (provider === "mixpanel" && process.env.NEXT_PUBLIC_MIXPANEL_TOKEN) {
+  if (provider === "mixpanel" && MIXPANEL_TOKEN) {
     if (!window.mixpanel) {
       const script = document.createElement("script");
       script.src = "https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js";
       script.async = true;
       script.onload = () => {
-        window.mixpanel?.init(process.env.NEXT_PUBLIC_MIXPANEL_TOKEN ?? "");
+        window.mixpanel?.init(MIXPANEL_TOKEN ?? "");
       };
       document.head.appendChild(script);
     }

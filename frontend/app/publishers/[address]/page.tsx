@@ -1,15 +1,14 @@
 "use client";
 
 import { Suspense } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { getPublisher } from "@/lib/api/publishers";
 import { PublisherHeader } from "@/components/publisher/PublisherHeader";
 import { PublisherStats } from "@/components/publisher/PublisherStats";
 import { PublisherContractsList } from "@/components/publisher/PublisherContractsList";
 import { PublisherActivityTimeline } from "@/components/publisher/PublisherActivityTimeline";
 import Navbar from "@/components/Navbar";
 import { AlertCircle } from "lucide-react";
+import { usePublisher } from "@/hooks/queries";
 
 function PublisherProfileContent() {
   const params = useParams<{ address?: string | string[] }>() ?? {};
@@ -20,11 +19,7 @@ function PublisherProfileContent() {
     data: publisher,
     isLoading,
     error,
-  } = useQuery({
-    queryKey: ["publisher", address],
-    queryFn: () => getPublisher(address!),
-    enabled: !!address,
-  });
+  } = usePublisher(address);
 
   if (!address) {
     return (

@@ -68,15 +68,12 @@ pub async fn clone_contract(
         })?;
 
     // Check if the new contract_id already exists on the target network
-    let target_network = req
-        .network
-        .clone()
-        .unwrap_or_else(|| original.network.clone());
+    let target_network = req.network.unwrap_or(original.network);
     let existing = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM contracts WHERE contract_id = $1 AND network = $2",
     )
     .bind(&req.contract_id)
-    .bind(&target_network)
+    .bind(target_network)
     .fetch_one(&state.db)
     .await
     .map_err(|err| db_internal_error("check existing contract", err))?;
@@ -110,7 +107,7 @@ pub async fn clone_contract(
     let tags_strings: Vec<String> = req
         .tags
         .as_ref()
-        .map(|tags| tags.iter().map(|t| t.clone()).collect())
+        .map(|tags| tags.to_vec())
         .unwrap_or_else(|| original.tags.iter().map(|t| t.name.clone()).collect());
 
     // Insert the cloned contract
@@ -133,7 +130,7 @@ pub async fn clone_contract(
             .or(original.description.as_deref()),
     )
     .bind(publisher_id)
-    .bind(&target_network)
+    .bind(target_network)
     .bind(req.category.as_deref().or(original.category.as_deref()))
     .bind(&tags_strings as &[String])
     .bind(original.id)
@@ -168,7 +165,7 @@ pub async fn clone_contract(
     .bind(original.id)
     .bind(clone.id)
     .bind(metadata_overrides)
-    .bind(&target_network)
+    .bind(target_network)
     .execute(&mut *tx)
     .await
     .map_err(|err| db_internal_error("record clone history", err))?;
@@ -214,7 +211,7 @@ pub async fn clone_contract(
         original_contract_id: original.id,
         original_contract_name: original.name.clone(),
         clone_link: format!("/api/contracts/{}", clone.id),
-        network: clone.network.clone(),
+        network: clone.network,
         inherited_abi: abi_copied,
         created_at: clone.created_at,
     };

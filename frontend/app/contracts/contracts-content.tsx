@@ -2,11 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type {
-  ContractSearchParams,
-  Contract,
-  SemanticContractSearchResponse,
-} from "@/types";
+import type { ContractSearchParams, Contract } from "@/types";
 import { api } from "@/lib/api";
 import ContractCard from "@/components/ContractCard";
 import ContractCardSkeleton from "@/components/ContractCardSkeleton";
@@ -28,8 +24,6 @@ import {
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAnalytics } from "@/hooks/useAnalytics";
-import QueryBuilder from "@/components/contracts/QueryBuilder";
-import FavoriteSearches from "@/components/contracts/FavoriteSearches";
 import { useFavorites } from "@/hooks/useFavorites";
 import {
   DEFAULT_SORT_PREFERENCE,
@@ -41,6 +35,8 @@ import {
   combineAdvancedQueryWithFilters,
   parseAdvancedContractQuery,
 } from "@/utils/advancedSearchSyntax";
+import { queryKeys } from "@/lib/queryKeys";
+import { useRegistryStats } from "@/hooks/queries";
 
 const DEFAULT_PAGE_SIZE = 12;
 const CATEGORY_OPTIONS_NAMES = [
@@ -245,26 +241,6 @@ export function buildContractsApiParams(
   };
 }
 
-function getOptionCounts(
-  items: Contract[] | undefined,
-  options: readonly string[],
-  getValue: (contract: Contract) => string | undefined,
-): FilterOption[] {
-  const counts = new Map<string, number>();
-
-  items?.forEach((item) => {
-    const value = getValue(item);
-    if (!value) return;
-    counts.set(value, (counts.get(value) ?? 0) + 1);
-  });
-
-  return options.map((option) => ({
-    value: option,
-    label: option.charAt(0).toUpperCase() + option.slice(1),
-    count: counts.get(option) ?? 0,
-  }));
-}
-
 export function ContractsContent() {
   const router = useRouter();
   const pathname = usePathname() ?? "/contracts";
@@ -387,7 +363,7 @@ export function ContractsContent() {
     isLoading,
     isFetching,
   } = useQuery<ContractsResponse>({
-    queryKey: ["contracts", contractsQueryKey],
+    queryKey: queryKeys.contractsList(contractsQueryKey),
     queryFn: async () => {
       if (useAdvancedSearch && parsedQuery.queryNode) {
         const combined = combineAdvancedQueryWithFilters(
@@ -437,10 +413,7 @@ export function ContractsContent() {
     placeholderData: (previousData) => previousData ?? EMPTY_CONTRACTS_RESPONSE,
   });
 
-  const { data: stats } = useQuery({
-    queryKey: ["stats"],
-    queryFn: () => api.getStats(),
-  });
+  const { data: stats } = useRegistryStats();
 
   // Used to determine if results are empty for UI
   const paginationRange = useMemo(

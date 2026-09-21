@@ -1,6 +1,5 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
 import { api, GraphNode, GraphEdge } from '@/lib/api';
 import DependencyGraph from '@/components/DependencyGraph';
 import GraphControls from '@/components/GraphControls';
@@ -9,6 +8,7 @@ import { AlertCircle, Sparkles, ExternalLink, X } from 'lucide-react';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import type { DependencyGraphHandle } from '@/components/DependencyGraph';
 import { useTranslation } from '@/lib/i18n/client';
+import { useRegistryGraph } from "@/hooks/queries";
 
 // Generate synthetic demo data for testing at scale
 function generateDemoData(nodeCount: number): { nodes: GraphNode[]; edges: GraphEdge[] } {
@@ -129,9 +129,7 @@ export function GraphContent() {
         }
     }, []);
 
-    const { data: apiData, isLoading, error } = useQuery({
-        queryKey: ['contract-graph', networkFilter],
-        queryFn: () => api.getContractGraph(networkFilter || undefined),
+    const { data: apiData, isLoading, error } = useRegistryGraph(networkFilter, {
         enabled: !demoMode,
     });
 
@@ -469,7 +467,7 @@ export function GraphContent() {
                         </div>
                         <div className="bg-card p-2.5 text-center">
                             <div className={`text-sm font-bold ${selectedNode.is_verified ? 'text-green-500' : 'text-muted-foreground'}`}>
-                                {selectedNode.is_verified ? `✓ ${t('common.yes', 'Yes')}` : '—'}
+                                {selectedNode.is_verified ? t('common.yes', 'Yes') : '—'}
                             </div>
                             <div className="text-[10px] text-muted-foreground">{t('graph.verified')}</div>
                         </div>

@@ -162,7 +162,9 @@ async fn publisher_summary_handles_publishers_with_no_contracts() {
     assert_eq!(summary["verification_status_breakdown"], json!([]));
 
     let contracts_res = api
-        .get(format!("{base}/api/publishers/{publisher_id}/contracts?limit=10"))
+        .get(format!(
+            "{base}/api/publishers/{publisher_id}/contracts?limit=10"
+        ))
         .send()
         .await
         .expect("call publisher contracts endpoint");
@@ -230,7 +232,10 @@ async fn publisher_summary_and_contract_pagination_scale_to_many_contracts() {
     for row in network_counts {
         seen_networks.insert(
             row["network"].as_str().unwrap().to_string(),
-            (row["contract_count"].as_i64().unwrap(), row["version_count"].as_i64().unwrap()),
+            (
+                row["contract_count"].as_i64().unwrap(),
+                row["version_count"].as_i64().unwrap(),
+            ),
         );
     }
     assert_eq!(seen_networks.get("mainnet"), Some(&(40, 80)));
@@ -245,7 +250,10 @@ async fn publisher_summary_and_contract_pagination_scale_to_many_contracts() {
         let key = row["category"].as_str().unwrap_or("null").to_string();
         seen_categories.insert(
             key,
-            (row["contract_count"].as_i64().unwrap(), row["version_count"].as_i64().unwrap()),
+            (
+                row["contract_count"].as_i64().unwrap(),
+                row["version_count"].as_i64().unwrap(),
+            ),
         );
     }
     assert_eq!(seen_categories.get("DeFi"), Some(&(30, 60)));
@@ -293,30 +301,39 @@ async fn publisher_summary_and_contract_pagination_scale_to_many_contracts() {
         }
 
         if body["has_more"].as_bool().unwrap_or(false) {
-            cursor = body["next_cursor"]
-                .as_str()
-                .map(|value| value.to_string());
-            assert!(cursor.is_some(), "has_more pages must include a next_cursor");
+            cursor = body["next_cursor"].as_str().map(|value| value.to_string());
+            assert!(
+                cursor.is_some(),
+                "has_more pages must include a next_cursor"
+            );
         } else {
             assert!(body["next_cursor"].is_null() || body.get("next_cursor").is_none());
             break;
         }
     }
 
-    assert_eq!(seen.len(), expected.len(), "cursor pagination must return every contract");
+    assert_eq!(
+        seen.len(),
+        expected.len(),
+        "cursor pagination must return every contract"
+    );
 
-    let seen_ids: Vec<Uuid> = seen
-        .iter()
-        .map(|(_, id)| *id)
-        .collect();
+    let seen_ids: Vec<Uuid> = seen.iter().map(|(_, id)| *id).collect();
     let mut unique_ids = seen_ids.clone();
     unique_ids.sort();
     unique_ids.dedup();
-    assert_eq!(unique_ids.len(), seen_ids.len(), "pagination returned duplicates");
+    assert_eq!(
+        unique_ids.len(),
+        seen_ids.len(),
+        "pagination returned duplicates"
+    );
 
     let actual_order: Vec<Uuid> = seen_ids;
     let expected_order: Vec<Uuid> = expected.into_iter().map(|(_, id)| id).collect();
-    assert_eq!(actual_order, expected_order, "publisher contracts must be stable and deterministic");
+    assert_eq!(
+        actual_order, expected_order,
+        "publisher contracts must be stable and deterministic"
+    );
 
     delete_publisher(&pool, publisher_id).await;
 }

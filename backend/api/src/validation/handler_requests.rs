@@ -70,8 +70,7 @@ use super::validators::{
     validate_hex_length, validate_json_depth, validate_length, validate_name_format,
     validate_no_xss, validate_one_of, validate_one_of_optional, validate_percentage,
     validate_rating, validate_semver, validate_slug, validate_source_code_size,
-    validate_stellar_address, validate_stellar_address_optional, validate_tags,
-    validate_url_optional, validate_wasm_hash,
+    validate_stellar_address, validate_tags, validate_url_optional, validate_wasm_hash,
 };
 
 const MAX_NAME_LENGTH: usize = 255;
@@ -1457,7 +1456,7 @@ impl Validatable for AdvanceCanaryRequest {
         validate_text(&mut builder, "canary_id", &self.canary_id, 1, 128);
         if let Some(pct) = self.target_percentage {
             builder.check("target_percentage", || {
-                if pct < 0 || pct > 100 {
+                if !(0..=100).contains(&pct) {
                     Err("target_percentage must be between 0 and 100".to_string())
                 } else {
                     Ok(())
@@ -2191,7 +2190,7 @@ impl Validatable for SendNotificationRequest {
     fn sanitize(&mut self) {
         self.notification_type = trim(&self.notification_type);
         trim_optional(&mut self.priority);
-        for (_, v) in self.template_variables.iter_mut() {
+        for v in self.template_variables.values_mut() {
             *v = trim(v);
         }
         self.recipients = self.recipients.iter().map(|r| trim(r)).collect();

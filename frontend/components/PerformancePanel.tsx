@@ -1,8 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import { AlertTriangle, Gauge, TimerReset } from "lucide-react";
+import { useContractAnalytics } from "@/hooks/queries";
 
 interface PerformancePanelProps {
   contractId: string;
@@ -11,10 +10,7 @@ interface PerformancePanelProps {
 export default function PerformancePanel({
   contractId,
 }: PerformancePanelProps) {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["contract-analytics", contractId],
-    queryFn: () => api.getContractAnalytics(contractId),
-  });
+  const { data, isLoading, error } = useContractAnalytics(contractId);
 
   if (isLoading) {
     return (

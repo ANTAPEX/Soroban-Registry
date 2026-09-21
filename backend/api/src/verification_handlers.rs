@@ -432,7 +432,7 @@ pub async fn get_contract_verification_history(
 ) -> ApiResult<Json<VerificationHistoryResponse>> {
     let (contract_uuid, contract_address) = resolve_contract_uuid(&state, &id).await?;
 
-    let limit = query.limit.unwrap_or(50).max(1).min(200);
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
 
     // verification_events holds the audit trail written by the DB trigger
     // (migration 20260329093000_add_contract_verification.sql).

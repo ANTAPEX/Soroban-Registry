@@ -1,22 +1,18 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import TemplateGallery from "@/components/TemplateGallery";
 import { Sparkles, Terminal } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { useAnalytics } from "@/hooks/useAnalytics";
 import { useEffect } from "react";
+import { useTemplates } from "@/hooks/queries";
 
 export default function TemplatesPage() {
   const {
     data: templates,
     isLoading,
     error,
-  } = useQuery({
-    queryKey: ["templates"],
-    queryFn: () => api.getTemplates(),
-  });
+  } = useTemplates();
   const { logEvent } = useAnalytics();
 
   useEffect(() => {

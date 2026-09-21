@@ -308,7 +308,6 @@ function myersDiff(a: string[], b: string[]): DiffLine[] {
   const trace: Record<number, number>[] = [];
 
   for (let d = 0; d <= n + m; d++) {
-    const vCopy = { ...v };
     for (let k = -d; k <= d; k += 2) {
       let x: number;
       if (k === -d || (k !== d && (v[k - 1] ?? 0) < (v[k + 1] ?? 0))) {
@@ -341,7 +340,6 @@ function backtrackDiff(
   const result: DiffLine[] = [];
 
   for (let d = trace.length - 1; d > 0; d--) {
-    const v = trace[d];
     const prevV = trace[d - 1];
     const k = x - y;
 

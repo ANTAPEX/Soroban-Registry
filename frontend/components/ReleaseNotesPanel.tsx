@@ -1,15 +1,19 @@
 "use client";
 
 import React, { useState } from "react";
-import { api, ReleaseNotesResponse, ReleaseNotesStatus } from "@/lib/api";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ReleaseNotesResponse, ReleaseNotesStatus } from "@/lib/api";
+import {
+  useGenerateReleaseNotes,
+  usePublishReleaseNotes,
+  useReleaseNotes,
+  useUpdateReleaseNotes,
+} from "@/hooks/queries";
 
 interface ReleaseNotesProps {
   contractId: string;
 }
 
 export default function ReleaseNotesPanel({ contractId }: ReleaseNotesProps) {
-  const queryClient = useQueryClient();
   const [editingVersion, setEditingVersion] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [generateVersion, setGenerateVersion] = useState("");
@@ -20,47 +24,23 @@ export default function ReleaseNotesPanel({ contractId }: ReleaseNotesProps) {
     data: releaseNotes,
     isLoading,
     error,
-  } = useQuery({
-    queryKey: ["release-notes", contractId],
-    queryFn: () => api.listReleaseNotes(contractId),
-  });
+  } = useReleaseNotes(contractId);
 
-  // Generate mutation
-  const generateMutation = useMutation({
-    mutationFn: (version: string) =>
-      api.generateReleaseNotes(contractId, { version }),
+  const generateMutation = useGenerateReleaseNotes(contractId, {
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["release-notes", contractId],
-      });
       setShowGenerateForm(false);
       setGenerateVersion("");
     },
   });
 
-  // Update mutation
-  const updateMutation = useMutation({
-    mutationFn: ({ version, text }: { version: string; text: string }) =>
-      api.updateReleaseNotes(contractId, version, { notes_text: text }),
+  const updateMutation = useUpdateReleaseNotes(contractId, {
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["release-notes", contractId],
-      });
       setEditingVersion(null);
       setEditText("");
     },
   });
 
-  // Publish mutation
-  const publishMutation = useMutation({
-    mutationFn: (version: string) =>
-      api.publishReleaseNotes(contractId, version),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["release-notes", contractId],
-      });
-    },
-  });
+  const publishMutation = usePublishReleaseNotes(contractId);
 
   if (isLoading) {
     return (

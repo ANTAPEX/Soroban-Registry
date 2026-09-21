@@ -34,12 +34,13 @@ impl Query {
             .fetch_one(&state.db)
             .await?;
 
-        let rows: Vec<shared::models::Contract> =
-            sqlx::query_as("SELECT * FROM contracts ORDER BY created_at DESC, id ASC LIMIT $1 OFFSET $2")
-                .bind(limit)
-                .bind(offset)
-                .fetch_all(&state.db)
-                .await?;
+        let rows: Vec<shared::models::Contract> = sqlx::query_as(
+            "SELECT * FROM contracts ORDER BY created_at DESC, id ASC LIMIT $1 OFFSET $2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&state.db)
+        .await?;
 
         let total_pages = if limit > 0 {
             (total as f64 / limit as f64).ceil() as i64
