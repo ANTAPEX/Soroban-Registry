@@ -1,5 +1,11 @@
 name: Validate Database Migrations
 
+# The single migration check in this repository. ci.yml used to carry a second,
+# weaker copy of it inline - an ordering loop that did not check filenames at
+# all - which ran on every pull request whether or not a migration had changed.
+# This one runs .github/scripts/validate-migrations.sh, which checks both the
+# naming convention and the ordering, and only when migrations are touched.
+
 on:
   pull_request:
     paths:
@@ -11,6 +17,12 @@ on:
       - main
     paths:
       - "database/migrations/**"
+
+permissions:
+  contents: read
+  # The failure path comments on the pull request.
+  issues: write
+  pull-requests: write
 
 jobs:
   validate:
@@ -33,5 +45,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '❌ **Migration Validation Failed**\n\nPlease check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.\n\nCommon issues:\n- Duplicate migration prefixes\n- Invalid filename format\n- Missing zero-padding in prefix\n\nSee [docs/MIGRATIONS.md](../blob/main/docs/MIGRATIONS.md) for naming conventions.'
+              body: '**Migration validation failed**\n\nPlease check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.\n\nA migration filename must be `<NNN>_name.sql` or `<YYYYMMDDHHMMSS>_name.sql`, lowercase, and must sort after every migration already merged.\n\nSee [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md) for the conventions.'
             })

@@ -278,14 +278,23 @@ export CARGO_PROFILE_TEST_DEBUG=line-tables-only
 ### What a pull request actually runs
 
 Every pull request gets the Vercel build of `frontend/`, the contract crates
-(`smart-contract-ci.yml`), migration validation, a dependency audit and an emoji check. Three
-more are conditional, and between them they are what a green check mark now means:
+(`smart-contract-ci.yml`) and an emoji check. The rest are conditional on paths, and between
+them they are what a green check mark now means:
 
 | Job | Runs when the PR touches |
 | --- | --- |
-| `Backend (build, test)` | `backend/**/*.rs`, either `Cargo.toml`/`Cargo.lock`, `soroban-registry/`, `rust-toolchain.toml` or `ci.yml`. Runs `cargo test --workspace --locked`. |
+| `Backend (build, test)` | `backend/**/*.rs`, either `Cargo.toml`/`Cargo.lock`, `soroban-registry/crates/soroban-batch/`, `rust-toolchain.toml` or `ci.yml`. Runs `cargo test --workspace --locked`. |
 | `Frontend (typecheck, lint, test, build)` | `frontend/**` or `ci.yml`. Runs `tsc`, `eslint`, `jest` and a production build. |
 | `CLI (fmt, build, test)` | `cli/` or the backend crates it path-depends on. |
+| `Check Migration File Naming` | `database/migrations/**`. Runs `.github/scripts/validate-migrations.sh`, which checks both the naming convention and the ordering. |
+| `Dependency security audit` | any lockfile or manifest. Also runs weekly on a schedule, because a new advisory against an unchanged lockfile is the case a push trigger cannot catch. Reports, never blocks. |
+
+`soroban-registry/` holds a second Cargo workspace of six crates, of which only
+`crates/soroban-batch` is in the backend's build graph. That is why the backend filter names
+that one crate rather than the directory.
+
+Nothing deploys on a merge. `deploy.yml` is `workflow_dispatch` only and its deployment steps
+are unimplemented placeholders.
 
 Neither the backend nor the frontend job gates on clippy, rustfmt or eslint *warnings*. The
 repository has pre-existing drift in all three, so turning them on would make the job red on
