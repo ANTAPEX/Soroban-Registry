@@ -1,30 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Frontend
 
-## Getting Started
+The Soroban Registry web app: Next.js 15 (App Router), React 19, TypeScript, Tailwind,
+Redux Toolkit for UI state and TanStack Query for server state.
 
-First, run the development server:
+Setup, environment variables and the rest of the stack are in the
+[repository README](../README.md). This file covers what is specific to `frontend/`.
+
+## Running it
 
 ```bash
-pnpm dev
+npm ci --legacy-peer-deps
+cp .env.example .env.local     # then set NEXT_PUBLIC_API_URL=http://localhost:3001
+npm run dev                    # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`--legacy-peer-deps` is required, not a workaround for a broken machine: `@reduxjs/toolkit`
+1.9 declares a peer of React 18 and this app is on React 19, so a plain `npm ci` fails with
+`ERESOLVE`. The committed `package-lock.json` was resolved the same way. There are also
+`pnpm-lock.yaml` and `yarn.lock` in this directory; npm is what CI uses.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How it is laid out
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Path | What lives there |
+| --- | --- |
+| `app/` | Routes. App Router conventions: `page`, `layout`, `loading`, `error`, `route`. |
+| `components/` | React components. Storybook stories sit beside the component they document. |
+| `lib/api/` | One module per API domain. `lib/api.ts` is a barrel that re-exports them. |
+| `lib/env.ts` | **The only module that reads `process.env`.** Add a variable here, not at its call site. |
+| `lib/queryKeys.ts` | Every TanStack Query cache key, in one place. |
+| `hooks/queries/` | One hook per endpoint, mirroring `lib/api/`. |
+| `types/` | Domain types. This directory imports nothing from the rest of the app. |
+| `store/` | Redux Toolkit slices for UI state. |
+| `__tests__/` | Jest suites. |
 
-## Learn More
+Two conventions the layout depends on, both greppable:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+# Nothing outside lib/env.ts may read process.env
+grep -rn "process\.env\." --include='*.ts*' app components hooks lib store providers types | grep -v "^lib/env.ts"
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Nothing may build a query key inline
+grep -rn 'queryKey:\s*\[' --include='*.ts*' app components hooks lib
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Both should return nothing.
 
-## Deploy on Vercel
+## Checks
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npx jest --runInBand     # `npm test` is the same run plus coverage
+npx eslint .
+npx tsc --noEmit
+npx next build
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Always run `next build` before pushing.** `tsc` and `eslint` both pass on a mistake the
+Vercel build rejects: `"use client"` has to be the first statement in a file, and an import
+inserted above it silently demotes the page to a Server Component.
+
+Five suites fail on `main` today and are not caused by your branch:
+`__tests__/lib/api.test.ts`, `ipfsMirror`, `contractsContentFilters`,
+`components/FilterPanel` and `resilience`. Compare against a clean `main` rather than
+expecting green.
+
+## Storybook
+
+```bash
+npm run storybook        # http://localhost:6006
+```
+
+Stories live next to their components under `components/`, which is what
+`.storybook/main.ts` globs.

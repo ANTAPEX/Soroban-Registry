@@ -1,260 +1,369 @@
 # Soroban Registry
 
-A contract registry and package manager for the Soroban smart‑contract ecosystem on Stellar.
+A contract registry and package manager for the Soroban smart-contract ecosystem on
+Stellar. It lets developers publish, discover and verify Soroban contracts across Stellar
+networks, the way npm and crates.io serve the JavaScript and Rust communities.
 
-Soroban Registry lets developers publish, discover, and verify Soroban contracts across Stellar networks, similar to how npm and crates.io serve JavaScript and Rust communities.[cite:352]
-
-> Production: https://soroban-registry.vercel.app/
+Production: <https://soroban-registry.vercel.app/>
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)
-![TypeScript](https://img.shields.io/badge/typescript-5.0%2B-blue.svg)
+![Rust](https://img.shields.io/badge/rust-nightly%20(pinned)-orange.svg)
+![Next.js](https://img.shields.io/badge/next.js-15-black.svg)
 
 ---
 
-## Features
+## Get it running
 
-- **Registry & Discovery** – Search and browse contracts by network, tags, category, and publisher.
-- **Source Verification** – Verify that on‑chain bytecode matches published source.
-- **Versioning & Changelogs** – Track versions, semver compatibility, and breaking changes.
-- **Multi‑Network Support** – Mainnet, Testnet, and Futurenet in a single registry.[cite:352]
-- **Publisher Profiles** – Attach contracts to publishers and their deployment history.
-- **Analytics** – Usage statistics and interaction metrics for contracts.
-- **Web App + CLI** – Next.js frontend for browsing; Rust CLI for developer workflows.
+Two long-running processes and about ten minutes, most of which is the first Rust build.
+Every command below was run against a checkout of `main` before it was written down.
 
----
+### 0. What you need
 
-## Project Layout
+| Tool | Version | How it is pinned |
+| --- | --- | --- |
+| Rust | nightly | `rust-toolchain.toml` at the repo root. rustup installs it on your first `cargo` command; do not override it with `+stable`. |
+| Node.js | `^18.18` or `^19.8` or `>=20` | Next.js 15.3's own `engines` field. |
+| PostgreSQL | 16 | What `docker-compose.yml` runs and what the migrations are tested against. |
+| Docker | optional | Only for the observability stack. The app itself does not need it. |
 
-```text
-soroban-registry/
-├── backend/        # Rust backend services (Axum API, indexer, verifier)
-├── frontend/       # Next.js web application
-├── cli/            # Rust CLI tool
-└── database/       # PostgreSQL migrations
-```
+You do **not** need the SQLx CLI, and you do **not** need a database to compile anything.
+The backend has no `sqlx::query!` macros left, so `cargo build` works on a machine with no
+Postgres at all.
 
----
-
-## Prerequisites
-
-- **Rust** 1.75+ – https://rustup.rs/
-- **Node.js** 20+ – https://nodejs.org/
-- **PostgreSQL** 16+ – https://www.postgresql.org/download/
-- **Docker** (optional, recommended for local all‑in‑one setup)[cite:352]
-
----
-
-## Quick Start
-
-### 1. Clone and configure
+### 1. Database
 
 ```bash
-git clone https://github.com/ALIPHATICHYD/Soroban-Registry.git
-cd Soroban-Registry
+createdb soroban_registry
+```
 
+That is the whole step. The API applies all 143 migrations in `database/migrations/` itself
+on startup, in order, and records them in `_sqlx_migrations`. Set `SKIP_MIGRATIONS=true` if
+you would rather apply them by hand.
+
+If you want to apply them without starting the API:
+
+```bash
+cargo install sqlx-cli --version 0.8.6 --no-default-features --features rustls,postgres --locked
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/soroban_registry" \
+  sqlx migrate run --source database/migrations
+```
+
+### 2. Backend API
+
+```bash
 cp .env.example .env
 ```
 
-### 2. Run everything with Docker (recommended)
+Then add these three lines to `.env`. **`.env.example` is missing them and the API will not
+start without them** — see [The environment the API requires](#the-environment-the-api-requires).
 
 ```bash
-docker-compose up -d
-
-# API:      http://localhost:3001
-# Frontend: http://localhost:3000
+ELASTICSEARCH_URL=http://localhost:9200
+HOST=0.0.0.0
+LOG_LEVEL=info
 ```
-
-This starts the PostgreSQL HA pair behind `pgpool`, the backend API, and the Next.js frontend with sensible defaults.[cite:352]
-
-The Docker stack now uses a primary/replica PostgreSQL pair behind `pgpool`, so the API and other database-backed services get read balancing plus automatic failover. If you want the operator runbook, see [docs/database-high-availability.md](docs/database-high-availability.md).
-
----
-
-## Running From Source
-
-### Database
-
-The backend uses SQLx's compile-time-checked query macros (`sqlx::query!`,
-`sqlx::query_as!`, `sqlx::query_scalar!`). They require **either** a live
-database reachable at `DATABASE_URL` **or** prepared offline query data under
-`backend/.sqlx/` (`SQLX_OFFLINE=true`). Without one of these, `cargo build`
-fails with errors like *"set `DATABASE_URL` to use query macros online, or run
-`cargo sqlx prepare` to update the query cache"*.
-
-```bash
-# 1. Create the database
-createdb soroban_registry
-
-# 2. Export DATABASE_URL — needed at compile time AND at runtime
-export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/soroban_registry"
-
-# 3. Install the SQLx CLI (one-time)
-cargo install sqlx-cli --version 0.8.6 --no-default-features --features rustls,postgres --locked
-
-# 4. Apply migrations so the schema matches what the query macros expect
-sqlx migrate run --source database/migrations
-
-# 5. (Optional) Verify the environment is ready to build
-./scripts/check-sqlx-env.sh
-```
-
-#### Building without a live database (offline mode)
-
-If your build environment cannot reach a Postgres instance (e.g. some CI
-runners, contributor laptops), generate offline query metadata once from a
-machine that can:
-
-```bash
-# From the backend workspace, with DATABASE_URL pointing at a fully
-# migrated database
-cd backend
-cargo sqlx prepare --workspace -- --all-targets
-git add .sqlx
-```
-
-Then anyone (or any CI job) can build without a database by setting:
-
-```bash
-export SQLX_OFFLINE=true
-```
-
-Re-run `cargo sqlx prepare` whenever a query macro or migration changes.
-
-### Persistent PostgreSQL
-
-The repository's `docker-compose.yml` defines named volumes for the primary and replica PostgreSQL nodes. That means each database survives container restarts and `docker-compose down`; your data is only removed if you explicitly delete the volumes.
-
-```bash
-# Start or reattach to the HA database stack
-docker-compose up -d postgres-primary postgres-replica pgpool
-
-# Apply migrations against the persistent database
-docker-compose exec postgres-primary psql -U postgres -d soroban_registry -c "SELECT 1"
-sqlx migrate run --source database/migrations
-
-# Stop services without deleting data
-docker-compose down
-
-# Remove the database data only if you want a clean slate
-docker-compose down -v
-```
-
-Use the same `DATABASE_URL` on future runs so the backend, SQLx checks, and any local tools all connect through `pgpool` to the same replicated database cluster.
-
-### Backend API
 
 ```bash
 cd backend
-cargo build --release
 cargo run --bin api
 ```
 
-The API server will listen on the address configured in your `.env` (commonly `http://localhost:3001`).[cite:352]
+The first build takes a few minutes. You are up when the log says:
+
+```
+{"level":"INFO","fields":{"message":"API server listening on 0.0.0.0:3001"},"target":"api"}
+```
+
+```bash
+curl http://localhost:3001/health
+# {"status":"healthy","timestamp":"...","version":"0.1.0"}
+```
+
+Elasticsearch and Redis do not have to be running. `ELASTICSEARCH_URL` has to be *set*, but
+nothing connects to it at startup, and Redis caching is off unless `REDIS_ENABLED=true`.
+
+### 3. Seed some data
+
+A fresh registry is empty, and an empty registry makes the UI hard to judge.
+
+```bash
+cd backend
+cargo run --bin seeder -- --count 50
+```
+
+That writes publishers, contracts, versions and verifications, and takes under a second.
+`--seed <n>` makes it reproducible; `--data-file <path>` loads your own fixtures.
+
+### 4. Frontend
+
+```bash
+cd frontend
+npm ci --legacy-peer-deps
+cp .env.example .env.local     # then set NEXT_PUBLIC_API_URL=http://localhost:3001
+npm run dev
+```
+
+`--legacy-peer-deps` is not optional. `@reduxjs/toolkit` 1.9 declares a peer of React 18 and
+this app is on React 19, so a plain `npm ci` fails with `ERESOLVE`. The committed lockfile
+was resolved the same way.
+
+Open <http://localhost:3000>.
+
+### 5. CLI (optional)
+
+```bash
+cargo install --path cli        # installs a `soroban-registry` binary
+soroban-registry list           # talks to http://localhost:3001 by default
+```
+
+---
+
+## Repository map
+
+| Path | What it is |
+| --- | --- |
+| `backend/` | Rust workspace, seven crates. `api` (the HTTP server, also a library), `indexer`, `seeder`, `verifier`, `shared`, `contract_abi`, `registry_client`. |
+| `frontend/` | The Next.js 15 App Router web app. `lib/api/` is one module per API domain, `hooks/queries/` one hook per endpoint, `types/` the domain types. |
+| `cli/` | The `soroban-registry` command-line client. See `cli/README.md` — it is a **standalone Cargo package**, not a workspace member, so `cargo` from the repo root will not find it. |
+| `database/migrations/` | 143 forward-only `.sql` files. No down-migrations. |
+| `docs/` | Operational runbooks: backups, HA, encryption, alerting, pagination. |
+| `scripts/` | Backup, restore and disaster-recovery drill scripts. |
+| `observability/` | Prometheus, Grafana, Loki and Alertmanager config for the Docker stack. |
+| `tagging-service/` | A small Node service that Docker Compose runs on port 3002. |
+| `soroban-registry/` | **A different product that happens to live here.** A Soroban *linter*, in its own Cargo workspace with its own README. `backend/api` depends on exactly one of its six crates (`soroban-batch`); nothing builds the other five. Do not confuse it with the repository root. |
+
+### Ports
+
+| Port | Service |
+| --- | --- |
+| 3000 | Frontend |
+| 3001 | Backend API |
+| 3002 | Tagging service |
+| 3003 | Grafana |
+| 5432 | `pgpool` (the connection you should use) |
+| 5433 / 5434 | Postgres primary / replica |
+| 6379 | Redis |
+| 9090 / 9093 | Prometheus / Alertmanager |
+| 16686 | Jaeger UI |
+
+---
+
+## The environment the API requires
+
+`backend/api/src/config.rs` deserializes the process environment with `envy`. Six fields have
+no default, so the API exits before it does anything if any one of them is missing:
+
+| Variable | Notes |
+| --- | --- |
+| `DATABASE_URL` | Must start with `postgres://` or `postgresql://`. |
+| `JWT_SECRET` | Must be at least 32 characters. |
+| `PORT` | The listener actually binds `0.0.0.0:$PORT`. |
+| `HOST` | Required, but nothing reads it. |
+| `LOG_LEVEL` | Required. `RUST_LOG` is what actually controls tracing. |
+| `ELASTICSEARCH_URL` | Required, but it is re-read with a default at the point of use, so the value barely matters. |
+
+`.env.example` supplies the first three and **not** the last three, so copying it verbatim
+and running the API fails with:
+
+```
+Error: Failed to load configuration from environment variables
+
+Caused by:
+    missing value for field elasticsearch_url
+```
+
+then `field host`, then `field log_level`, one per run. Adding the three lines from
+[step 2](#2-backend-api) is the whole fix.
+
+Everything else is optional and defaulted: `REDIS_URL`, `REDIS_ENABLED`, `SKIP_MIGRATIONS`,
+`FEATURE_FLAGS_JSON`, `ENCRYPTION_KEYS`, the `DB_*` pool-tuning variables and the `*_CACHE_TTL`
+family. The full annotated list is `.env.example`.
+
+The frontend has its own `frontend/.env.example`, meant to be copied to `.env.local`.
+`frontend/lib/env.ts` is the only module that reads `process.env`, so that file is the list of
+everything the browser bundle can see. An empty `NEXT_PUBLIC_API_URL` is meaningful: it makes
+the app use relative `/api/*` paths, which is how the same-domain production deploy works.
+
+---
+
+## The API surface
+
+The registry serves 391 routes. They are assembled by `application_routes()` in
+`backend/api/src/routes.rs`, which merges 47 per-domain route groups; that function is the
+table of contents.
+
+A few to start from:
+
+| Route | |
+| --- | --- |
+| `GET /health` | Liveness. Also `/health/live`, `/health/ready`, `/health/detailed`. |
+| `GET /metrics` | Prometheus exposition. |
+| `GET /api/contracts` | List and search. |
+| `GET /api/contracts/:id` | One contract. 133 routes hang off this prefix. |
+| `GET /api/contracts/:id/versions` | Version history. |
+| `GET /api/contracts/:id/changelog` | Changelog with breaking-change markers. |
+| `GET /api/publishers/:id/contracts` | A publisher's contracts. |
+| `GET /api/stats` | Registry-level statistics. |
+
+There is a Swagger UI, but it is behind a Cargo feature that is off by default:
+
+```bash
+cargo run --bin api --features openapi
+# then open http://localhost:3001/docs
+```
+
+---
+
+## Tests and checks
 
 ### Frontend
 
 ```bash
 cd frontend
-pnpm install
-pnpm dev
+npx jest --runInBand          # `npm test` adds --coverage
+npx next build                # run this before every push, see below
+npx eslint .
+npx tsc --noEmit
 ```
 
-Visit `http://localhost:3000` to browse the registry UI.
+**Run `next build` before pushing any frontend change.** `tsc` and `eslint` both miss a class
+of error that the Vercel build catches — most memorably that `"use client"` must be the first
+statement in a file, so an import inserted above it silently turns a page into a Server
+Component.
+
+Five suites fail on `main` today and are not your fault: `__tests__/lib/api.test.ts`,
+`ipfsMirror`, `contractsContentFilters`, `components/FilterPanel` and `resilience` (that last
+one imports `vitest` into a Jest run). Baseline your branch by stashing and re-running rather
+than expecting green.
+
+### CLI
+
+`cli/README.md` has the full story. The sequence CI runs, which passes on a clean checkout
+with no database and no API:
+
+```bash
+cargo build --manifest-path cli/Cargo.toml --locked --all-targets
+cargo test  --manifest-path cli/Cargo.toml --locked
+cargo run   --manifest-path cli/Cargo.toml --locked --bin soroban-registry -- --help
+cargo fmt   --manifest-path cli/Cargo.toml -p soroban-registry-cli --check
+```
+
+Format with `-p soroban-registry-cli`, never `--all`: the CLI depends on three backend crates
+by path, and `--all` follows those paths into the backend's own formatting drift.
+
+### Backend
+
+```bash
+cd backend
+cargo build                   # no database needed
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets
+```
+
+**`cargo test` does not build on `main` today.** `cargo check -p api --all-targets` fails with
+eleven errors in the library's own test module plus more in the integration tests: an
+`AppState` initializer missing four fields that were added since, `chrono`'s `Datelike` no
+longer in scope, a `heapless::String` comparison. The library itself compiles clean. Nothing
+in pull-request CI ever compiles the test targets, which is how they drifted; expect to fix
+that before you can run the backend suite.
+
+About 114 tests are `#[ignore]`d, each with a reason in its attribute.
+
+Builds here are disk-hungry. If you are tight on space:
+
+```bash
+export CARGO_INCREMENTAL=0
+export CARGO_PROFILE_DEV_DEBUG=line-tables-only
+export CARGO_PROFILE_TEST_DEBUG=line-tables-only
+```
+
+### What a pull request actually runs
+
+Worth knowing, because a green PR means less than it looks. On a pull request GitHub runs the
+Vercel build of `frontend/`, the contract crates (`smart-contract-ci.yml`), migration
+validation, a dependency audit, an emoji check, and — only when the PR touches `cli/` — the
+full CLI gate. `api-tests.yml`'s job is hard-disabled with `if: ${{ false }}`, so **no PR runs
+the backend or frontend test suites.** Local verification is the real coverage for those.
+
+The emoji check scans whole files rather than changed lines, so touching a file pulls every
+pre-existing glyph in it into scope.
 
 ---
 
-## Installing and Using the CLI
-
-The CLI lets you interact with the registry directly from your terminal.[cite:352]
-
-### Install from source
+## Docker Compose
 
 ```bash
-# From the repo root
+docker compose up -d postgres-primary postgres-replica pgpool redis
+```
+
+That gives you the replicated Postgres pair behind `pgpool` on 5432 plus Redis, which is all
+the local stack needs; point `DATABASE_URL` at `localhost:5432` and run the API from source as
+above. Named volumes mean the data survives `docker compose down`; only `down -v` deletes it.
+The operator runbook is [docs/database-high-availability.md](docs/database-high-availability.md).
+
+Adding `jaeger prometheus grafana loki alertmanager` brings up the observability stack.
+
+**The `api` service in `docker-compose.yml` does not currently start.** Its `environment:`
+block sets neither `JWT_SECRET`, `PORT`, `HOST`, `LOG_LEVEL` nor `ELASTICSEARCH_URL`, and there
+is no `env_file:`, so the config load described above fails inside the container. Run the API
+from source until that is fixed.
+
+---
+
+## Using the CLI
+
+```bash
 cargo install --path cli
 ```
 
-This installs a `soroban-registry` binary into your Cargo bin directory.
-
-### Common commands
+The package is `soroban-registry-cli`; the binary it installs is `soroban-registry`. There are
+66 top-level commands — `soroban-registry --help` is the real reference. Some starting points:
 
 ```bash
-# Search for contracts
-soroban-registry search "token" --category defi --verified-only --network testnet,futurenet
-
-# Get contract details
+soroban-registry list
+soroban-registry search token --verified-only --networks testnet,futurenet --category DeFi
 soroban-registry info <contract-id>
-
-# Publish a contract
-soroban-registry publish --contract-path ./my-contract
-
-# Verify a contract against source
-soroban-registry verify <contract-id> --source ./src
-
-# View registry analytics for contracts
-soroban-registry contract stats --network testnet --top-n 5 --format table
-
-# Export contract registry data for backup or migration
-soroban-registry contract export contracts.jsonl --format jsonl --network testnet --compress
+soroban-registry contract stats --network testnet
+soroban-registry contract export contracts.jsonl --format jsonl --network testnet
+soroban-registry dashboard          # interactive terminal dashboard
+soroban-registry wizard             # interactive setup
 ```
 
-Configuration is stored at `~/.soroban-registry/config.toml`. A legacy `~/.soroban-registry.toml` file is migrated automatically if present.[cite:352]
+It talks to `http://localhost:3001` unless told otherwise. Override with `--api-url`, with
+`SOROBAN_REGISTRY_API_URL`, or persistently with `soroban-registry config set`. Settings live
+in `~/.soroban-registry/` (`config.toml` and `config.json`); a legacy
+`~/.soroban-registry.toml` is migrated automatically.
 
 ---
 
-## API Overview
+## Troubleshooting
 
-The backend exposes a REST API suitable for integration with dashboards, bots, and CI:
-
-- `GET /api/contracts` – List and search contracts
-- `GET /api/contracts/:id` – Contract details
-- `POST /api/contracts` – Publish a new contract
-- `GET /api/contracts/:id/versions` – Version history
-- `GET /api/contracts/:id/changelog` – Changelog with breaking‑change markers
-- `GET /api/publishers/:id` – Publisher details
-- `GET /api/publishers/:id/contracts` – Contracts by publisher
-- `GET /api/stats` – Registry‑level stats
-- `GET /health` – Health check endpoint[cite:352]
-
-See the OpenAPI spec (coming soon) or the `backend/api` handlers for full details.
+| What you see | What it means |
+| --- | --- |
+| `missing value for field elasticsearch_url` (or `host`, or `log_level`) | `.env.example` does not define them. Add the three lines from step 2. |
+| `JWT_SECRET must be at least 32 characters long` | The placeholder in `.env.example` is long enough; a shorter one of your own is not. |
+| `npm ci` fails with `ERESOLVE` on `@reduxjs/toolkit` | Use `npm ci --legacy-peer-deps`. |
+| Vercel build red while `tsc` and `eslint` are clean | Almost always a `"use client"` directive that is no longer the first statement. Run `npx next build`. |
+| `error: no bin target named 'verifier'` | `verifier` is a library. The three binaries are `api`, `indexer` and `seeder`. |
+| `cargo` cannot find the CLI crate from the repo root | `cli/` is not in any workspace. `cd cli`, or pass `--manifest-path cli/Cargo.toml`. |
+| The UI renders but every list is empty | Run the seeder. |
+| Emoji check fails on a line you never touched | It scans whole files. Remove the pre-existing glyph or leave the file alone. |
 
 ---
 
 ## Contributing
 
-Contributions from the Stellar/Soroban community are welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit format and the PR checklist,
+and [CREATE_PR_INSTRUCTIONS.md](CREATE_PR_INSTRUCTIONS.md) for the PR mechanics.
 
-1. **Fork** the repository.
-2. **Create a branch**: `git checkout -b feature/short-description`
-3. **Make changes** and add tests where appropriate.
-4. **Run checks**:
-   ```bash
-   # Rust
-   cargo fmt --all
-   cargo test --all
+Issues and feature requests: <https://github.com/ALIPHATICHYD/Soroban-Registry/issues>
 
-   # TypeScript
-   cd frontend
-   pnpm lint
-   pnpm test
-   ```
-5. **Commit**: `git commit -m "feat: add <short description>"`
-6. **Push and open a PR** against `main`.
+## Community
 
-Bug reports and feature requests can be filed as GitHub Issues:
-https://github.com/ALIPHATICHYD/Soroban-Registry/issues
-
----
-
-## Community & Support
-
-- Soroban SDK – https://github.com/stellar/rs-soroban-sdk
-- Stellar Docs – https://developers.stellar.org/
-- Stellar Community Discord – https://discord.gg/stellar[cite:352]
-
----
+- Soroban SDK — <https://github.com/stellar/rs-soroban-sdk>
+- Stellar docs — <https://developers.stellar.org/>
+- Stellar Discord — <https://discord.gg/stellar>
 
 ## License
 
-Soroban Registry is licensed under the MIT License. See [LICENSE](LICENSE) for details.[cite:352]
+MIT. Every crate manifest in the repository declares `license = "MIT"`.
