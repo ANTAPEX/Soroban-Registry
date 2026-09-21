@@ -231,10 +231,8 @@ of error that the Vercel build catches — most memorably that `"use client"` mu
 statement in a file, so an import inserted above it silently turns a page into a Server
 Component.
 
-Five suites fail on `main` today and are not your fault: `__tests__/lib/api.test.ts`,
-`ipfsMirror`, `contractsContentFilters`, `components/FilterPanel` and `resilience` (that last
-one imports `vitest` into a Jest run). Baseline your branch by stashing and re-running rather
-than expecting green.
+The suite passes on `main`: 16 suites, 65 tests. CI runs it on every pull request that
+touches `frontend/`, so a red suite is your branch's and not the repository's.
 
 ### CLI
 
@@ -255,19 +253,19 @@ by path, and `--all` follows those paths into the backend's own formatting drift
 
 ```bash
 cd backend
-cargo build                   # no database needed
+cargo build                            # no database needed
+cargo test --workspace --locked        # 1094 pass, 111 ignored
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets
 ```
 
-**`cargo test` does not build on `main` today.** `cargo check -p api --all-targets` fails with
-eleven errors in the library's own test module plus more in the integration tests: an
-`AppState` initializer missing four fields that were added since, `chrono`'s `Datelike` no
-longer in scope, a `heapless::String` comparison. The library itself compiles clean. Nothing
-in pull-request CI ever compiles the test targets, which is how they drifted; expect to fix
-that before you can run the backend suite.
+The suite passes on `main` and CI runs it on every pull request that touches Rust. Note that
+`cargo build` alone does not compile test targets, so it can succeed while `cargo test` fails;
+`cargo check --all-targets` is the quick way to catch that.
 
-About 114 tests are `#[ignore]`d, each with a reason in its attribute.
+The 111 ignored tests each carry a reason in their `#[ignore = "..."]` attribute. Most are
+gated on a live API and a Postgres instance, with setup instructions in their file headers.
+Run them with `-- --ignored` once you have both.
 
 Builds here are disk-hungry. If you are tight on space:
 
@@ -279,11 +277,19 @@ export CARGO_PROFILE_TEST_DEBUG=line-tables-only
 
 ### What a pull request actually runs
 
-Worth knowing, because a green PR means less than it looks. On a pull request GitHub runs the
-Vercel build of `frontend/`, the contract crates (`smart-contract-ci.yml`), migration
-validation, a dependency audit, an emoji check, and — only when the PR touches `cli/` — the
-full CLI gate. `api-tests.yml`'s job is hard-disabled with `if: ${{ false }}`, so **no PR runs
-the backend or frontend test suites.** Local verification is the real coverage for those.
+Every pull request gets the Vercel build of `frontend/`, the contract crates
+(`smart-contract-ci.yml`), migration validation, a dependency audit and an emoji check. Three
+more are conditional, and between them they are what a green check mark now means:
+
+| Job | Runs when the PR touches |
+| --- | --- |
+| `Backend (build, test)` | `backend/**/*.rs`, either `Cargo.toml`/`Cargo.lock`, `soroban-registry/`, `rust-toolchain.toml` or `ci.yml`. Runs `cargo test --workspace --locked`. |
+| `Frontend (typecheck, lint, test, build)` | `frontend/**` or `ci.yml`. Runs `tsc`, `eslint`, `jest` and a production build. |
+| `CLI (fmt, build, test)` | `cli/` or the backend crates it path-depends on. |
+
+Neither the backend nor the frontend job gates on clippy, rustfmt or eslint *warnings*. The
+repository has pre-existing drift in all three, so turning them on would make the job red on
+arrival. Errors do fail the build.
 
 The emoji check scans whole files rather than changed lines, so touching a file pulls every
 pre-existing glyph in it into scope.
