@@ -1,6 +1,6 @@
 'use client';
 
-import { Package, ChevronDown, BarChart2, Users, Menu, X, Layers, Search, ArrowUpRight, Columns2, ShieldCheck, PieChart, TrendingUp, Settings, Zap, Code2, Star, GitBranch } from 'lucide-react';
+import { Package, ChevronDown, BarChart2, Users, Menu, X, Layers, Search, ArrowUpRight, Columns2, ShieldCheck, PieChart, TrendingUp, Settings, Zap, Code2, Star, GitBranch, Store } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -20,7 +20,6 @@ const NAV_LINKS = [
 ] as const;
 
 const EXPLORE_LINKS = [
-    { href: '/publishers', label: 'Publishers', icon: Users     },
     { href: '/stats',      label: 'Statistics', icon: BarChart2 },
     { href: '/analytics',  label: 'Analytics',  icon: PieChart  },
     { href: '/templates',  label: 'Templates',  icon: Layers    },
@@ -531,16 +530,15 @@ export default function Navbar() {
                         <p className="px-2 pb-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Quick Links</p>
                         <div className="grid grid-cols-2 gap-1">
                             {[
-                                { href: '/contracts', label: 'Browse Contracts', icon: Search },
-                                { href: '/compare', label: 'Compare Contracts', icon: Columns2 },
-                                { href: '/verify-contract', label: 'Verify Contract', icon: ShieldCheck },
-                                { href: '/publishers', label: 'Publishers', icon: Users },
+                                { href: '/contracts', label: 'Browse', icon: Search },
+                                { href: '/compare', label: 'Compare', icon: Columns2 },
+                                { href: '/marketplace', label: 'Market', icon: Store },
+                                { href: '/verify-contract', label: 'Verify', icon: ShieldCheck },
                                 { href: '/stats', label: 'Statistics', icon: BarChart2 },
                                 { href: '/analytics', label: 'Analytics', icon: PieChart },
                                 { href: '/templates', label: 'Templates', icon: Layers },
-                                { href: '/analytics', label: 'Search Analytics', icon: TrendingUp },
                                 { href: '/graph', label: 'Dependency Graph', icon: GitBranch },
-                                { href: '/developer', label: 'Contract IDE', icon: Code2 },
+                                { href: '/developer', label: 'IDE', icon: Code2 },
                             ].map(({ href, label, icon: Icon }) => (
                                 <Link
                                     key={`${href}-${label}`}
@@ -568,9 +566,9 @@ export default function Navbar() {
                         <p className="px-2 pb-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Navigation</p>
                         <nav className="flex flex-col gap-0.5" aria-label="Mobile navigation links">
                             {[
-                                { href: '/contracts',       label: 'Browse Contracts',  icon: Package    },
-                                { href: '/compare',         label: 'Compare Contracts', icon: Columns2   },
-                                { href: '/verify-contract', label: 'Verify Contract',   icon: ShieldCheck},
+                                { href: '/contracts',       label: 'Browse',            icon: Package    },
+                                { href: '/compare',         label: 'Compare',           icon: Columns2   },
+                                { href: '/verify-contract', label: 'Verify',            icon: ShieldCheck},
                                 { href: '/stats',           label: 'Statistics',        icon: BarChart2  },
                                 { href: '/analytics',       label: 'Analytics',         icon: PieChart   },
                                 { href: '/templates',       label: 'Templates',         icon: Layers     },
