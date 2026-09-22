@@ -20,7 +20,6 @@ const NAV_LINKS = [
 ] as const;
 
 const EXPLORE_LINKS = [
-    { href: '/publishers', label: 'Publishers', icon: Users     },
     { href: '/stats',      label: 'Statistics', icon: BarChart2 },
     { href: '/analytics',  label: 'Analytics',  icon: PieChart  },
     { href: '/templates',  label: 'Templates',  icon: Layers    },
@@ -534,7 +533,6 @@ export default function Navbar() {
                                 { href: '/contracts', label: 'Browse', icon: Search },
                                 { href: '/compare', label: 'Compare', icon: Columns2 },
                                 { href: '/verify-contract', label: 'Verify', icon: ShieldCheck },
-                                { href: '/publishers', label: 'Publishers', icon: Users },
                                 { href: '/stats', label: 'Statistics', icon: BarChart2 },
                                 { href: '/analytics', label: 'Analytics', icon: PieChart },
                                 { href: '/templates', label: 'Templates', icon: Layers },
