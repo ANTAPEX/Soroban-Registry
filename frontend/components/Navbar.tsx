@@ -1,6 +1,6 @@
 'use client';
 
-import { Package, ChevronDown, BarChart2, Users, Menu, X, Layers, Search, ArrowUpRight, Columns2, ShieldCheck, PieChart, TrendingUp, Settings, Zap, Code2, Star, GitBranch } from 'lucide-react';
+import { Package, ChevronDown, BarChart2, Users, Menu, X, Layers, Search, ArrowUpRight, Columns2, ShieldCheck, PieChart, TrendingUp, Settings, Zap, Code2, Star, GitBranch, Store } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -532,6 +532,7 @@ export default function Navbar() {
                             {[
                                 { href: '/contracts', label: 'Browse', icon: Search },
                                 { href: '/compare', label: 'Compare', icon: Columns2 },
+                                { href: '/marketplace', label: 'Market', icon: Store },
                                 { href: '/verify-contract', label: 'Verify', icon: ShieldCheck },
                                 { href: '/stats', label: 'Statistics', icon: BarChart2 },
                                 { href: '/analytics', label: 'Analytics', icon: PieChart },
