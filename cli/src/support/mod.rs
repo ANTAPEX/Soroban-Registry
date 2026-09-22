@@ -14,6 +14,7 @@ pub mod net;
 pub mod network;
 pub mod output_format;
 pub mod profiler;
+pub mod ranking;
 pub mod registry;
 pub mod search_pagination;
 pub mod severity;

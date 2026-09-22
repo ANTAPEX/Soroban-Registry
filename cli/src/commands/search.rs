@@ -240,6 +240,7 @@ pub async fn search(
     limit: usize,
     offset: usize,
     json: bool,
+    explain: bool,
 ) -> Result<()> {
     let t0 = std::time::Instant::now();
 
@@ -282,6 +283,99 @@ pub async fn search(
     }
 
     let items = &page.items;
+
+    // Issue #1187: Search ranking transparency and explainability mode
+    if explain {
+        let results: Vec<crate::support::ranking::ExplainSearchResult> = items
+            .iter()
+            .map(|contract| {
+                let (score, factors) =
+                    crate::support::ranking::calculate_ranking_factors(query, contract);
+                crate::support::ranking::ExplainSearchResult {
+                    contract_id: contract.contract_id.clone(),
+                    score,
+                    factors,
+                }
+            })
+            .collect();
+
+        if json {
+            let response = crate::support::ranking::ExplainSearchResponse { results };
+            println!("{}", serde_json::to_string_pretty(&response)?);
+            return Ok(());
+        }
+
+        println!(
+            "\n{}",
+            "Search Ranking Transparency & Explainability (--explain):"
+                .bold()
+                .cyan()
+        );
+        println!("{}", "=".repeat(80).cyan());
+        println!(
+            "Formula: Score = Text Relevance + Verification Bonus + Popularity + Recency + Deprecation Penalty\n"
+        );
+
+        if items.is_empty() {
+            println!("{}", "No contracts found to explain.".yellow());
+            return Ok(());
+        }
+
+        for (idx, contract) in items.iter().enumerate() {
+            let (score, factors) =
+                crate::support::ranking::calculate_ranking_factors(query, contract);
+            println!(
+                "{}. {} ({})",
+                (idx + 1).to_string().bold(),
+                contract.name.bold().green(),
+                contract.contract_id.dimmed()
+            );
+            println!(
+                "   Total Score: {}",
+                format!("{:.2}", score).bold().yellow()
+            );
+            println!(
+                "   ├── Text Relevance:      {:+5.2}  (query term match density)",
+                factors.text_relevance
+            );
+            println!(
+                "   ├── Verification Bonus:  {:+5.2}  ({})",
+                factors.verification_bonus,
+                if contract.is_verified {
+                    "verified contract"
+                } else {
+                    "unverified"
+                }
+            );
+            println!(
+                "   ├── Popularity Signal:   {:+5.2}  (usage count: {})",
+                factors.popularity, contract.usage_count
+            );
+            let days_old = (chrono::Utc::now() - contract.updated_at).num_days().max(0);
+            println!(
+                "   ├── Recency Decay:       {:+5.2}  (updated {}d ago)",
+                factors.recency, days_old
+            );
+            println!(
+                "   └── Deprecation Penalty: {:+5.2}  ({})",
+                factors.deprecation_penalty,
+                if factors.deprecation_penalty < 0.0 {
+                    "deprecated"
+                } else {
+                    "active"
+                }
+            );
+            println!();
+        }
+
+        println!(
+            "{} {} result(s) with ranking factor breakdown in {:.0}ms\n",
+            "Explained".green().bold(),
+            items.len(),
+            t0.elapsed().as_millis()
+        );
+        return Ok(());
+    }
 
     if json {
         let contracts: Vec<serde_json::Value> = items.iter().map(contract_json).collect();
