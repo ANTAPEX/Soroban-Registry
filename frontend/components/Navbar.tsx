@@ -538,7 +538,6 @@ export default function Navbar() {
                                 { href: '/stats', label: 'Statistics', icon: BarChart2 },
                                 { href: '/analytics', label: 'Analytics', icon: PieChart },
                                 { href: '/templates', label: 'Templates', icon: Layers },
-                                { href: '/analytics', label: 'Search Analytics', icon: TrendingUp },
                                 { href: '/graph', label: 'Dependency Graph', icon: GitBranch },
                                 { href: '/developer', label: 'IDE', icon: Code2 },
                             ].map(({ href, label, icon: Icon }) => (
