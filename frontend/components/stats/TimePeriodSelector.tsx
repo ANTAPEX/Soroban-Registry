@@ -6,10 +6,10 @@ interface TimePeriodSelectorProps {
 }
 
 const PERIODS: { label: string; value: TimePeriod }[] = [
-  { label: '7 Days', value: '7d' },
-  { label: '30 Days', value: '30d' },
-  { label: '90 Days', value: '90d' },
-  { label: 'All Time', value: 'all-time' },
+  { label: '7 days', value: '7d' },
+  { label: '30 days', value: '30d' },
+  { label: '90 days', value: '90d' },
+  { label: 'All time', value: 'all-time' },
 ];
 
 const TimePeriodSelector: React.FC<TimePeriodSelectorProps> = ({
@@ -17,12 +17,13 @@ const TimePeriodSelector: React.FC<TimePeriodSelectorProps> = ({
   onPeriodChange,
 }) => {
   return (
-    <div className="flex space-x-2 bg-accent p-1 rounded-lg">
+    <div className="flex space-x-1 bg-accent p-1 rounded-md" role="group" aria-label="Time period">
       {PERIODS.map((period) => (
         <button
           key={period.value}
           onClick={() => onPeriodChange(period.value)}
-          className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+          aria-pressed={selectedPeriod === period.value}
+          className={`px-4 py-2 text-sm font-medium rounded transition-colors ${
             selectedPeriod === period.value
               ? 'bg-card text-primary shadow-sm'
               : 'text-muted-foreground hover:text-foreground'

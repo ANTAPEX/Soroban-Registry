@@ -24,18 +24,18 @@ export default function StatsPage() {
       <div className="min-h-screen bg-background">
         <Navbar />
         <div className="flex items-center justify-center min-h-[calc(100vh-80px)] p-4">
-          <div className="bg-card p-8 rounded-2xl shadow-lg max-w-md w-full text-center border border-red-500/20">
-            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-foreground mb-2">
+          <div className="bg-card p-8 rounded-lg max-w-md w-full text-center border border-danger/30">
+            <AlertCircle className="w-12 h-12 text-danger mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-foreground mb-2">
               {t("stats.failed")}
             </h2>
             <p className="text-muted-foreground mb-6">
               {error.message ||
-                "An unexpected error occurred while fetching data."}
+                "The statistics service didn’t respond. Try again in a moment."}
             </p>
             <button
               onClick={() => refetch()}
-              className="inline-flex items-center px-4 py-2 bg-primary hover:opacity-90 text-primary-foreground font-medium rounded-lg transition-colors"
+              className="inline-flex items-center px-4 py-2 bg-primary hover:opacity-90 text-primary-foreground font-medium rounded-md transition-colors"
             >
               <RefreshCw className="w-4 h-4 mr-2" />
               {t("stats.tryAgain")}
@@ -54,7 +54,7 @@ export default function StatsPage() {
           {/* Header Section */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-foreground">
+              <h1 className="text-3xl font-semibold tracking-[-0.03em] text-foreground">
                 {t("stats.title")}
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
@@ -75,7 +75,7 @@ export default function StatsPage() {
               <StatsSummaryCards data={data} />
 
               {/* Charts Row */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[400px]">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:h-[400px]">
                 <DeploymentsTrendChart data={data.deploymentsTrend} />
                 <CategoryPieChart data={data.contractsByCategory} />
               </div>

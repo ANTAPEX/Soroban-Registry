@@ -8,9 +8,9 @@ const NetworkDistribution: React.FC<NetworkDistributionProps> = ({ data }) => {
   const total = data.reduce((acc, curr) => acc + curr.contracts, 0);
 
   return (
-    <div className="bg-card rounded-2xl border border-border p-6 h-full">
+    <div className="bg-card rounded-lg border border-border p-6 h-full">
       <h3 className="text-lg font-semibold text-foreground mb-4">
-        Network Distribution
+        Network distribution
       </h3>
       <div className="space-y-4">
         {data.map((item) => {
@@ -21,7 +21,7 @@ const NetworkDistribution: React.FC<NetworkDistributionProps> = ({ data }) => {
                 <span className="text-sm font-medium text-foreground">
                   {item.network}
                 </span>
-                <span className="text-sm text-muted-foreground">
+                <span className="font-mono text-sm tabular-nums text-muted-foreground">
                   {item.contracts} ({percentage.toFixed(1)}%)
                 </span>
               </div>

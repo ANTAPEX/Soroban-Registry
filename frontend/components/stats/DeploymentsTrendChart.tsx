@@ -18,9 +18,9 @@ const DeploymentsTrendChart: React.FC<DeploymentsTrendChartProps> = ({
   data,
 }) => {
   return (
-    <div className="bg-card rounded-2xl border border-border p-6 h-full flex flex-col">
+    <div className="bg-card rounded-lg border border-border p-6 h-full flex flex-col">
       <h3 className="text-lg font-semibold text-foreground mb-4">
-        Deployments Trend
+        Deployments trend
       </h3>
       <div className="flex-1 min-h-[300px]">
         <ResponsiveContainer width="100%" height="100%">

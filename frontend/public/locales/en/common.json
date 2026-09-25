@@ -88,10 +88,10 @@
     "error": "Failed to publish"
   },
   "stats": {
-    "title": "Registry Statistics",
+    "title": "Registry statistics",
     "subtitle": "Overview of Soroban contract deployments and network activity",
-    "failed": "Failed to load statistics",
-    "tryAgain": "Try Again"
+    "failed": "We couldn’t load statistics",
+    "tryAgain": "Try again"
   },
   "graph": {
     "loading": "Loading dependency graph...",
