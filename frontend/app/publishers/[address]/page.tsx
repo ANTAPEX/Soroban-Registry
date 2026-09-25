@@ -26,7 +26,7 @@ function PublisherProfileContent() {
       <div className="min-h-screen bg-background text-foreground">
         <Navbar />
         <div className="max-w-4xl mx-auto px-4 py-10">
-          <div className="rounded-2xl border border-border bg-card p-6">
+          <div className="rounded-lg border border-border bg-card p-6">
             <div className="text-sm font-semibold text-foreground">
               Missing publisher address
             </div>
@@ -42,15 +42,15 @@ function PublisherProfileContent() {
   if (isLoading) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-pulse">
-        <div className="bg-muted h-64 rounded-xl mb-8"></div>
+        <div className="bg-muted h-64 rounded-md mb-8"></div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-muted h-32 rounded-xl"></div>
+            <div key={i} className="bg-muted h-32 rounded-md"></div>
           ))}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 bg-muted h-96 rounded-xl"></div>
-          <div className="bg-muted h-96 rounded-xl"></div>
+          <div className="lg:col-span-2 bg-muted h-96 rounded-md"></div>
+          <div className="bg-muted h-96 rounded-md"></div>
         </div>
       </div>
     );
@@ -59,11 +59,11 @@ function PublisherProfileContent() {
   if (error || !publisher) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 text-red-600 mb-4">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-danger/10 text-danger mb-4">
           <AlertCircle className="w-8 h-8" />
         </div>
-        <h2 className="text-2xl font-bold text-foreground mb-2">
-          Publisher Not Found
+        <h2 className="text-2xl font-semibold text-foreground mb-2">
+          Publisher not found
         </h2>
         <p className="text-muted-foreground max-w-md mx-auto">
           We couldn&apos;t find a publisher with address{" "}

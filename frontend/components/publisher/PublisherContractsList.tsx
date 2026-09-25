@@ -63,10 +63,10 @@ export function PublisherContractsList({
   }, []);
 
   return (
-    <div className="bg-card rounded-2xl shadow-sm border border-border p-6">
+    <div className="bg-card rounded-lg border border-border p-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-        <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
-          Published Contracts
+        <h2 className="text-xl font-semibold text-foreground flex items-center gap-2">
+          Published contracts
           <span className="text-sm font-normal text-muted-foreground bg-accent px-2 py-0.5 rounded-full">
             {filteredContracts.length}
           </span>
@@ -94,7 +94,7 @@ export function PublisherContractsList({
               onChange={(e) => setStatusFilter(e.target.value as FilterStatus)}
               className="pl-9 pr-8 py-2 w-full sm:w-40 bg-accent border border-border rounded-lg text-sm appearance-none focus:ring-2 focus:ring-primary/40 focus:border-transparent outline-none cursor-pointer"
             >
-              <option value="all">All Status</option>
+              <option value="all">All statuses</option>
               <option value="verified">Verified</option>
               <option value="pending">Pending</option>
               <option value="failed">Failed</option>
@@ -115,7 +115,7 @@ export function PublisherContractsList({
                 <VerificationBadge status={contract.verificationStatus} />
                 <ArrowUpRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
               </div>
-              <div className={`text-xs mb-2 ${scanStatus(contract) === "passed" ? "text-emerald-600" : "text-amber-600"}`}>
+              <div className={`text-xs mb-2 ${scanStatus(contract) === "passed" ? "text-success" : "text-primary"}`}>
                 Artifact scan: {scanStatus(contract)}
               </div>
 

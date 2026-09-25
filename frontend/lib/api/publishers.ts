@@ -9,6 +9,7 @@ import type {
   Publisher,
 } from "@/types";
 import { apiFetch } from "./client";
+import { ApiError } from "@/lib/errors";
 import { MOCK_CONTRACTS } from "./mocks";
 
 
@@ -16,17 +17,102 @@ import { MOCK_CONTRACTS } from "./mocks";
 // Real API call (primary path)
 // ---------------------------------------------------------------------------
 
+// Raw shapes of the two backend endpoints the publisher page combines.
+interface PublisherRecordRaw {
+  id: string;
+  stellar_address: string;
+  username?: string | null;
+  website?: string | null;
+  github_url?: string | null;
+  created_at: string;
+}
+interface PublisherSummaryRaw {
+  publisher: PublisherRecordRaw;
+  contract_count: number;
+  verified_contract_count: number;
+}
+interface PublisherContractRaw {
+  id: string;
+  name: string;
+  description?: string | null;
+  is_verified: boolean;
+  verification_status?: string | null;
+  tags?: string[] | null;
+  created_at: string;
+  deployed_at?: string | null;
+  verified_at?: string | null;
+  artifact_scan_status?: "pending" | "passed" | "quarantined" | null;
+}
+
+function toVerificationStatus(c: PublisherContractRaw): ContractSummary["verificationStatus"] {
+  if (c.is_verified) return "verified";
+  return c.verification_status === "failed" ? "failed" : "pending";
+}
+
+/**
+ * Builds the publisher page model from /api/publishers/:id/summary and
+ * /api/publishers/:id/contracts. The backend has no activity feed for a
+ * publisher, so activity is derived from the contracts: one event per
+ * publication, plus one per verification that has a date.
+ */
+export function toPublisherResponse(
+  summary: PublisherSummaryRaw,
+  contracts: PublisherContractRaw[],
+): PublisherResponse {
+  const { publisher } = summary;
+  const activity: ActivityEvent[] = contracts
+    .flatMap((c) => {
+      const events: ActivityEvent[] = [
+        { id: `${c.id}-published`, type: "contract_published", contractName: c.name, timestamp: c.created_at },
+      ];
+      if (c.verified_at) {
+        events.push({ id: `${c.id}-verified`, type: "verification_success", contractName: c.name, timestamp: c.verified_at });
+      }
+      return events;
+    })
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 10);
+
+  return {
+    address: publisher.stellar_address,
+    displayName: publisher.username || publisher.stellar_address,
+    website: publisher.website ?? undefined,
+    github: publisher.github_url ?? undefined,
+    verifiedContracts: summary.verified_contract_count,
+    failedVerifications: contracts.filter((c) => toVerificationStatus(c) === "failed").length,
+    totalContracts: summary.contract_count,
+    createdAt: publisher.created_at,
+    contracts: contracts.map((c) => ({
+      id: c.id,
+      name: c.name,
+      description: c.description ?? "",
+      verificationStatus: toVerificationStatus(c),
+      deployedAt: c.deployed_at ?? c.created_at,
+      tags: c.tags ?? [],
+      artifactScanStatus: c.artifact_scan_status ?? "pending",
+    })),
+    activity,
+  };
+}
+
 export async function getPublisher(
   address: string,
 ): Promise<PublisherResponse> {
   if (!USE_MOCKS) {
-    const res = await fetch(
-      `${API_URL}/api/publishers/${encodeURIComponent(address)}`,
-    );
-    if (!res.ok) {
-      throw new Error(`Failed to fetch publisher: ${res.status}`);
-    }
-    return res.json();
+    const id = encodeURIComponent(address);
+    const get = async <T,>(path: string): Promise<T> => {
+      const res = await fetch(`${API_URL}${path}`);
+      if (!res.ok) {
+        // ApiError carries the status, so a 404 is not retried.
+        throw new ApiError(`Failed to fetch publisher: ${res.status}`, res.status, undefined, path);
+      }
+      return res.json() as Promise<T>;
+    };
+    const [summary, contracts] = await Promise.all([
+      get<PublisherSummaryRaw>(`/api/publishers/${id}/summary`),
+      get<{ items: PublisherContractRaw[] }>(`/api/publishers/${id}/contracts?limit=100`),
+    ]);
+    return toPublisherResponse(summary, contracts.items);
   }
 
   // ---------------------------------------------------------------------------

@@ -31,10 +31,10 @@ export function PublisherActivityTimeline({
   );
 
   return (
-    <div className="bg-card rounded-2xl shadow-sm border border-border p-6 h-full">
-      <h3 className="text-lg font-bold text-foreground mb-6 flex items-center gap-2">
+    <div className="bg-card rounded-lg border border-border p-6 h-full">
+      <h3 className="text-lg font-semibold text-foreground mb-6 flex items-center gap-2">
         <Clock className="w-5 h-5 text-muted-foreground" />
-        Recent Activity
+        Recent activity
       </h3>
 
       <div className="relative border-l border-border ml-3 space-y-8">
@@ -42,19 +42,19 @@ export function PublisherActivityTimeline({
           sortedActivity.map((event) => {
             let Icon = FileCode;
             let colorClass =
-              "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400";
-            let title = "Published Contract";
+              "bg-primary/10 text-primary";
+            let title = "Published contract";
 
             if (event.type === "verification_success") {
               Icon = CheckCircle;
               colorClass =
-                "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400";
-              title = "Verification Success";
+                "bg-success/10 text-success";
+              title = "Verification passed";
             } else if (event.type === "verification_failed") {
               Icon = XCircle;
               colorClass =
-                "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400";
-              title = "Verification Failed";
+                "bg-danger/10 text-danger";
+              title = "Verification failed";
             }
 
             return (
