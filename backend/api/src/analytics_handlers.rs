@@ -384,7 +384,7 @@ async fn get_contract_analytics_inner(
 
     // ── Deployment stats (within requested range) ─────────────────────────────
     let deploy_total: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(count), 0)
+        "SELECT COALESCE(SUM(count), 0)::BIGINT
          FROM   contract_interaction_daily_aggregates
          WHERE  contract_id = $1
            AND  interaction_type = 'deploy'
@@ -474,7 +474,7 @@ async fn get_contract_analytics_inner(
 
     // ── Error rate ────────────────────────────────────────────────────────────
     let total_in_range: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(count), 0)
+        "SELECT COALESCE(SUM(count), 0)::BIGINT
          FROM   contract_interaction_daily_aggregates
          WHERE  contract_id = $1
            AND  day BETWEEN $2 AND $3",
@@ -487,7 +487,7 @@ async fn get_contract_analytics_inner(
     .map_err(|err| db_err("fetch total interactions", err))?;
 
     let failed_in_range: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(count), 0)
+        "SELECT COALESCE(SUM(count), 0)::BIGINT
          FROM   contract_interaction_daily_aggregates
          WHERE  contract_id = $1
            AND  interaction_type = 'publish_failed'
