@@ -69,23 +69,23 @@
     "draft": "Draft"
   },
   "publish": {
-    "title": "Publish Contract",
+    "title": "Publish a contract",
     "contractId": "Contract ID",
     "contractIdPlaceholder": "contract-name",
     "name": "Name",
-    "wasmHash": "WASM Hash",
+    "wasmHash": "WASM hash",
     "wasmHashPlaceholder": "SHA-256 hash of the compiled .wasm file",
     "version": "Version",
     "versionPlaceholder": "1.2.3",
     "sourceUrl": "Source URL",
     "sourceUrlPlaceholder": "https://github.com/owner/repo",
-    "publisherAddress": "Publisher Stellar Address",
+    "publisherAddress": "Publisher Stellar address",
     "publisherAddressPlaceholder": "G...",
     "network": "Network",
     "description": "Description",
     "submit": "Publish",
     "success": "Published successfully",
-    "error": "Failed to publish"
+    "error": "Couldn’t publish the contract. Check the fields and try again."
   },
   "stats": {
     "title": "Registry statistics",

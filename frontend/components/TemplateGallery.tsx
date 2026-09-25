@@ -67,7 +67,7 @@ export default function TemplateGallery({
       </div>
 
       {filtered.length === 0 ? (
-        <div className="text-center py-16 bg-card rounded-2xl border border-border">
+        <div className="text-center py-16 bg-card rounded-lg border border-border">
           <LayoutGrid className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <p className="text-muted-foreground">
             No templates in this category yet.

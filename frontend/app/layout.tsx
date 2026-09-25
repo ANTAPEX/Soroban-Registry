@@ -98,7 +98,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       className={`dark ${grotesk.variable} ${jetbrains.variable}`}
     >
       <head>
-        {/* Theme detection script to prevent flash; dark by default */}
+        {/* Theme and reduced-motion preferences, applied before paint; dark by default */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -111,6 +111,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     document.documentElement.classList.add('dark');
                   } else {
                     document.documentElement.classList.remove('dark');
+                  }
+                  if (localStorage.getItem('soroban-registry-reduced-motion') === '1') {
+                    document.documentElement.classList.add('reduce-motion');
                   }
                 } catch (e) {}
               })();

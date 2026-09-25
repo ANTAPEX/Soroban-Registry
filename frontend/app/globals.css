@@ -620,6 +620,27 @@
   }
 }
 
+/* The in-app "Reduced motion" setting (html.reduce-motion) goes further
+   than the OS media query above: it stops every animation and transition,
+   including the skeleton pulse and the global colour transition. */
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+.reduce-motion.reveal-ready .reveal {
+  opacity: 1;
+  transform: none;
+}
+
+.reduce-motion .sweep-line::before {
+  display: none;
+}
+
 /* ── Skeleton loading animation ───────────────────────────────── */
 
 @keyframes skeleton-pulse {

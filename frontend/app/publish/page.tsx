@@ -37,7 +37,7 @@ export default function PublishPage() {
     },
     validate: (vals) => {
       const e: Partial<Record<keyof Values, string>> = {};
-      if (validators.required(vals.contract_id)) e.contract_id = 'Contract id is required';
+      if (validators.required(vals.contract_id)) e.contract_id = 'Contract ID is required';
       if (validators.required(vals.wasm_hash)) e.wasm_hash = 'WASM hash is required';
       if (validators.required(vals.name)) e.name = 'Name is required';
       const sem = validators.semver(vals.version);
@@ -83,11 +83,11 @@ export default function PublishPage() {
     <div className="flex flex-col min-h-screen bg-background">
       <Navbar />
       <div className="max-w-3xl mx-auto py-8 px-4 sm:px-6 lg:px-8 w-full flex-grow">
-        <h1 className="text-2xl sm:text-3xl font-bold mb-4 text-center sm:text-left">{t('publish.title')}</h1>
+        <h1 className="text-2xl sm:text-3xl font-semibold mb-4 text-center sm:text-left">{t('publish.title')}</h1>
 
         <form
           onSubmit={handleSubmit}
-          className="space-y-4 bg-card p-4 sm:p-6 rounded-2xl border border-border w-full"
+          className="space-y-4 bg-card p-4 sm:p-6 rounded-lg border border-border w-full"
         >
           <FormInput
             label={t('publish.contractId')}
@@ -168,7 +168,7 @@ export default function PublishPage() {
           />
 
           <div className="flex flex-col sm:flex-row items-center sm:justify-between gap-2">
-            <button type="submit" className="w-full sm:w-auto px-6 py-2.5 rounded-lg btn-glow bg-primary text-primary-foreground font-medium">
+            <button type="submit" className="w-full sm:w-auto px-6 py-2.5 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity">
               {t('publish.submit')}
             </button>
           </div>
