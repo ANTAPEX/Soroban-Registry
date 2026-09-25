@@ -44,7 +44,7 @@ export default function CompatibilityPage() {
       <div className="min-h-screen bg-background text-foreground">
         <Navbar />
         <div className="mx-auto max-w-4xl px-4 py-10">
-          <div className="rounded-2xl border border-border bg-card p-6">
+          <div className="rounded-lg border border-border bg-card p-6">
             <div className="text-sm font-semibold text-foreground">
               Missing contract id
             </div>
@@ -54,7 +54,7 @@ export default function CompatibilityPage() {
             <div className="mt-4">
               <Link
                 href="/contracts"
-                className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 Browse contracts
               </Link>
@@ -82,7 +82,7 @@ export default function CompatibilityPage() {
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
               <GitCompare className="h-5 w-5 text-primary" />
             </span>
-            <h1 className="text-2xl font-bold text-foreground">
+            <h1 className="text-2xl font-semibold text-foreground">
               Contract version compatibility
             </h1>
           </div>
@@ -100,7 +100,7 @@ export default function CompatibilityPage() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-6">
+        <div className="rounded-lg border border-border bg-card p-6">
           {isLoading ? (
             <div className="flex items-center justify-center gap-3 py-16 text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin" />
@@ -108,7 +108,7 @@ export default function CompatibilityPage() {
             </div>
           ) : isError ? (
             <div className="py-12 text-center">
-              <p className="text-sm text-red-500 dark:text-red-400">
+              <p className="text-sm text-danger">
                 {(error as Error)?.message ??
                   "Failed to load compatibility matrix."}
               </p>

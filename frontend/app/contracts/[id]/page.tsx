@@ -193,7 +193,7 @@ function ContractDetailsContent() {
       <div className="min-h-screen bg-background text-foreground">
         <Navbar />
         <div className="max-w-4xl mx-auto px-4 py-10">
-          <div className="rounded-2xl border border-border bg-card p-6">
+          <div className="rounded-lg border border-border bg-card p-6">
             <div className="text-sm font-semibold text-foreground">
               Missing contract id
             </div>
@@ -203,7 +203,7 @@ function ContractDetailsContent() {
             <div className="mt-4">
               <Link
                 href="/contracts"
-                className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
                 Browse contracts
               </Link>
@@ -220,7 +220,7 @@ function ContractDetailsContent() {
         <div className="animate-pulse space-y-8">
           <div className="h-8 bg-muted rounded w-1/3" />
           <div className="h-4 bg-muted rounded w-1/2" />
-          <div className="h-64 bg-muted rounded-xl" />
+          <div className="h-64 bg-muted rounded-md" />
         </div>
       </div>
     );
@@ -229,8 +229,8 @@ function ContractDetailsContent() {
   if (error || !contract) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl">
-          Failed to load contract details
+        <div className="p-4 bg-danger/10 border border-danger/30 text-danger rounded-lg">
+          We couldn’t load this contract. Check the link, or try again in a moment.
         </div>
       </div>
     );
@@ -262,14 +262,14 @@ function ContractDetailsContent() {
 
       {/* Header */}
       <div className="mb-12">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h1 className="text-4xl font-bold text-foreground mb-2">
+        <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-4xl font-semibold tracking-[-0.03em] text-foreground mb-2">
               {contract.name}
             </h1>
-            <div className="flex items-center gap-3 text-muted-foreground">
-              <span className="flex items-center gap-2 font-mono bg-accent px-2 py-1 rounded-lg text-sm">
-                <span>{displayContractId}</span>
+            <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
+              <span className="flex min-w-0 items-center gap-2 font-mono bg-accent px-2 py-1 rounded-md text-sm">
+                <span className="break-all">{displayContractId}</span>
                 <CodeCopyButton
                   copied={copiedHeader}
                   onCopy={() =>
@@ -306,7 +306,7 @@ function ContractDetailsContent() {
                 className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-accent transition-colors"
               >
                 <Share2 className="w-3.5 h-3.5" />
-                {copiedShareLink ? "Link Copied" : "Share"}
+                {copiedShareLink ? "Link copied" : "Share"}
               </button>
               <VerificationBadge
                 status={displayVerified ? "approved" : "unverified"}
@@ -314,49 +314,51 @@ function ContractDetailsContent() {
                 size="md"
               />
               {contract.artifact_scan_status && (
-                <span className={`text-xs font-medium ${contract.artifact_scan_status === "passed" ? "text-emerald-600" : "text-amber-600"}`}>
+                <span className={`whitespace-nowrap text-xs font-medium ${contract.artifact_scan_status === "passed" ? "text-success" : "text-primary"}`}>
                   Artifact scan: {contract.artifact_scan_status}
                 </span>
               )}
             </div>
           </div>
 
-          {/* Network tabs */}
-          <div className="flex gap-1 p-1 bg-accent rounded-xl w-fit">
-            {NETWORKS.map((net) => {
-              const hasConfig = !!contract.network_configs?.[net];
-              return (
-                <button
-                  key={net}
-                  type="button"
-                  onClick={() => setSelectedNetwork(net)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-all ${
-                    selectedNetwork === net
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  } ${!hasConfig ? "opacity-60" : ""}`}
-                >
-                  {net}
-                </button>
-              );
-            })}
-          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {/* Network tabs */}
+            <div className="flex gap-1 p-1 bg-accent rounded-md w-fit">
+              {NETWORKS.map((net) => {
+                const hasConfig = !!contract.network_configs?.[net];
+                return (
+                  <button
+                    key={net}
+                    type="button"
+                    onClick={() => setSelectedNetwork(net)}
+                    className={`px-4 py-2 rounded text-sm font-medium capitalize transition-all ${
+                      selectedNetwork === net
+                        ? "bg-card text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    } ${!hasConfig ? "opacity-60" : ""}`}
+                  >
+                    {net}
+                  </button>
+                );
+              })}
+            </div>
 
-          <div className="flex gap-2">
-            <Link
-              href={`/compare?contracts=${contract.id}`}
-              className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-            >
-              <GitCompare className="h-4 w-4" />
-              Compare
-            </Link>
-            <Link
-              href={`/contracts/${id}/compatibility`}
-              className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-            >
-              <GitCompare className="h-4 w-4" />
-              Interoperability
-            </Link>
+            <div className="flex gap-2">
+              <Link
+                href={`/compare?contracts=${contract.id}`}
+                className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              >
+                <GitCompare className="h-4 w-4" />
+                Compare
+              </Link>
+              <Link
+                href={`/contracts/${id}/compatibility`}
+                className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              >
+                <GitCompare className="h-4 w-4" />
+                Interoperability
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -386,7 +388,7 @@ function ContractDetailsContent() {
           </label>
           <select
             id="contract-tab-select"
-            className="w-full rounded-xl border border-border bg-card p-3 text-sm text-foreground"
+            className="w-full rounded-md border border-border bg-card p-3 text-sm text-foreground"
             value={activeTab}
             onChange={(e) => {
               setActiveTab(e.target.value as TabId);
@@ -401,7 +403,7 @@ function ContractDetailsContent() {
           </select>
         </div>
 
-        <div className="hidden md:flex flex-wrap gap-2 p-2 rounded-2xl border border-border bg-card">
+        <div className="hidden md:flex flex-wrap gap-2 p-2 rounded-lg border border-border bg-card">
           {TAB_IDS.map((tabId) => {
             const Icon = tabMeta[tabId].icon;
             return (
@@ -412,7 +414,7 @@ function ContractDetailsContent() {
                   setActiveTab(tabId);
                   setTabSearch("");
                 }}
-                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
                   activeTab === tabId
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -432,7 +434,7 @@ function ContractDetailsContent() {
             value={tabSearch}
             onChange={(e) => setTabSearch(e.target.value)}
             placeholder={`Search in ${tabMeta[activeTab].label}`}
-            className="w-full rounded-xl border border-border bg-card pl-10 pr-3 py-2.5 text-sm text-foreground"
+            className="w-full rounded-md border border-border bg-card pl-10 pr-3 py-2.5 text-sm text-foreground"
           />
         </div>
 
@@ -443,9 +445,9 @@ function ContractDetailsContent() {
                 <ExampleGallery contractId={contract.id} />
               </section>
 
-              <section className="bg-card rounded-2xl border border-border p-6">
+              <section className="bg-card rounded-lg border border-border p-6">
                 <h3 className="font-semibold text-foreground mb-4">
-                  Contract Metadata
+                  Contract metadata
                 </h3>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div>
@@ -498,8 +500,8 @@ function ContractDetailsContent() {
             </div>
 
             <div className="space-y-6">
-              <div className="bg-card rounded-2xl border border-border p-6">
-                <h3 className="font-semibold text-foreground mb-4">Key Info</h3>
+              <div className="bg-card rounded-lg border border-border p-6">
+                <h3 className="font-semibold text-foreground mb-4">Key info</h3>
                 <dl className="space-y-3 text-sm">
                   <div>
                     <dt className="text-muted-foreground">Network</dt>
@@ -527,6 +529,7 @@ function ContractDetailsContent() {
                         }
                         idleLabel="Copy"
                         copiedLabel="Copied"
+                        className="shrink-0"
                       />
                     </dd>
                   </div>
@@ -537,7 +540,7 @@ function ContractDetailsContent() {
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-muted-foreground">Last Updated</dt>
+                    <dt className="text-muted-foreground">Last updated</dt>
                     <dd className="font-medium text-foreground">
                       {new Date(contract.updated_at).toLocaleDateString()}
                     </dd>
@@ -547,7 +550,7 @@ function ContractDetailsContent() {
 
               <Link
                 href={`/contracts/${contract.id}/api-docs`}
-                className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-border bg-card hover:bg-primary/5 hover:border-primary/30 text-muted-foreground hover:text-primary transition-all group"
+                className="flex items-center gap-3 w-full px-4 py-3 rounded-md border border-border bg-card hover:bg-primary/5 hover:border-primary/30 text-muted-foreground hover:text-primary transition-all group"
               >
                 <Globe className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                 <div>
@@ -563,14 +566,14 @@ function ContractDetailsContent() {
 
         {activeTab === "interactions" && (
           <div className="space-y-6">
-            <section className="bg-card rounded-2xl border border-border p-6">
+            <section className="bg-card rounded-lg border border-border p-6">
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-xl font-semibold text-foreground">
-                  Interaction Flow Diagram
+                  Interaction flow diagram
                 </h2>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span className="w-3 h-3 rounded-full bg-primary/20 border border-primary/50" />
-                  <span>Interactive Flow</span>
+                  <span>Interactive flow</span>
                 </div>
               </div>
               <p className="text-sm text-muted-foreground mb-6">
@@ -580,32 +583,32 @@ function ContractDetailsContent() {
               <ContractInteractionFlow contractId={id} />
             </section>
 
-            <section className="bg-card rounded-2xl border border-border p-6">
+            <section className="bg-card rounded-lg border border-border p-6">
               <h3 className="text-lg font-semibold text-foreground mb-4">
-                Interaction Statistics
+                Interaction statistics
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
-                <div className="rounded-xl border border-border p-3 bg-background">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                <div className="rounded-md border border-border p-3 bg-background">
+                  <p className="eyebrow text-[0.6875rem]">
                     Recent calls
                   </p>
-                  <p className="text-2xl font-bold text-foreground">
+                  <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">
                     {interactionsData?.total ?? 0}
                   </p>
                 </div>
-                <div className="rounded-xl border border-border p-3 bg-background">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                <div className="rounded-md border border-border p-3 bg-background">
+                  <p className="eyebrow text-[0.6875rem]">
                     Unique users
                   </p>
-                  <p className="text-2xl font-bold text-foreground">
+                  <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">
                     {analyticsData?.interactors.unique_count ?? 0}
                   </p>
                 </div>
-                <div className="rounded-xl border border-border p-3 bg-background">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                <div className="rounded-md border border-border p-3 bg-background">
+                  <p className="eyebrow text-[0.6875rem]">
                     Error rate
                   </p>
-                  <p className="text-2xl font-bold text-foreground">N/A</p>
+                  <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">N/A</p>
                 </div>
               </div>
 
@@ -639,7 +642,7 @@ function ContractDetailsContent() {
         )}
 
         {activeTab === "abi" && (
-          <section className="bg-card rounded-2xl border border-border p-6 space-y-6">
+          <section className="bg-card rounded-lg border border-border p-6 space-y-6">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-foreground">
@@ -655,8 +658,8 @@ function ContractDetailsContent() {
                   <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground transition-colors select-none">
                     View raw JSON
                   </summary>
-                  <div className="absolute right-6 z-20 mt-2 w-[min(600px,90vw)] max-h-96 overflow-auto rounded-xl border border-border bg-zinc-950 p-4 shadow-2xl">
-                    <pre className="text-[11px] leading-5 text-zinc-300 font-mono">
+                  <div className="absolute right-6 z-20 mt-2 w-[min(600px,90vw)] max-h-96 overflow-auto rounded-lg border border-border bg-deep p-4 shadow-lg">
+                    <pre className="text-[11px] leading-5 text-deep-foreground/80 font-mono">
                       {JSON.stringify(abiResponse.abi, null, 2)}
                     </pre>
                   </div>
@@ -669,7 +672,7 @@ function ContractDetailsContent() {
                 {[1, 2, 3].map((i) => (
                   <div
                     key={i}
-                    className="h-14 animate-pulse bg-muted rounded-xl"
+                    className="h-14 animate-pulse bg-muted rounded-md"
                   />
                 ))}
               </div>
@@ -683,33 +686,33 @@ function ContractDetailsContent() {
         )}
 
         {activeTab === "deployments" && (
-          <section className="bg-card rounded-2xl border border-border p-6 space-y-6">
+          <section className="bg-card rounded-lg border border-border p-6 space-y-6">
             <h2 className="text-xl font-semibold text-foreground">
               Deployments
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="rounded-xl border border-border p-4 bg-background">
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">
+              <div className="rounded-md border border-border p-4 bg-background">
+                <p className="eyebrow text-[0.6875rem]">
                   Total deployments
                 </p>
-                <p className="text-2xl font-bold text-foreground">
+                <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">
                   {analyticsData?.deployments.count ?? 0}
                 </p>
               </div>
-              <div className="rounded-xl border border-border p-4 bg-background">
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">
+              <div className="rounded-md border border-border p-4 bg-background">
+                <p className="eyebrow text-[0.6875rem]">
                   Unique users
                 </p>
-                <p className="text-2xl font-bold text-foreground">
+                <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">
                   {analyticsData?.deployments.unique_users ?? 0}
                 </p>
               </div>
-              <div className="rounded-xl border border-border p-4 bg-background">
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">
+              <div className="rounded-md border border-border p-4 bg-background">
+                <p className="eyebrow text-[0.6875rem]">
                   Versions
                 </p>
-                <p className="text-2xl font-bold text-foreground">
+                <p className="text-2xl font-semibold font-mono tabular-nums text-foreground">
                   {versions.length}
                 </p>
               </div>
@@ -717,14 +720,14 @@ function ContractDetailsContent() {
 
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-foreground uppercase tracking-wide">
-                Network Deployments
+                Network deployments
               </h3>
               <div className="space-y-3">
                 {Object.entries(contract.network_configs ?? {}).map(
                   ([network, config]) => (
                     <div
                       key={network}
-                      className="rounded-xl border border-border p-4 bg-background"
+                      className="rounded-md border border-border p-4 bg-background"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <p className="font-semibold text-foreground capitalize">
@@ -743,13 +746,13 @@ function ContractDetailsContent() {
               </div>
 
               <h3 className="text-sm font-semibond text-foreground uppercase tracking-wide">
-                Deployment Timeline
+                Deployment timeline
               </h3>
               <div className="space-y-3">
                 {filteredVersions.map((version) => (
                   <div
                     key={version.id}
-                    className="rounded-xl border border-border p-4 bg-background"
+                    className="rounded-md border border-border p-4 bg-background"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-semibold text-foreground">
@@ -781,10 +784,10 @@ function ContractDetailsContent() {
 
         {activeTab === "verification" && (
           <section className="space-y-4">
-            <div className="bg-card rounded-2xl border border-border p-6">
+            <div className="bg-card rounded-lg border border-border p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-xl font-semibold text-foreground">
-                  Verification Status
+                  Verification status
                 </h2>
                 <div className="flex items-center gap-4">
                   <VerificationBadge
@@ -795,7 +798,7 @@ function ContractDetailsContent() {
                   {!displayVerified && (
                     <Link
                       href={`/verify-contract?id=${contract.id}`}
-                      className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:brightness-110 transition-all"
+                      className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:brightness-110 transition-all"
                     >
                       Submit for Verification
                     </Link>
@@ -813,7 +816,7 @@ function ContractDetailsContent() {
                     </div>
                     <div>
                       <dt className="text-muted-foreground">
-                        Verification Date
+                        Verification date
                       </dt>
                       <dd className="font-medium text-foreground">
                         {contract.verified_at
@@ -856,14 +859,14 @@ function ContractDetailsContent() {
 
         {activeTab === "history" && (
           <div className="space-y-6">
-            <section className="bg-card rounded-2xl border border-border p-6 space-y-4">
+            <section className="bg-card rounded-lg border border-border p-6 space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-xl font-semibold text-foreground">
-                  Update History
+                  Update history
                 </h2>
                 <Link
                   href={`/contracts/${id}/diff`}
-                  className="flex items-center gap-1.5 rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  className="flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 >
                   <GitCompare size={14} />
                   View code diff
@@ -873,7 +876,7 @@ function ContractDetailsContent() {
                 {filteredHistory.map((entry: ContractChangelogEntry) => (
                   <article
                     key={`${entry.version}-${entry.created_at}`}
-                    className="rounded-xl border border-border p-4 bg-background"
+                    className="rounded-md border border-border p-4 bg-background"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                       <p className="font-semibold text-foreground">
@@ -889,7 +892,7 @@ function ContractDetailsContent() {
                       </p>
                     )}
                     {entry.breaking && (
-                      <div className="rounded-lg bg-red-500/10 text-red-500 px-3 py-2 text-xs">
+                      <div className="rounded-md bg-danger/10 text-danger px-3 py-2 text-xs">
                         Breaking changes detected
                       </div>
                     )}

@@ -109,12 +109,12 @@ function ReviewContent() {
           <MessageSquare className="w-12 h-12 text-primary" />
         </div>
         <div className="space-y-4">
-          <h2 className="text-4xl font-black mb-2 tracking-tight">
-            Start Review Session
+          <h2 className="text-4xl font-semibold mb-2 tracking-tight">
+            Start a review session
           </h2>
           <p className="text-muted-foreground text-lg max-w-md mx-auto">
             Invite your team to review the code and ABI for{" "}
-            <span className="text-foreground font-bold">
+            <span className="text-foreground font-semibold">
               v{latestVersion?.version || "1.0.0"}
             </span>
             . Track inline comments, discussion threads, and overall progress.
@@ -129,10 +129,10 @@ function ReviewContent() {
             })
           }
           disabled={startReviewMutation.isPending}
-          className="inline-flex items-center gap-3 px-10 py-5 rounded-2xl bg-primary text-primary-foreground font-black text-lg hover:opacity-90 transition-all shadow-2xl shadow-primary/40 active:scale-95"
+          className="inline-flex items-center gap-3 px-6 py-3 rounded-md bg-primary text-primary-foreground font-semibold hover:opacity-90 transition-opacity motion-safe:active:scale-[0.98]"
         >
           {startReviewMutation.isPending ? (
-            <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            <div className="w-6 h-6 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
           ) : (
             <MessageSquare className="w-6 h-6" />
           )}
@@ -156,13 +156,13 @@ function ReviewContent() {
         <div className="flex gap-2">
           <button
             onClick={() => updateStatusMutation.mutate("approved")}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-green-500 text-white font-semibold hover:bg-green-600 transition-colors shadow-lg shadow-green-500/20"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-success text-background font-semibold hover:opacity-90 transition-opacity"
           >
             <CheckCircle2 className="w-4 h-4" /> Approve
           </button>
           <button
             onClick={() => updateStatusMutation.mutate("changes_requested")}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500 text-white font-semibold hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-danger text-background font-semibold hover:opacity-90 transition-opacity"
           >
             <AlertCircle className="w-4 h-4" /> Request Changes
           </button>
@@ -171,10 +171,10 @@ function ReviewContent() {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         <div className="lg:col-span-3 space-y-6">
-          <div className="flex items-center gap-2 p-1 bg-accent rounded-2xl w-fit mb-4">
+          <div className="flex items-center gap-2 p-1 bg-accent rounded-lg w-fit mb-4">
             <button
               onClick={() => setActiveView("source")}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold transition-all ${
                 activeView === "source"
                   ? "bg-card shadow-xl text-primary scale-105"
                   : "text-muted-foreground hover:text-foreground"
@@ -184,7 +184,7 @@ function ReviewContent() {
             </button>
             <button
               onClick={() => setActiveView("abi")}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold transition-all ${
                 activeView === "abi"
                   ? "bg-card shadow-xl text-primary scale-105"
                   : "text-muted-foreground hover:text-foreground"
@@ -194,7 +194,7 @@ function ReviewContent() {
             </button>
           </div>
 
-          <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-2xl shadow-primary/5">
+          <div className="bg-card border border-border rounded-lg overflow-hidden">
             <div className="p-6 overflow-x-auto">
               {activeView === "source" && sourceCode && (
                 <div className="font-mono text-sm leading-relaxed whitespace-pre">
@@ -241,28 +241,28 @@ function ReviewContent() {
         </div>
 
         <div className="space-y-6">
-          <div className="bg-card border border-border rounded-3xl p-6 shadow-xl space-y-4">
-            <h3 className="text-lg font-bold flex items-center gap-2">
+          <div className="bg-card border border-border rounded-lg p-6 space-y-4">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-primary" />
               {selectedLocation
                 ? selectedLocation.line
                   ? `Comment on Line ${selectedLocation.line}`
                   : `Comment on ABI Node`
-                : "General Comment"}
+                : "General comment"}
             </h3>
             <textarea
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
               placeholder="Type your comment here..."
-              className="w-full h-32 bg-accent/50 border-border border rounded-2xl p-4 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all resize-none"
+              className="w-full h-32 bg-accent/50 border-border border rounded-lg p-4 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all resize-none"
             />
             <button
               onClick={handleAddComment}
               disabled={!commentText.trim() || addCommentMutation.isPending}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-primary text-primary-foreground font-bold hover:opacity-90 disabled:opacity-50 transition-all shadow-lg shadow-primary/20"
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-primary text-primary-foreground font-semibold hover:opacity-90 disabled:opacity-50 transition-all"
             >
               <Send className="w-4 h-4" />
-              {addCommentMutation.isPending ? "Sending..." : "Post Comment"}
+              {addCommentMutation.isPending ? "Sending..." : "Post comment"}
             </button>
             {selectedLocation && (
               <button
