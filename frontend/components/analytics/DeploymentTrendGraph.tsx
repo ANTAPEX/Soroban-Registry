@@ -56,30 +56,30 @@ export default function DeploymentTrendGraph({
           <CartesianGrid
             strokeDasharray="3 3"
             vertical={false}
-            stroke="hsl(var(--border))"
+            stroke="var(--border)"
           />
           <XAxis
             dataKey="displayDate"
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+            tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
             dy={10}
           />
           <YAxis
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+            tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: "hsl(var(--card))",
-              borderColor: "hsl(var(--border))",
+              backgroundColor: "var(--card)",
+              borderColor: "var(--border)",
               borderRadius: "0.5rem",
               boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
             }}
             itemStyle={{ color: CHART_SERIES[0], fontWeight: 600 }}
             labelStyle={{
-              color: "hsl(var(--foreground))",
+              color: "var(--foreground)",
               marginBottom: "4px",
             }}
           />

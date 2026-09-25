@@ -7,7 +7,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { StatsResponse } from '@/types/stats';
-import { CHART_SERIES } from '@/lib/chartPalette';
+import { CHART_SERIES, foldIntoOther } from '@/lib/chartPalette';
 
 interface CategoryPieChartProps {
   data: StatsResponse['contractsByCategory'];
@@ -15,11 +15,12 @@ interface CategoryPieChartProps {
 
 const COLORS = CHART_SERIES;
 
-const CategoryPieChart: React.FC<CategoryPieChartProps> = ({ data }) => {
+const CategoryPieChart: React.FC<CategoryPieChartProps> = ({ data: rawData }) => {
+  const data = foldIntoOther(rawData);
   return (
-    <div className="bg-card rounded-2xl border border-border p-6 h-full flex flex-col">
+    <div className="bg-card rounded-lg border border-border p-6 h-full flex flex-col">
       <h3 className="text-lg font-semibold text-foreground mb-4">
-        Contracts by Category
+        Contracts by category
       </h3>
       <div className="flex-1 min-h-[300px]">
         <ResponsiveContainer width="100%" height="100%">
@@ -46,8 +47,7 @@ const CategoryPieChart: React.FC<CategoryPieChartProps> = ({ data }) => {
                 backgroundColor: 'var(--card)',
                 color: 'var(--card-foreground)',
                 borderRadius: '8px',
-                border: 'none',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                border: '1px solid var(--border)',
               }}
             />
             <Legend verticalAlign="bottom" height={36} />

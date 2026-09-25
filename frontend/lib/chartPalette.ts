@@ -15,6 +15,25 @@ export const CHART_SERIES = [
   "var(--chart-6)",
 ] as const;
 
+/**
+ * Keeps a category breakdown within the series palette. With more
+ * categories than colours the palette would repeat, and two slices would
+ * share a legend colour, so the largest (CHART_SERIES.length - 1) are kept
+ * and the rest fold into one "Other" entry, which takes the last colour.
+ */
+export function foldIntoOther<T extends { category: string; count: number }>(
+  data: T[],
+): Array<{ category: string; count: number }> {
+  if (data.length <= CHART_SERIES.length) return data;
+  const sorted = [...data].sort((a, b) => b.count - a.count);
+  const keep = sorted.slice(0, CHART_SERIES.length - 1);
+  const rest = sorted.slice(CHART_SERIES.length - 1);
+  return [
+    ...keep,
+    { category: "Other", count: rest.reduce((sum, item) => sum + item.count, 0) },
+  ];
+}
+
 export const CHART_GRID = "var(--chart-grid)";
 export const CHART_AXIS = "var(--chart-axis)";
 
