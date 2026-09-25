@@ -22,6 +22,17 @@ export interface ErrorFallbackProps {
   resetError: () => void;
 }
 
+const EXTENSION_URL = /(chrome|moz|safari(-web)?)-extension:\/\//;
+
+/**
+ * Wallet and other browser extensions inject scripts into the page, and
+ * their failures surface on window. They are not the app's errors, so
+ * they are not worth logging.
+ */
+function isFromBrowserExtension(err: Error, filename?: string): boolean {
+  return EXTENSION_URL.test(filename ?? "") || EXTENSION_URL.test(err.stack ?? "");
+}
+
 export default class ErrorBoundary extends Component<
   ErrorBoundaryProps,
   ErrorBoundaryState
@@ -59,7 +70,10 @@ export default class ErrorBoundary extends Component<
   }
 
   componentDidMount() {
-    // Catch uncaught errors and promise rejections at the window level
+    // Log uncaught errors and promise rejections at the window level. They
+    // are logged only: an error here did not break rendering (render errors
+    // reach getDerivedStateFromError), and many come from browser extensions
+    // or background requests, so replacing the page for them does harm.
     if (typeof window !== "undefined") {
       window.addEventListener("error", this.handleGlobalError as EventListener);
       window.addEventListener(
@@ -86,6 +100,7 @@ export default class ErrorBoundary extends Component<
     try {
       const err =
         event.error || new Error(event.message || "Unknown window error");
+      if (isFromBrowserExtension(err, event.filename)) return;
       logError(err, {
         source: "window.error",
         filename: event.filename,
@@ -93,11 +108,6 @@ export default class ErrorBoundary extends Component<
         colno: event.colno,
       });
 
-      // Show fallback UI
-      this.setState({ hasError: true, error: err, errorInfo: null });
-
-      // Prevent the browser default logging (optional)
-      // event.preventDefault();
     } catch {
       // swallow to avoid infinite loops
     }
@@ -112,9 +122,8 @@ export default class ErrorBoundary extends Component<
           : new Error(
               typeof reason === "string" ? reason : JSON.stringify(reason),
             );
+      if (isFromBrowserExtension(err)) return;
       logError(err, { source: "unhandledrejection" });
-      this.setState({ hasError: true, error: err, errorInfo: null });
-      // event.preventDefault();
     } catch {
       // swallow
     }

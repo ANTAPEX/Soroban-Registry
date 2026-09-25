@@ -8,6 +8,16 @@ import RealtimeProvider from "@/providers/RealtimeProvider";
 import ErrorBoundary from "./ErrorBoundary";
 import LanguageDirSync from "./LanguageDirSync";
 import { CookiesProvider } from "react-cookie";
+import { ApiError } from "@/lib/errors";
+
+/** Client errors (404 and friends) will not change on retry; timeouts and rate limits can. */
+function shouldRetry(failureCount: number, error: unknown): boolean {
+  const status = error instanceof ApiError ? error.statusCode : undefined;
+  if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+    return false;
+  }
+  return failureCount < 3;
+}
 
 // Redux
 import { Provider as ReduxProvider } from "react-redux";
@@ -22,6 +32,7 @@ export default function Providers({ children }: { children: ReactNode }) {
           queries: {
             staleTime: 60 * 1000, // 1 minute
             refetchOnWindowFocus: false,
+            retry: shouldRetry,
           },
         },
       }),

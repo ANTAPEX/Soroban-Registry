@@ -21,12 +21,21 @@ export function useReveal() {
 
     root.classList.add("reveal-ready");
 
+    const reveal = (el: HTMLElement) => {
+      el.classList.add("is-revealed");
+      observer.unobserve(el);
+    };
+
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (!entry.isIntersecting) return;
-          entry.target.classList.add("is-revealed");
-          observer.unobserve(entry.target);
+          // Also reveal anything already scrolled past (restored scroll
+          // position, anchor jump), which never crosses into view.
+          if (!entry.isIntersecting && entry.boundingClientRect.top >= 0) return;
+          const index = elements.indexOf(entry.target as HTMLElement);
+          // A fast jump can skip a section without any callback firing for
+          // it, so revealing one also reveals every section above it.
+          elements.slice(0, index + 1).forEach(reveal);
         });
       },
       { rootMargin: "0px 0px -10% 0px", threshold: 0.1 },

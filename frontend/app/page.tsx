@@ -395,7 +395,7 @@ export default function Home() {
                 disabled={isCopying}
                 idleLabel="Copy"
                 copiedLabel="Copied"
-                className="border-white/10 bg-transparent text-deep-foreground/60 hover:bg-white/10 hover:text-deep-foreground"
+                tone="terminal"
               />
             </div>
             <div className="p-6 font-mono text-sm leading-relaxed">
