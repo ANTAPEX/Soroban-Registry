@@ -86,6 +86,11 @@ are switched off in the `prefers-reduced-motion` block in `app/globals.css`. The
 pulse and the global transition on `*` are not. If you add an animation, add its
 reduced-motion case to that block in the same change.
 
+There is also an in-app "Reduced motion" setting (Settings, Appearance). It puts a
+`reduce-motion` class on `<html>`, applied before paint from localStorage by the
+script in `app/layout.tsx`, and a `.reduce-motion *` rule in `globals.css` stops every
+animation and transition. New animations are covered by it automatically.
+
 ## Writing
 
 Interface copy is design content. Name things the way a contract author would say them,
