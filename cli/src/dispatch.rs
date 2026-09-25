@@ -2198,6 +2198,38 @@ pub async fn dispatch_command(
                     }
                 }
             }
+            ContractCommands::Drift {
+                id,
+                all,
+                status,
+                lockfile,
+                network,
+                json,
+            } => {
+                log::debug!(
+                    "Command: contract drift | id={:?} all={} status={:?} lockfile={:?}",
+                    id,
+                    all,
+                    status,
+                    lockfile
+                );
+                let net = network.or_else(|| cli.network.clone());
+                let has_drift = crate::commands::contract::drift::run(
+                    crate::commands::contract::drift::DriftCliOptions {
+                        api_url: &cli.api_url,
+                        id: id.as_deref(),
+                        all,
+                        status: status.as_deref(),
+                        lockfile: lockfile.as_deref(),
+                        network: net.as_deref(),
+                        json,
+                    },
+                )
+                .await?;
+                if has_drift {
+                    std::process::exit(1);
+                }
+            }
         },
         Commands::ApiKey { action } => match action {
             ApiKeyCommands::Create {

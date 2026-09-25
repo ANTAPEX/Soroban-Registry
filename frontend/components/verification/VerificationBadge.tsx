@@ -10,11 +10,39 @@ function getBadgeConfig(
   status: VerificationStatus,
   t: TFunction,
   level?: string,
+  driftStatus?: string,
 ): {
   label: string;
   className: string;
   Icon: React.ComponentType<{ className?: string }>;
 } {
+  // CRITICAL REQUIREMENT (Issue #1191):
+  // Drift must suppress or visibly qualify the verified badge rather than sitting quietly beside it.
+  // The contract detail page cannot show an unqualified "verified" badge while drift is recorded.
+  if (status === "approved" && driftStatus === "drift") {
+    return {
+      label: "Verified (Drift Detected)",
+      className: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/40 animate-pulse font-bold",
+      Icon: ShieldAlert,
+    };
+  }
+
+  if (status === "approved" && driftStatus === "unknown") {
+    return {
+      label: "Verified (Drift Unknown)",
+      className: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30",
+      Icon: ShieldAlert,
+    };
+  }
+
+  if (status === "approved" && driftStatus === "not_on_chain") {
+    return {
+      label: "Verified (Not On Chain)",
+      className: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30",
+      Icon: ShieldX,
+    };
+  }
+
   switch (status) {
     case "approved": {
       const levelLabel = level
@@ -57,15 +85,17 @@ interface VerificationBadgeProps {
   status: VerificationStatus;
   level?: string;
   size?: "sm" | "md";
+  driftStatus?: string;
 }
 
 export default function VerificationBadge({
   status,
   level,
   size = "sm",
+  driftStatus,
 }: VerificationBadgeProps) {
   const { t } = useTranslation("common");
-  const cfg = getBadgeConfig(status, t, level);
+  const cfg = getBadgeConfig(status, t, level, driftStatus);
 
   const iconSize = size === "md" ? "w-4 h-4" : "w-3 h-3";
   const textSize = size === "md" ? "text-xs" : "text-[10px]";

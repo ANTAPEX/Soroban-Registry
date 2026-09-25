@@ -6,6 +6,7 @@ pub mod dependency;
 pub mod dependency_graph;
 pub mod deploy;
 pub mod deprecate;
+pub mod drift;
 pub mod export;
 pub mod highlight;
 pub mod info;

@@ -2585,6 +2585,37 @@ pub enum ContractCommands {
         #[command(subcommand)]
         action: NotificationCommands,
     },
+
+    /// Detect three-way WASM drift (lockfile ↔ registry ↔ chain) (#1191)
+    ///
+    /// Usage:
+    ///   soroban-registry contract drift --id <CONTRACT_ID> [--lockfile <PATH>] [--network <NET>] [--json]
+    ///   soroban-registry contract drift --all [--status <STATUS>] [--network <NET>] [--json]
+    Drift {
+        /// Contract ID or address to check for drift
+        #[arg(long)]
+        id: Option<String>,
+
+        /// Query drift state registry-wide across all monitored contracts
+        #[arg(long)]
+        all: bool,
+
+        /// Filter registry-wide drift check by status: match | drift | not_on_chain | unknown
+        #[arg(long)]
+        status: Option<String>,
+
+        /// Path to local lockfile for three-way comparison (default: soroban-registry.lock.json if present)
+        #[arg(long)]
+        lockfile: Option<String>,
+
+        /// Stellar network (mainnet | testnet | futurenet)
+        #[arg(long)]
+        network: Option<String>,
+
+        /// Output results as machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Sub-commands for `contract notification`
