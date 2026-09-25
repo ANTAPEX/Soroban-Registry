@@ -106,3 +106,10 @@ test("buildComparisonCsv exports comparison report rows", () => {
   expect(csv).toContain("Network,mainnet,testnet");
   expect(csv).toContain("Latest version,1.0.0,2.0.0");
 });
+
+test("toneForMetricCell leaves identity fields neutral", () => {
+  expect(toneForMetricCell("contract_id", "CA", ["CA", "CB"])).toBe("neutral");
+  expect(toneForMetricCell("publisher", "pub-1", ["pub-1", "pub-2"])).toBe(
+    "neutral",
+  );
+});

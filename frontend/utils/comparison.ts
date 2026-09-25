@@ -211,6 +211,10 @@ export function toneForMetricCell(
     allValues.length > 0 && allValues.every((v) => v === allValues[0]);
   if (isAllEqual) return "neutral";
 
+  // Identity fields always differ between two contracts, so highlighting
+  // them would mark every cell and carry no information.
+  if (metric === "contract_id" || metric === "publisher") return "neutral";
+
   if (metric === "verification_status") {
     const v = Boolean(value);
     return v ? "best" : "worst";
@@ -225,10 +229,6 @@ export function toneForMetricCell(
     const max = Math.max(...nums);
     if (max === 0) return "neutral";
     return Number(value) === max ? "best" : "different";
-  }
-
-  if (metric === "wasm_hash") {
-    return "different";
   }
 
   return "different";

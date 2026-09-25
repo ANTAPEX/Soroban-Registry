@@ -9,11 +9,11 @@ type Props = {
 
 function toneClass(tone: CellTone) {
   if (tone === "best")
-    return "bg-green-500/10 text-green-700 dark:text-green-300 border-green-500/20";
+    return "bg-success/10 text-success border-success/30";
   if (tone === "worst")
-    return "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/20";
+    return "bg-danger/10 text-danger border-danger/30";
   if (tone === "different")
-    return "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20";
+    return "bg-primary/10 text-primary border-primary/30";
   return "bg-transparent text-foreground border-border";
 }
 

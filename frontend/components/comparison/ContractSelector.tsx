@@ -47,7 +47,7 @@ export default function ContractSelector({
   }, [available, searchQuery]);
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-5">
+    <section className="rounded-lg border border-border bg-card p-5">
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -61,7 +61,7 @@ export default function ContractSelector({
         </div>
 
         <div className="relative">
-          <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
+          <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
             <Search className="h-4 w-4 text-muted-foreground" />
             <input
               value={searchQuery}
@@ -74,7 +74,7 @@ export default function ContractSelector({
           </div>
 
           {open && (
-            <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-xl border border-border bg-card shadow-lg shadow-black/8">
+            <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-md border border-border bg-card shadow-lg">
               <div className="max-h-64 overflow-auto">
                 {isLoading ? (
                   <div className="px-3 py-3 text-xs text-muted-foreground">
@@ -133,7 +133,7 @@ export default function ContractSelector({
         </div>
 
         {(selectionError || selectionCountError) && (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+          <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
             {selectionError || selectionCountError}
           </div>
         )}

@@ -21,7 +21,7 @@ type Props = {
 
 export default function ComparisonTable({ contracts, metrics, tones }: Props) {
   return (
-    <div className="hidden lg:block overflow-x-auto rounded-2xl border border-border bg-card">
+    <div className="hidden lg:block overflow-x-auto rounded-lg border border-border bg-card">
       <table className="min-w-full">
         <thead className="bg-accent/60">
           <tr>
