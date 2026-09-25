@@ -7,7 +7,6 @@ import {
   Download,
   FileImage,
   GitBranch,
-  Circle,
   Sparkles,
   ChevronUp,
   ChevronDown,
@@ -15,7 +14,9 @@ import {
   ChevronLeft,
   ChevronRight,
   BarChart2,
+  SlidersHorizontal,
 } from "lucide-react";
+import { GRAPH_COLORS, NETWORK_COLORS } from "@/lib/chartPalette";
 
 interface GraphControlsProps {
   searchQuery: string;
@@ -62,7 +63,7 @@ interface GraphControlsProps {
 
 /* Shared panel class */
 const panel =
-  "bg-card/90 backdrop-blur-xl border border-border rounded-xl shadow-lg";
+  "bg-card/90 backdrop-blur-xl border border-border rounded-lg shadow-lg";
 const btnBase =
   "text-muted-foreground hover:text-foreground hover:bg-accent transition-colors rounded focus-visible:ring-1 focus-visible:ring-primary focus:outline-none";
 
@@ -103,11 +104,15 @@ export default function GraphControls({
   onExplorationModeChange = () => {},
 }: GraphControlsProps) {
   const [statsOpen, setStatsOpen] = useState(false);
+  // Below lg the filters and legend would cover most of the graph, so they
+  // start collapsed behind a toggle. From lg up they are always shown.
+  const [panelsOpen, setPanelsOpen] = useState(false);
+  const collapsible = panelsOpen ? "block" : "hidden lg:block";
   return (
     <>
       {/* Top-left: Search + Filters */}
       <div
-        className="absolute top-4 left-4 z-30 flex flex-col gap-2.5 max-w-xs"
+        className="absolute top-4 left-4 z-30 flex max-h-[calc(100%-2rem)] max-w-xs flex-col gap-2.5 overflow-y-auto"
         role="region"
         aria-label="Graph search and filters"
       >
@@ -164,17 +169,29 @@ export default function GraphControls({
               </div>
             )}
             {searchQuery && searchMatchCount === 0 && (
-              <span className="text-xs text-red-400 pr-2.5 shrink-0">
+              <span className="text-xs text-danger pr-2.5 shrink-0">
                 No results
               </span>
             )}
           </div>
         </div>
 
+        <button
+          type="button"
+          onClick={() => setPanelsOpen((open) => !open)}
+          aria-expanded={panelsOpen}
+          aria-controls="graph-filter-panels"
+          className={`${panel} flex items-center gap-2 px-3 py-2 text-sm font-medium text-foreground lg:hidden`}
+        >
+          <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+          {panelsOpen ? "Hide filters" : "Filters and legend"}
+        </button>
+
+        <div id="graph-filter-panels" className={`${collapsible} space-y-2.5`}>
         {/* Filters */}
         <div className={`${panel} p-3 space-y-3`}>
           <div>
-            <label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 block font-medium">
+            <label className="eyebrow !text-[10px] mb-1.5 block">
               Network
             </label>
             <select
@@ -191,7 +208,7 @@ export default function GraphControls({
           </div>
 
           <div>
-            <label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 block font-medium">
+            <label className="eyebrow !text-[10px] mb-1.5 block">
               Dependency Type
             </label>
             <select
@@ -207,7 +224,7 @@ export default function GraphControls({
           </div>
 
           <div>
-            <label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 block font-medium">
+            <label className="eyebrow !text-[10px] mb-1.5 block">
               Min Call Frequency:{" "}
               <span className="text-foreground font-medium">
                 {minCallFrequency}
@@ -228,14 +245,15 @@ export default function GraphControls({
           <div>
             <button
               onClick={() => onShowCyclesOnlyChange(!showCyclesOnly)}
-              className={`flex items-center gap-2 w-full text-sm transition-colors ${showCyclesOnly ? "text-red-500" : "text-muted-foreground hover:text-foreground"}`}
+              aria-pressed={showCyclesOnly}
+              className={`flex items-center gap-2 w-full text-sm transition-colors ${showCyclesOnly ? "text-danger" : "text-muted-foreground hover:text-foreground"}`}
             >
               <div
-                className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${showCyclesOnly ? "bg-red-500 border-red-500" : "border-border"}`}
+                className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${showCyclesOnly ? "bg-danger border-danger" : "border-border"}`}
               >
                 {showCyclesOnly && (
                   <svg
-                    className="w-3 h-3 text-white"
+                    className="w-3 h-3 text-background"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -250,12 +268,13 @@ export default function GraphControls({
                 )}
               </div>
               <span className="font-medium">
-                Show Circular Dependencies Only
+                Show circular dependencies only
               </span>
             </button>
 
             <button
               onClick={() => onExplorationModeChange(!explorationMode)}
+              aria-pressed={explorationMode}
               className={`flex items-center gap-2 w-full text-sm mt-3 transition-colors ${explorationMode ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
             >
               <div
@@ -263,7 +282,7 @@ export default function GraphControls({
               >
                 {explorationMode && (
                   <svg
-                    className="w-3 h-3 text-white"
+                    className="w-3 h-3 text-background"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -279,7 +298,7 @@ export default function GraphControls({
               </div>
               <GitBranch className="w-3.5 h-3.5 text-primary/70" />
               <span className="font-medium">
-                Exploration Mode (Click to Expand)
+                Exploration mode (click to expand)
               </span>
             </button>
           </div>
@@ -288,14 +307,15 @@ export default function GraphControls({
           <div className="border-t border-border pt-3">
             <button
               onClick={() => onDemoModeChange(!demoMode)}
-              className={`flex items-center gap-2 w-full text-sm transition-colors ${demoMode ? "text-amber-500" : "text-muted-foreground hover:text-foreground"}`}
+              aria-pressed={demoMode}
+              className={`flex items-center gap-2 w-full text-sm transition-colors ${demoMode ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
             >
               <div
-                className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${demoMode ? "bg-amber-500 border-amber-500" : "border-border"}`}
+                className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${demoMode ? "bg-primary border-primary" : "border-border"}`}
               >
                 {demoMode && (
                   <svg
-                    className="w-3 h-3 text-white"
+                    className="w-3 h-3 text-background"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -309,8 +329,8 @@ export default function GraphControls({
                   </svg>
                 )}
               </div>
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span className="font-medium">Demo Mode</span>
+              <Sparkles className="w-3.5 h-3.5 text-primary/70" />
+              <span className="font-medium">Demo mode</span>
             </button>
             {demoMode && (
               <div className="mt-2.5">
@@ -343,31 +363,31 @@ export default function GraphControls({
 
         {/* Legend */}
         <div className={`${panel} p-3`}>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2 font-medium">
+          <p className="eyebrow !text-[10px] mb-2">
             Legend
           </p>
           <div className="space-y-1.5 text-xs">
-            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1">
+            <p className="eyebrow !text-[10px] opacity-70 mb-1">
               Network
             </p>
             <div className="flex items-center gap-2">
-              <Circle className="w-3 h-3 text-green-500 fill-green-500" />
+              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: NETWORK_COLORS.mainnet }} aria-hidden="true" />
               <span className="text-muted-foreground">Mainnet</span>
             </div>
             <div className="flex items-center gap-2">
-              <Circle className="w-3 h-3 text-blue-500 fill-blue-500" />
+              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: NETWORK_COLORS.testnet }} aria-hidden="true" />
               <span className="text-muted-foreground">Testnet</span>
             </div>
             <div className="flex items-center gap-2">
-              <Circle className="w-3 h-3 text-purple-500 fill-purple-500" />
+              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: NETWORK_COLORS.futurenet }} aria-hidden="true" />
               <span className="text-muted-foreground">Futurenet</span>
             </div>
             <div className="border-t border-border my-1.5" />
-            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1">
-              Node Size
+            <p className="eyebrow !text-[10px] opacity-70 mb-1">
+              Node size
             </p>
             <div className="flex items-center gap-2 pt-0.5">
-              <div className="w-3 h-3 rounded-full border-2 border-amber-400" />
+              <div className="w-3 h-3 rounded-full border-2" style={{ borderColor: GRAPH_COLORS.accent }} />
               <span className="text-muted-foreground">Critical (≥5 deps)</span>
             </div>
             <div className="flex items-center gap-2">
@@ -377,7 +397,7 @@ export default function GraphControls({
               </span>
             </div>
             <div className="border-t border-border my-1.5" />
-            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1">
+            <p className="eyebrow !text-[10px] opacity-70 mb-1">
               Edges
             </p>
             <div className="flex items-center gap-2">
@@ -387,17 +407,18 @@ export default function GraphControls({
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-4 h-[2px] bg-red-500 border-t border-dashed border-red-300" />
+              <div className="w-4 border-t-2 border-dashed" style={{ borderColor: GRAPH_COLORS.danger }} />
               <span className="text-muted-foreground/70">
-                Red dashed = circular dependency
+                Dashed = circular dependency
               </span>
             </div>
           </div>
         </div>
+        </div>
       </div>
 
-      {/* Top-right: Graph Stats panel (collapsible) */}
-      <div className="absolute top-4 right-4 z-30">
+      {/* Top-right (below the search box on small screens): Graph Stats panel */}
+      <div className="absolute top-[7.25rem] right-4 z-30 lg:top-4">
         <div className={`${panel} overflow-hidden`}>
           {/* Header row — always visible */}
           <button
@@ -411,37 +432,37 @@ export default function GraphControls({
             <BarChart2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             <div className="flex items-center gap-3 flex-1">
               <div className="text-center">
-                <div className="text-sm font-bold text-foreground leading-none">
+                <div className="text-sm font-semibold font-mono tabular-nums text-foreground leading-none">
                   {totalNodes.toLocaleString()}
                 </div>
-                <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                <div className="eyebrow !text-[9px]">
                   Nodes
                 </div>
               </div>
               <div className="w-px h-6 bg-border" />
               <div className="text-center">
-                <div className="text-sm font-bold text-foreground leading-none">
+                <div className="text-sm font-semibold font-mono tabular-nums text-foreground leading-none">
                   {totalEdges.toLocaleString()}
                 </div>
-                <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                <div className="eyebrow !text-[9px]">
                   Edges
                 </div>
               </div>
               <div className="w-px h-6 bg-border" />
               <div className="text-center">
-                <div className="text-sm font-bold text-amber-500 leading-none">
+                <div className="text-sm font-semibold font-mono tabular-nums text-primary leading-none">
                   {criticalCount}
                 </div>
-                <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                <div className="eyebrow !text-[9px]">
                   Critical
                 </div>
               </div>
               <div className="w-px h-6 bg-border" />
               <div className="text-center">
-                <div className="text-sm font-bold text-red-500 leading-none">
+                <div className="text-sm font-semibold font-mono tabular-nums text-danger leading-none">
                   {cyclicEdgeCount}
                 </div>
-                <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                <div className="eyebrow !text-[9px]">
                   Cycles
                 </div>
               </div>
@@ -457,34 +478,34 @@ export default function GraphControls({
               id="graph-stats-body"
               className="border-t border-border px-4 py-3 space-y-2"
             >
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">
-                Network Breakdown
+              <p className="eyebrow !text-[10px] mb-2">
+                Network breakdown
               </p>
               {[
                 {
                   label: "Mainnet",
-                  color: "bg-green-500",
+                  color: NETWORK_COLORS.mainnet,
                   count: networkCounts?.mainnet ?? 0,
                 },
                 {
                   label: "Testnet",
-                  color: "bg-blue-500",
+                  color: NETWORK_COLORS.testnet,
                   count: networkCounts?.testnet ?? 0,
                 },
                 {
                   label: "Futurenet",
-                  color: "bg-purple-500",
+                  color: NETWORK_COLORS.futurenet,
                   count: networkCounts?.futurenet ?? 0,
                 },
                 {
                   label: "Other",
-                  color: "bg-muted-foreground",
+                  color: GRAPH_COLORS.muted,
                   count: networkCounts?.other ?? 0,
                 },
               ].map(({ label, color, count }) =>
                 count > 0 ? (
                   <div key={label} className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${color} shrink-0`} />
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
                     <span className="text-[11px] text-muted-foreground flex-1">
                       {label}
                     </span>
@@ -493,8 +514,9 @@ export default function GraphControls({
                     </span>
                     <div className="w-16 bg-muted rounded-full h-1 overflow-hidden">
                       <div
-                        className={`h-1 rounded-full ${color}`}
+                        className="h-1 rounded-full"
                         style={{
+                          backgroundColor: color,
                           width: `${Math.round((count / Math.max(totalNodes, 1)) * 100)}%`,
                         }}
                       />
@@ -525,16 +547,16 @@ export default function GraphControls({
         </div>
       </div>
 
-      {/* Bottom-left: Keyboard shortcut hints */}
+      {/* Bottom-right, beside the zoom controls: keyboard shortcut hints */}
       <div
-        className="absolute bottom-4 left-4 z-30 hidden lg:block"
+        className="absolute bottom-4 right-28 z-30 hidden lg:block"
         role="complementary"
         aria-label="Keyboard shortcuts reference"
       >
         <div className={`${panel} p-3`}>
           <div className="flex items-center gap-1.5 mb-2">
             <Keyboard className="w-3 h-3 text-muted-foreground" />
-            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
+            <p className="eyebrow !text-[10px]">
               Shortcuts
             </p>
           </div>

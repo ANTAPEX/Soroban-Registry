@@ -700,7 +700,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
 
       <div
         ref={scrollWrapperRef}
-        className="w-full overflow-x-auto"               // ← enables horizontal scroll on mobile
+        className="flex h-full w-full flex-col overflow-x-auto" // ← horizontal scroll on mobile; full height so the graph fills the canvas
         style={{ WebkitOverflowScrolling: "touch" }}     // ← smooth momentum scroll on iOS
       >
         {/* Mobile scroll hint — hidden on md+ */}
@@ -711,7 +711,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
         {/* Inner container: enforces minimum width so graph isn't crushed */}
         <div
           ref={containerRef}
-          className="relative h-full bg-surface min-w-[600px] md:min-w-0"  // ← key change
+          className="relative min-h-0 flex-1 bg-surface min-w-[600px] md:min-w-0"  // ← key change
         >
           <svg
             ref={svgRef}
