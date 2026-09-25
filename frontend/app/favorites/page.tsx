@@ -81,11 +81,11 @@ export default function FavoritesPage() {
         <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center">
-                <Star className="w-5 h-5 text-yellow-500" fill="currentColor" />
+              <div className="w-10 h-10 rounded-md bg-primary/10 border border-primary/30 flex items-center justify-center">
+                <Star className="w-5 h-5 text-primary" fill="currentColor" />
               </div>
               <div className="flex items-center gap-2">
-                <h1 className="text-3xl font-bold text-foreground">
+                <h1 className="text-3xl font-semibold tracking-[-0.03em] text-foreground">
                   {activeCollection ? (
                     <>
                       <button
@@ -93,16 +93,16 @@ export default function FavoritesPage() {
                         onClick={() => setActiveCollectionId(null)}
                         className="text-muted-foreground hover:text-foreground transition-colors"
                       >
-                        Your Favorites
+                        Your favorites
                       </button>
                       <ChevronRight className="inline w-5 h-5 mx-1 text-muted-foreground" />
                       {activeCollection.name}
                     </>
                   ) : (
-                    "Your Favorites"
+                    "Your favorites"
                   )}
-                  {!isLoading && (
-                    <span className="ml-2 text-xl font-normal text-muted-foreground">
+                  {!isLoading && loadedContracts.length > 0 && (
+                    <span className="ml-2 font-mono text-xl font-normal tabular-nums text-muted-foreground">
                       ({loadedContracts.length})
                     </span>
                   )}
@@ -111,7 +111,7 @@ export default function FavoritesPage() {
             </div>
             <p className="text-muted-foreground">
               {activeCollection
-                ? `Viewing collection — ${activeCollection.items.length} contract${activeCollection.items.length !== 1 ? "s" : ""}`
+                ? `Viewing collection: ${activeCollection.items.length} contract${activeCollection.items.length !== 1 ? "s" : ""}`
                 : "Contracts you've saved for quick access."}
             </p>
           </div>
@@ -121,7 +121,7 @@ export default function FavoritesPage() {
               <button
                 type="button"
                 onClick={() => setCollectionsOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 <FolderPlus className="w-4 h-4" />
                 Collections
@@ -138,15 +138,15 @@ export default function FavoritesPage() {
                     const url = new URL(window.location.href);
                     url.searchParams.set("list", favorites.join(","));
                     copy(url.toString(), {
-                      successMessage: "Favorites list link copied!",
-                      failureMessage: "Failed to copy link",
+                      successMessage: "Favorites link copied",
+                      failureMessage: "Couldn’t copy the link",
                     });
                   }
                 }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 <Share2 className="w-4 h-4" />
-                {copied ? "Copied Link" : "Share"}
+                {copied ? "Link copied" : "Share"}
               </button>
               <div className="w-px h-6 bg-border mx-1 hidden sm:block" />
               {confirmingClear ? (
@@ -157,15 +157,15 @@ export default function FavoritesPage() {
                   <button
                     type="button"
                     onClick={handleClearAll}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-500 transition-colors hover:bg-red-500/20"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-3 py-1.5 text-sm font-medium text-danger transition-colors hover:bg-danger/20"
                   >
                     <BookmarkX className="w-4 h-4" />
-                    Confirm
+                    Remove all
                   </button>
                   <button
                     type="button"
                     onClick={handleCancelClear}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
                   >
                     Cancel
                   </button>
@@ -174,7 +174,7 @@ export default function FavoritesPage() {
                 <button
                   type="button"
                   onClick={handleClearAll}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 >
                   <BookmarkX className="w-4 h-4" />
                   Remove all favorites
@@ -190,6 +190,7 @@ export default function FavoritesPage() {
             <button
               type="button"
               onClick={() => setActiveCollectionId(null)}
+              aria-pressed={!activeCollectionId}
               className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors ${
                 !activeCollectionId
                   ? "bg-primary text-primary-foreground"
@@ -207,6 +208,7 @@ export default function FavoritesPage() {
                     activeCollectionId === col.id ? null : col.id,
                   )
                 }
+                aria-pressed={activeCollectionId === col.id}
                 className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors ${
                   activeCollectionId === col.id
                     ? "bg-primary text-primary-foreground"
@@ -215,7 +217,7 @@ export default function FavoritesPage() {
               >
                 <Folder className="w-3.5 h-3.5" />
                 {col.name}
-                <span className="opacity-70">{col.items.length}</span>
+                <span className="font-mono tabular-nums opacity-70">{col.items.length}</span>
               </button>
             ))}
           </div>
@@ -235,8 +237,8 @@ export default function FavoritesPage() {
         {/* Empty state — all favorites */}
         {!isLoading && favorites.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center mb-6">
-              <Star className="w-8 h-8 text-yellow-500/50" />
+            <div className="w-16 h-16 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center mb-6">
+              <Star className="w-8 h-8 text-primary/60" />
             </div>
             <h2 className="text-xl font-semibold text-foreground mb-2">
               No favorites saved yet
@@ -247,7 +249,7 @@ export default function FavoritesPage() {
             </p>
             <Link
               href="/contracts"
-              className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 btn-glow"
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
             >
               Browse contracts
               <ArrowRight className="w-4 h-4" />
@@ -260,7 +262,7 @@ export default function FavoritesPage() {
           activeCollection &&
           activeCollection.items.length === 0 && (
             <div className="flex flex-col items-center justify-center py-24 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-6">
+              <div className="w-16 h-16 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center mb-6">
                 <Folder className="w-8 h-8 text-primary/50" />
               </div>
               <h2 className="text-xl font-semibold text-foreground mb-2">
@@ -273,7 +275,7 @@ export default function FavoritesPage() {
               <button
                 type="button"
                 onClick={() => setActiveCollectionId(null)}
-                className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 btn-glow"
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
               >
                 Back to all favorites
                 <ArrowRight className="w-4 h-4" />
@@ -295,7 +297,7 @@ export default function FavoritesPage() {
                       onClick={() =>
                         removeFromCollection(activeCollectionId, contract.id)
                       }
-                      className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-500"
+                      className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-danger/30 hover:bg-danger/10 hover:text-danger"
                     >
                       <BookmarkX className="h-3.5 w-3.5" />
                       Remove from collection

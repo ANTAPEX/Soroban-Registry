@@ -90,7 +90,7 @@ function CollectionRow({
         <button
           type="button"
           onClick={onDelete}
-          className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors"
+          className="p-1 rounded hover:bg-danger/10 text-muted-foreground hover:text-danger transition-colors"
           aria-label="Delete collection"
         >
           <Trash2 className="w-3.5 h-3.5" />
@@ -144,7 +144,7 @@ export default function CollectionsModal({
       />
 
       {/* Panel */}
-      <div className="relative w-full max-w-xs bg-card border border-border rounded-2xl shadow-2xl flex flex-col max-h-[70vh] animate-modal-in">
+      <div className="relative w-full max-w-xs bg-card border border-border rounded-lg shadow-2xl flex flex-col max-h-[70vh] animate-modal-in">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <h2 className="text-sm font-semibold text-foreground">Collections</h2>
