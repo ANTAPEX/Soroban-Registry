@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   Zap,
+  Info,
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 
@@ -71,6 +72,11 @@ const TRANSACTIONS = [
   },
 ];
 
+const STATUS_TONE: Record<string, string> = {
+  Settled: "bg-success/10 text-success",
+  Pending: "bg-primary/10 text-primary",
+};
+
 const LICENSES = [
   { name: "DEX Routing Engine", seats: "12 seats", renews: "2026-01-18" },
   { name: "Oracle Feed Adapter", seats: "3 seats", renews: "2025-11-02" },
@@ -101,90 +107,111 @@ export default function MarketplacePage() {
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
 
-      <section className="hero-gradient border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-18 md:py-24">
+      <section className="relative overflow-hidden border-b border-border ledger-grid">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-20">
           <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-background/75 px-4 py-2 text-sm font-medium text-primary backdrop-blur">
-              <ShoppingCart className="h-4 w-4" />
-              Marketplace scaffold
-            </div>
-            <h1 className="mt-6 text-4xl font-bold tracking-tight sm:text-5xl">
-              Contract marketplace with cart and transaction flows
+            <p className="eyebrow inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-4 py-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
+              Marketplace preview
+            </p>
+            <h1 className="mt-6 text-4xl font-semibold tracking-[-0.03em] sm:text-5xl">
+              Contract <span className="text-gradient">marketplace</span>
             </h1>
             <p className="mt-4 max-w-2xl text-lg text-muted-foreground">
-              Mock UI for license sales, checkout review, payment capture,
-              transaction history, and active license management.
+              Buy commercial licenses for Soroban contracts, then manage seats
+              and renewals in one place.
             </p>
           </div>
         </div>
       </section>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
+        <div
+          role="note"
+          className="flex gap-3 rounded-lg border border-primary/40 bg-primary/5 p-4"
+        >
+          <Info className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+          <div>
+            <p className="eyebrow text-primary">Preview, sample data</p>
+            <p className="mt-1 text-sm text-foreground">
+              This page shows how license sales will work. The products,
+              transactions and licenses below are examples, not your account,
+              and checkout is turned off until payments launch.
+            </p>
+          </div>
+        </div>
+
         <section className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
           <div className="space-y-6">
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {PRODUCTS.map((product) => (
-                <article
-                  key={product.id}
-                  className="gradient-border-card card-hover p-6"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">
-                        {product.network}
-                      </p>
-                      <h2 className="mt-2 text-xl font-semibold">
-                        {product.name}
-                      </h2>
+            <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
+              {PRODUCTS.map((product) => {
+                const inCart = cart.some((item) => item.id === product.id);
+                return (
+                  <article
+                    key={product.id}
+                    className="gradient-border-card flex flex-col p-6"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="eyebrow">{product.network}</p>
+                        <h2 className="mt-2 text-xl font-semibold">
+                          {product.name}
+                        </h2>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                        {product.tier}
+                      </span>
                     </div>
-                    <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                      {product.tier}
-                    </span>
-                  </div>
-                  <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                    {product.summary}
-                  </p>
-                  <div className="mt-6 flex items-end justify-between">
-                    <div>
-                      <p className="text-xs text-muted-foreground">
-                        License price
-                      </p>
-                      <p className="text-3xl font-bold">${product.price}</p>
+                    <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                      {product.summary}
+                    </p>
+                    <div className="mt-auto flex items-end justify-between pt-6">
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          License price
+                        </p>
+                        <p className="font-mono text-3xl font-semibold tabular-nums">
+                          ${product.price}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => addToCart(product)}
+                        disabled={inCart}
+                        className="shrink-0 whitespace-nowrap rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-default disabled:bg-accent disabled:text-muted-foreground disabled:opacity-100"
+                      >
+                        {inCart ? "In cart" : "Add to cart"}
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => addToCart(product)}
-                      className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-                    >
-                      Add to cart
-                    </button>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                );
+              })}
             </div>
 
-            <section className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <section className="rounded-lg border border-border bg-card p-6">
               <div className="flex items-center gap-3">
                 <Receipt className="h-5 w-5 text-primary" />
-                <h2 className="text-xl font-semibold">Transaction history</h2>
+                <h2 className="text-xl font-semibold">Example transactions</h2>
               </div>
               <div className="mt-5 space-y-3">
                 {TRANSACTIONS.map((transaction) => (
                   <div
                     key={transaction.id}
-                    className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background/70 p-4 md:flex-row md:items-center md:justify-between"
+                    className="flex flex-col gap-3 rounded-md border border-border bg-background p-4 md:flex-row md:items-center md:justify-between"
                   >
                     <div>
                       <p className="font-medium">{transaction.item}</p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="font-mono text-xs text-muted-foreground">
                         {transaction.id}
                       </p>
                     </div>
                     <div className="flex items-center gap-4">
-                      <span className="text-sm font-semibold">
+                      <span className="font-mono text-sm font-semibold tabular-nums">
                         {transaction.amount}
                       </span>
-                      <span className="rounded-full bg-accent px-3 py-1 text-xs font-medium text-accent-foreground">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_TONE[transaction.status] ?? "bg-accent text-accent-foreground"}`}
+                      >
                         {transaction.status}
                       </span>
                     </div>
@@ -195,21 +222,21 @@ export default function MarketplacePage() {
           </div>
 
           <div className="space-y-6">
-            <section className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <section className="rounded-lg border border-border bg-card p-6">
               <div className="flex items-center gap-3">
                 <ShoppingCart className="h-5 w-5 text-primary" />
                 <h2 className="text-xl font-semibold">Cart</h2>
               </div>
               <div className="mt-5 space-y-3">
                 {cart.length === 0 ? (
-                  <p className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-                    Cart is empty. Add a license to start checkout.
+                  <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
+                    Your cart is empty. Add a license to see the checkout total.
                   </p>
                 ) : (
                   cart.map((item) => (
                     <div
                       key={item.id}
-                      className="rounded-2xl border border-border/70 p-4"
+                      className="rounded-md border border-border p-4"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -221,12 +248,13 @@ export default function MarketplacePage() {
                         <button
                           type="button"
                           onClick={() => removeFromCart(item.id)}
+                          aria-label={`Remove ${item.name} from cart`}
                           className="text-sm text-muted-foreground hover:text-foreground"
                         >
                           Remove
                         </button>
                       </div>
-                      <p className="mt-3 text-lg font-semibold">
+                      <p className="mt-3 font-mono text-lg font-semibold tabular-nums">
                         ${item.price}
                       </p>
                     </div>
@@ -235,64 +263,63 @@ export default function MarketplacePage() {
               </div>
             </section>
 
-            <section className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <section className="rounded-lg border border-border bg-card p-6">
               <div className="flex items-center gap-3">
                 <CreditCard className="h-5 w-5 text-primary" />
                 <h2 className="text-xl font-semibold">Checkout</h2>
               </div>
               <div className="mt-5 space-y-4">
-                <div className="rounded-2xl bg-accent/60 p-4 text-sm">
+                <div className="rounded-md bg-accent p-4 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Subtotal</span>
-                    <span className="font-semibold">${subtotal}</span>
+                    <span className="font-mono font-semibold tabular-nums">${subtotal}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
                     <span className="text-muted-foreground">Processing</span>
-                    <span className="font-semibold">
+                    <span className="font-mono font-semibold tabular-nums">
                       ${cart.length === 0 ? 0 : 12}
                     </span>
                   </div>
                   <div className="mt-3 border-t border-border pt-3 flex items-center justify-between text-base">
                     <span className="font-semibold">Total</span>
-                    <span className="font-bold">
+                    <span className="font-mono font-semibold tabular-nums">
                       ${subtotal + (cart.length === 0 ? 0 : 12)}
                     </span>
                   </div>
                 </div>
                 <button
                   type="button"
-                  className="w-full rounded-2xl bg-primary px-4 py-3 font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={cart.length === 0}
+                  className="w-full rounded-md bg-primary px-4 py-3 font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled
                 >
-                  Complete mock checkout
+                  Checkout opens at launch
                 </button>
                 <p className="text-xs text-muted-foreground">
-                  Payment integration is intentionally stubbed. This page is for
-                  flow and layout scaffolding.
+                  Payments aren’t live yet, so nothing will be charged.
                 </p>
               </div>
             </section>
 
-            <section className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <section className="rounded-lg border border-border bg-card p-6">
               <div className="flex items-center gap-3">
                 <ShieldCheck className="h-5 w-5 text-primary" />
-                <h2 className="text-xl font-semibold">License dashboard</h2>
+                <h2 className="text-xl font-semibold">Example licenses</h2>
               </div>
               <div className="mt-5 space-y-3">
                 {LICENSES.map((license) => (
                   <div
                     key={license.name}
-                    className="rounded-2xl border border-border/70 bg-background/70 p-4"
+                    className="rounded-md border border-border bg-background p-4"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <p className="font-medium">{license.name}</p>
-                      <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-300">
+                      <span className="rounded-full bg-success/10 px-3 py-1 text-xs font-semibold text-success">
                         Active
                       </span>
                     </div>
                     <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
                       <span>{license.seats}</span>
-                      <span>Renews {license.renews}</span>
+                      <span className="font-mono text-xs">Renews {license.renews}</span>
                     </div>
                   </div>
                 ))}
@@ -302,28 +329,25 @@ export default function MarketplacePage() {
         </section>
 
         <section className="grid gap-5 md:grid-cols-3">
-          <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+          <div className="rounded-lg border border-border bg-card p-6">
             <Zap className="h-5 w-5 text-primary" />
-            <h3 className="mt-4 text-lg font-semibold">Fast procurement</h3>
+            <h3 className="mt-4 text-lg font-semibold">Quick purchasing</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Buyer flow is arranged around quick add-to-cart actions and
-              compact checkout review.
+              Add licenses to a cart and review the full total before you pay.
             </p>
           </div>
-          <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+          <div className="rounded-lg border border-border bg-card p-6">
             <FileText className="h-5 w-5 text-primary" />
             <h3 className="mt-4 text-lg font-semibold">License records</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Dashboard cards reserve space for seat counts, renewal dates, and
-              entitlement details.
+              See the seats and renewal date for every license you hold.
             </p>
           </div>
-          <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+          <div className="rounded-lg border border-border bg-card p-6">
             <Receipt className="h-5 w-5 text-primary" />
             <h3 className="mt-4 text-lg font-semibold">Transaction tracking</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              History rows are already separated from the cart flow so real
-              settlement events can slot in later.
+              Every purchase is recorded with its amount and settlement status.
             </p>
           </div>
         </section>
