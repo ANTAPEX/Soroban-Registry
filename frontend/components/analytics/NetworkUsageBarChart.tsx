@@ -1,11 +1,12 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { CHART_SERIES } from '@/lib/chartPalette';
 
 interface NetworkCount {
   network: string;
   contract_count: number;
 }
 
-const COLORS = ['#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
+const COLORS = CHART_SERIES;
 
 export default function NetworkUsageBarChart({ data }: { data: NetworkCount[] }) {
   if (!data || data.length === 0) {
@@ -23,7 +24,7 @@ export default function NetworkUsageBarChart({ data }: { data: NetworkCount[] })
     <div className="h-[250px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={sortedData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" opacity={0.5} />
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" opacity={0.5} />
           <XAxis type="number" hide />
           <YAxis 
             dataKey="network" 
@@ -32,12 +33,12 @@ export default function NetworkUsageBarChart({ data }: { data: NetworkCount[] })
             tickLine={false}
             fontSize={12}
             width={80}
-            tick={{ fill: 'hsl(var(--muted-foreground))' }}
+            tick={{ fill: 'var(--muted-foreground)' }}
           />
           <Tooltip 
-            cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }}
-            contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '0.5rem' }}
-            itemStyle={{ color: 'hsl(var(--foreground))' }}
+            cursor={{ fill: 'var(--muted)', opacity: 0.4 }}
+            contentStyle={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', borderRadius: '0.5rem' }}
+            itemStyle={{ color: 'var(--foreground)' }}
           />
           <Bar dataKey="contract_count" radius={[0, 4, 4, 0]} barSize={20}>
             {sortedData.map((entry, index) => (

@@ -2,15 +2,71 @@ import { API_URL, USE_MOCKS } from "@/lib/env";
 import type { StatsResponse, TimePeriod, LegacyStatsResponse } from "@/types";
 
 
+// Raw shapes of the three backend endpoints the stats page combines.
+interface RegistryStatsRaw {
+  total_contracts: number;
+  total_publishers: number;
+  verification_percentage: number;
+}
+interface AnalyticsSummaryRaw {
+  network_usage: { network: string; contract_count: number }[];
+  category_distribution: { category: string; contract_count: number }[];
+  top_publishers: { publisher_id: string; name: string; contract_count: number }[];
+}
+interface AnalyticsDashboardRaw {
+  deployment_trends: { date: string; count: number }[];
+}
+
+/**
+ * Builds the stats page model from the backend responses. /api/stats has
+ * the totals, /api/analytics/summary the breakdowns and top publishers,
+ * and /api/analytics/dashboard the period-scoped deployment trend.
+ */
+export function toStatsResponse(
+  stats: RegistryStatsRaw,
+  summary: AnalyticsSummaryRaw,
+  dashboard: AnalyticsDashboardRaw,
+): StatsResponse {
+  return {
+    totalContracts: stats.total_contracts,
+    verifiedPercentage: stats.verification_percentage,
+    totalPublishers: stats.total_publishers,
+    networkBreakdown: summary.network_usage.map((n) => ({
+      network: n.network,
+      contracts: n.contract_count,
+    })),
+    contractsByCategory: summary.category_distribution.map((c) => ({
+      category: c.category,
+      count: c.contract_count,
+    })),
+    deploymentsTrend: dashboard.deployment_trends,
+    topPublishers: summary.top_publishers.slice(0, 5).map((p) => ({
+      name: p.name,
+      // The publisher route takes the publisher id.
+      address: p.publisher_id,
+      contractsDeployed: p.contract_count,
+    })),
+  };
+}
+
+async function getJson<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch ${path}: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 export async function fetchStats(period: TimePeriod): Promise<StatsResponse> {
   if (!USE_MOCKS) {
-    const res = await fetch(
-      `${API_URL}/api/stats?period=${encodeURIComponent(period)}`,
-    );
-    if (!res.ok) {
-      throw new Error(`Failed to fetch stats: ${res.status}`);
-    }
-    return res.json();
+    // The dashboard has no all-time range; its longest window is 90 days.
+    const timeframe = period === "all-time" ? "90d" : period;
+    const [stats, summary, dashboard] = await Promise.all([
+      getJson<RegistryStatsRaw>(`/api/stats?period=${encodeURIComponent(period)}`),
+      getJson<AnalyticsSummaryRaw>("/api/analytics/summary"),
+      getJson<AnalyticsDashboardRaw>(`/api/analytics/dashboard?timeframe=${timeframe}`),
+    ]);
+    return toStatsResponse(stats, summary, dashboard);
   }
 
   // ---------------------------------------------------------------------------

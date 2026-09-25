@@ -20,14 +20,14 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import { useCopy } from '@/hooks/useCopy';
 import { formatContractId } from '@/lib/utils/formatting';
 import { useTranslation } from '@/lib/i18n/client';
-import { generateSolidPlaceholder } from '@/lib/images';
+import { generateSolidPlaceholder, NEUTRAL_PLACEHOLDER_COLOR } from '@/lib/images';
 import VerificationBadge from '@/components/verification/VerificationBadge';
 import HealthWidget from './HealthWidget';
 import ContractQuickViewModal from './contracts/ContractQuickViewModal';
 import FavoriteButton from './FavoriteButton';
 
 const LOGO_SIZE_PX = 40;
-const LOGO_PLACEHOLDER = generateSolidPlaceholder('#e5e7eb');
+const LOGO_PLACEHOLDER = generateSolidPlaceholder(NEUTRAL_PLACEHOLDER_COLOR);
 
 interface ContractCardProps {
   contract: Contract;
@@ -117,20 +117,9 @@ export default function ContractCard({ contract, sortBy }: ContractCardProps) {
           })
         }
       >
-        <div className="group relative h-full overflow-hidden rounded-2xl border border-border bg-card transition-all card-hover glow-border gradient-border-card">
-          <div className="absolute inset-0 bg-linear-to-br from-primary/5 to-secondary/5 opacity-0 transition-opacity group-hover:opacity-100" />
+        <div className="group relative h-full overflow-hidden rounded-lg border border-border bg-card gradient-border-card">
 
           <div className="relative flex h-full flex-col p-6">
-            {sortBy && SORT_ICON_META[sortBy] && (
-              <span
-                className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-border bg-background/95 px-2 py-1 text-[10px] font-semibold text-muted-foreground"
-                aria-label={SORT_ICON_META[sortBy].label}
-                title={SORT_ICON_META[sortBy].label}
-              >
-                {React.createElement(SORT_ICON_META[sortBy].icon, { className: 'h-3 w-3' })}
-              </span>
-            )}
-
             <div className="mb-3 flex items-start justify-between gap-3">
               <div
                 className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-accent"
@@ -156,27 +145,35 @@ export default function ContractCard({ contract, sortBy }: ContractCardProps) {
               </div>
 
               <div className="min-w-0 flex-1">
-                <div className="mb-1 flex items-center gap-2">
-                  <h3 className="truncate text-lg font-semibold text-foreground transition-colors group-hover:text-primary">
-                    {contract.name}
-                  </h3>
-                  <VerificationBadge status={contract.is_verified ? 'approved' : 'unverified'} level={contract.verification_level} />
-                </div>
+                <h3 className="mb-1 truncate text-lg font-semibold text-foreground transition-colors group-hover:text-primary" title={contract.name}>
+                  {contract.name}
+                </h3>
                 <p className="font-mono text-xs text-muted-foreground">
                   {address}
                 </p>
               </div>
 
-              <span
-                className={`ml-3 inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${networkColors[contract.network]}`}
-              >
-                <span className={`h-2 w-2 rounded-full ${networkDots[contract.network]}`} />
-                {contract.network}
-              </span>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {sortBy && SORT_ICON_META[sortBy] && (
+                  <span
+                    className="inline-flex items-center rounded-full border border-border bg-background px-1.5 py-1 text-muted-foreground"
+                    aria-label={SORT_ICON_META[sortBy].label}
+                    title={SORT_ICON_META[sortBy].label}
+                  >
+                    {React.createElement(SORT_ICON_META[sortBy].icon, { className: 'h-3 w-3' })}
+                  </span>
+                )}
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${networkColors[contract.network]}`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${networkDots[contract.network]}`} />
+                  {contract.network}
+                </span>
+              </div>
             </div>
 
             <div className="mb-4 flex items-center justify-between gap-2">
-              <span className="inline-flex max-w-[60%] items-center gap-1 rounded-lg bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+              <span className="inline-flex max-w-[60%] items-center gap-1 rounded-md bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
                 <Tag className="h-3 w-3 shrink-0" />
                 <span className="truncate">{categoryLabel}</span>
               </span>
@@ -201,8 +198,6 @@ export default function ContractCard({ contract, sortBy }: ContractCardProps) {
                 </span>
               </div>
             </div>
-
-            <p className="mb-4 truncate font-mono text-xs text-muted-foreground">{address}</p>
 
             <div className="mb-4" onClick={(event: React.MouseEvent) => event.preventDefault()}>
               <HealthWidget contract={contract} />

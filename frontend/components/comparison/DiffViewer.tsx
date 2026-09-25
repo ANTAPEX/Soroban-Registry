@@ -14,8 +14,8 @@ type Tab = "abi" | "source";
 
 function lineClass(type: "context" | "add" | "remove") {
   if (type === "add")
-    return "bg-green-500/10 text-green-700 dark:text-green-300";
-  if (type === "remove") return "bg-red-500/10 text-red-700 dark:text-red-300";
+    return "bg-success/10 text-success";
+  if (type === "remove") return "bg-danger/10 text-danger";
   return "text-muted-foreground";
 }
 
@@ -53,7 +53,7 @@ export default function DiffViewer({
 
   if (!baseline) {
     return (
-      <div className="rounded-2xl border border-border bg-card p-6">
+      <div className="rounded-lg border border-border bg-card p-6">
         <div className="text-sm font-semibold text-foreground">Diff view</div>
         <div className="mt-1 text-xs text-muted-foreground">
           Select contracts to compare.
@@ -63,7 +63,7 @@ export default function DiffViewer({
   }
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-5">
+    <div className="rounded-lg border border-border bg-card p-5">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -80,7 +80,7 @@ export default function DiffViewer({
             <select
               value={baseline.id}
               onChange={(e) => onBaselineIdChange(e.target.value)}
-              className="rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
             >
               {contracts.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -93,7 +93,7 @@ export default function DiffViewer({
               <button
                 type="button"
                 onClick={() => setTab("abi")}
-                className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
+                className={`rounded-md border px-3 py-2 text-sm font-semibold transition-colors ${
                   tab === "abi"
                     ? "border-primary/30 bg-primary/10 text-primary"
                     : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -104,7 +104,7 @@ export default function DiffViewer({
               <button
                 type="button"
                 onClick={() => setTab("source")}
-                className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
+                className={`rounded-md border px-3 py-2 text-sm font-semibold transition-colors ${
                   tab === "source"
                     ? "border-primary/30 bg-primary/10 text-primary"
                     : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -117,7 +117,7 @@ export default function DiffViewer({
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="rounded-xl border border-border bg-background p-4">
+          <div className="rounded-md border border-border bg-background p-4">
             <div className="text-xs font-semibold text-muted-foreground">
               Baseline version
             </div>
@@ -125,7 +125,7 @@ export default function DiffViewer({
               {baseline.latestVersion}
             </div>
           </div>
-          <div className="rounded-xl border border-border bg-background p-4">
+          <div className="rounded-md border border-border bg-background p-4">
             <div className="text-xs font-semibold text-muted-foreground">
               Known versions
             </div>
@@ -133,7 +133,7 @@ export default function DiffViewer({
               {baseline.versionCount}
             </div>
           </div>
-          <div className="rounded-xl border border-border bg-background p-4">
+          <div className="rounded-md border border-border bg-background p-4">
             <div className="text-xs font-semibold text-muted-foreground">
               ABI methods
             </div>
@@ -144,7 +144,7 @@ export default function DiffViewer({
         </div>
 
         {others.length === 0 ? (
-          <div className="rounded-xl border border-border bg-accent/30 p-4 text-sm text-muted-foreground">
+          <div className="rounded-md border border-border bg-accent/30 p-4 text-sm text-muted-foreground">
             Add at least 2 contracts to see diffs.
           </div>
         ) : tab === "abi" ? (
@@ -152,7 +152,7 @@ export default function DiffViewer({
             {abiDiffs.map(({ contract, diff }) => (
               <div
                 key={contract.id}
-                className="rounded-2xl border border-border bg-background p-5"
+                className="rounded-lg border border-border bg-background p-5"
               >
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -173,7 +173,7 @@ export default function DiffViewer({
                     <div className="text-xs font-semibold text-muted-foreground">
                       Added
                     </div>
-                    <div className="mt-2 rounded-xl border border-border bg-card p-3">
+                    <div className="mt-2 rounded-md border border-border bg-card p-3">
                       {diff.added.length === 0 ? (
                         <div className="text-xs text-muted-foreground">
                           None
@@ -183,7 +183,7 @@ export default function DiffViewer({
                           {diff.added.map((m) => (
                             <li
                               key={m}
-                              className="font-mono text-xs text-green-700 dark:text-green-300"
+                              className="font-mono text-xs text-success"
                             >
                               + {m}
                             </li>
@@ -196,7 +196,7 @@ export default function DiffViewer({
                     <div className="text-xs font-semibold text-muted-foreground">
                       Removed
                     </div>
-                    <div className="mt-2 rounded-xl border border-border bg-card p-3">
+                    <div className="mt-2 rounded-md border border-border bg-card p-3">
                       {diff.removed.length === 0 ? (
                         <div className="text-xs text-muted-foreground">
                           None
@@ -206,7 +206,7 @@ export default function DiffViewer({
                           {diff.removed.map((m) => (
                             <li
                               key={m}
-                              className="font-mono text-xs text-red-700 dark:text-red-300"
+                              className="font-mono text-xs text-danger"
                             >
                               - {m}
                             </li>
@@ -224,7 +224,7 @@ export default function DiffViewer({
             {sourceDiffs.map(({ contract, lines }) => (
               <div
                 key={contract.id}
-                className="rounded-2xl border border-border bg-background p-5"
+                className="rounded-lg border border-border bg-background p-5"
               >
                 <div>
                   <div className="text-sm font-semibold text-foreground">
@@ -234,7 +234,7 @@ export default function DiffViewer({
                     {contract.latestVersion} vs {baseline.latestVersion}
                   </div>
                 </div>
-                <div className="mt-3 overflow-hidden rounded-xl border border-border bg-card">
+                <div className="mt-3 overflow-hidden rounded-md border border-border bg-card">
                   <div className="max-h-[560px] overflow-auto">
                     <pre className="p-3 font-mono text-xs leading-5">
                       {lines.map((l, idx) => (

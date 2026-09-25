@@ -102,12 +102,14 @@ export function useComparison() {
               : { abi: null };
 
           let sourceCode = "";
-          if (latestVersion?.source_url) {
+          const normalizedSourceUrl = latestVersion?.source_url?.replace(
+            /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/,
+            "https://raw.githubusercontent.com/$1/$2/$3/$4",
+          );
+          // Only raw file hosts allow a cross-origin read. Commit pages, repo
+          // pages and other hosts always fail CORS, so skip them.
+          if (normalizedSourceUrl?.startsWith("https://raw.githubusercontent.com/")) {
             try {
-              const normalizedSourceUrl = latestVersion.source_url.replace(
-                /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/,
-                "https://raw.githubusercontent.com/$1/$2/$3/$4",
-              );
               const res = await fetch(normalizedSourceUrl);
               if (res.ok) {
                 sourceCode = await res.text();

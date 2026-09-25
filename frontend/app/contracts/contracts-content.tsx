@@ -18,7 +18,6 @@ import {
   Search,
   SlidersHorizontal,
   X,
-  Sparkles,
   CheckCircle,
   Users,
 } from "lucide-react";
@@ -643,17 +642,16 @@ export function ContractsContent() {
   return (
     <>
       {/* Hero header with grid pattern */}
-      <section className="relative overflow-hidden border-b border-border">
-        <div className="absolute inset-0 bg-grid-pattern opacity-5 text-primary" />
+      <section className="relative overflow-hidden border-b border-border ledger-grid">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 relative">
           <div className="text-center max-w-3xl mx-auto">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6">
-              <Sparkles className="w-4 h-4" />
-              Explore the Soroban Ecosystem
-            </div>
+            <p className="eyebrow mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-4 py-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary" aria-hidden="true" />
+              Explore the Soroban ecosystem
+            </p>
 
-            <h1 className="text-4xl sm:text-5xl font-bold mb-4 leading-tight">
-              Browse <span className="text-gradient">Contracts</span>
+            <h1 className="text-4xl sm:text-5xl font-semibold mb-4 leading-[0.95] tracking-[-0.03em]">
+              Browse <span className="text-gradient">contracts</span>
             </h1>
             <p className="text-lg text-muted-foreground mb-10">
               Discover verified Soroban smart contracts on the Stellar network.
@@ -698,32 +696,32 @@ export function ContractsContent() {
 
             {/* Stats row */}
             <div className="grid grid-cols-3 gap-4 max-w-lg mx-auto">
-              <div className="bg-background rounded-xl p-4 border border-border shadow-sm">
+              <div className="bg-card rounded-lg p-4 border border-border">
                 <div className="flex items-center justify-center gap-1.5 mb-1">
                   <Package className="w-4 h-4 text-primary" />
-                  <span className="text-2xl font-bold">
+                  <span className="text-2xl font-semibold font-mono tabular-nums">
                     {stats?.total_contracts ?? "—"}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground">Contracts</p>
+                <p className="eyebrow text-[0.6875rem]">Contracts</p>
               </div>
-              <div className="bg-background rounded-xl p-4 border border-border shadow-sm">
+              <div className="bg-card rounded-lg p-4 border border-border">
                 <div className="flex items-center justify-center gap-1.5 mb-1">
-                  <CheckCircle className="w-4 h-4 text-green-500" />
-                  <span className="text-2xl font-bold">
+                  <CheckCircle className="w-4 h-4 text-success" />
+                  <span className="text-2xl font-semibold font-mono tabular-nums">
                     {stats?.verified_contracts ?? "—"}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground">Verified</p>
+                <p className="eyebrow text-[0.6875rem]">Verified</p>
               </div>
-              <div className="bg-background rounded-xl p-4 border border-border shadow-sm">
+              <div className="bg-card rounded-lg p-4 border border-border">
                 <div className="flex items-center justify-center gap-1.5 mb-1">
-                  <Users className="w-4 h-4 text-secondary" />
-                  <span className="text-2xl font-bold">
+                  <Users className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-2xl font-semibold font-mono tabular-nums">
                     {stats?.total_publishers ?? "—"}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground">Publishers</p>
+                <p className="eyebrow text-[0.6875rem]">Publishers</p>
               </div>
             </div>
           </div>
@@ -821,7 +819,7 @@ export function ContractsContent() {
                 role="status"
                 aria-label="Loading contracts"
                 aria-live="polite"
-                className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 mb-8"
+                className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6 mb-8"
               >
                 {Array.from({ length: DEFAULT_PAGE_SIZE }).map((_, i) => (
                   <ContractCardSkeleton key={i} />
@@ -833,7 +831,7 @@ export function ContractsContent() {
                 <div
                   aria-live="polite"
                   aria-atomic="true"
-                  className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 mb-8 animate-in fade-in duration-300"
+                  className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6 mb-8 animate-in fade-in duration-300"
                 >
                   {effectiveData.items.map((contract: Contract) => (
                     <ContractCard
@@ -920,7 +918,7 @@ export function ContractsContent() {
                 )}
               </>
             ) : (
-              <div className="text-center py-16 bg-card/50 border border-border rounded-xl">
+              <div className="text-center py-16 bg-card border border-dashed border-border rounded-lg">
                 <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
                 <h3 className="text-lg font-semibold mb-2">
                   No contracts found
@@ -950,7 +948,7 @@ export function ContractsContent() {
             onClick={() => setMobileFiltersOpen(false)}
             className="absolute inset-0 bg-black/50"
           />
-          <div className="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col bg-background shadow-2xl">
+          <div className="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col border-l border-border bg-background">
             <div className="flex items-center justify-between border-b border-border px-4 py-4">
               <div>
                 <h2 className="text-base font-semibold text-foreground">
@@ -963,7 +961,8 @@ export function ContractsContent() {
               <button
                 type="button"
                 onClick={() => setMobileFiltersOpen(false)}
-                className="rounded-lg p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label="Close filters"
+                className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -993,7 +992,7 @@ export function ContractsContent() {
               <button
                 type="button"
                 onClick={() => setMobileFiltersOpen(false)}
-                className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-medium text-primary-foreground"
+                className="w-full rounded-md bg-primary px-4 py-3 text-sm font-medium text-primary-foreground"
               >
                 Apply filters
               </button>

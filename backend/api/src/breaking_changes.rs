@@ -455,17 +455,22 @@ async fn fetch_latest_abi_for_contract(state: &AppState, contract_id: &str) -> A
         return Ok(abi.to_string());
     }
 
-    let abi = sqlx::query_scalar::<_, serde_json::Value>("SELECT abi FROM contracts WHERE id = $1")
-        .bind(uuid)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| {
-            ApiError::not_found(
-                "AbiNotFound",
-                format!("No ABI available for contract '{}'", contract_id),
-            )
-        })?;
+    // contracts.abi is nullable: a contract published without an ABI has a
+    // row here but no value, which is "not found", not a decode failure.
+    let abi = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT abi FROM contracts WHERE id = $1",
+    )
+    .bind(uuid)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    .flatten()
+    .ok_or_else(|| {
+        ApiError::not_found(
+            "AbiNotFound",
+            format!("No ABI available for contract '{}'", contract_id),
+        )
+    })?;
 
     Ok(abi.to_string())
 }

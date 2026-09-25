@@ -3,7 +3,7 @@
 import ContractCard from '@/components/ContractCard';
 import ContractCardSkeleton from '@/components/ContractCardSkeleton';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
-import { Search, Package, CheckCircle, Users, ArrowRight, Sparkles, Shield, GitBranch, Upload, Terminal, Github, MessageCircle, BookOpen, Zap } from 'lucide-react';
+import { Search, Package, CheckCircle, Users, ArrowRight, Shield, GitBranch, Upload, Terminal, Github, MessageCircle, BookOpen, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -14,8 +14,8 @@ import ActivityFeed from '@/components/ActivityFeed';
 import { useCopy } from '@/hooks/useCopy';
 import CodeCopyButton from '@/components/CodeCopyButton';
 import { buttonVariants } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { useRecentContracts, useRegistryStats } from "@/hooks/queries";
+import { useReveal } from '@/hooks/useReveal';
 
 export default function Home() {
   const { t } = useTranslation('common');
@@ -24,6 +24,7 @@ export default function Home() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { logEvent } = useAnalytics();
   const { copy, copied, isCopying } = useCopy();
+  useReveal();
 
   const { data: stats, isLoading: statsLoading } = useRegistryStats();
 
@@ -81,16 +82,16 @@ export default function Home() {
       <Navbar />
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden hero-dot-field">
+      <section className="relative overflow-hidden ledger-grid">
         <div className="absolute inset-0 bg-gradient-to-b from-accent/60 via-transparent to-transparent" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 relative">
           <div className="text-center max-w-3xl mx-auto">
-            <Badge className="mb-6 animate-fade-in-up">
-              <Sparkles className="w-4 h-4" />
-              The Official Soroban Smart Contract Registry
-            </Badge>
+            <p className="eyebrow mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-4 py-1.5 animate-fade-in-up">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary" aria-hidden="true" />
+              Soroban smart contract registry
+            </p>
 
-            <h1 className="text-6xl sm:text-7xl lg:text-8xl font-bold mb-6 leading-[0.95] tracking-tight animate-fade-in-up-delay-1">
+            <h1 className="text-6xl sm:text-7xl lg:text-8xl font-semibold mb-6 leading-[0.92] tracking-[-0.04em] animate-fade-in-up-delay-1">
               {t('home.title_part1')}
               <br />
               <span className="text-gradient">
@@ -114,7 +115,7 @@ export default function Home() {
                   placeholder="Search contracts by name, category, or tag..."
                   aria-label="Search contracts"
                   aria-keyshortcuts="/"
-                  className="w-full pl-14 pr-28 py-4 rounded-full border-2 border-border-strong bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-lg"
+                  className="w-full pl-14 pr-28 py-4 rounded-lg border border-border-strong bg-card text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-lg"
                 />
                 <button
                   type="submit"
@@ -130,7 +131,7 @@ export default function Home() {
               {statsLoading ? (
                 <>
                   {[1, 2, 3].map((i) => (
-                    <div key={i} className="bg-background rounded-xl p-6 border border-border shadow-sm">
+                    <div key={i} className="bg-card rounded-lg p-6 border border-border">
                       <div className="flex items-center justify-center gap-2 mb-2">
                         <LoadingSkeleton width="3rem" height="2.25rem" />
                       </div>
@@ -140,34 +141,34 @@ export default function Home() {
                 </>
               ) : stats ? (
                 <>
-                  <div className="bg-background rounded-xl p-6 border border-border shadow-sm">
+                  <div className="bg-card rounded-lg p-6 border border-border">
                     <div className="flex items-center justify-center gap-2 mb-2">
                       <Package className="w-5 h-5 text-primary" />
-                      <span className="text-3xl font-bold">
+                      <span className="text-3xl font-semibold font-mono tabular-nums">
                         {stats.total_contracts}
                       </span>
                     </div>
-                    <p className="text-sm text-muted-foreground">Total Contracts</p>
+                    <p className="eyebrow">Total contracts</p>
                   </div>
 
-                  <div className="bg-background rounded-xl p-6 border border-border shadow-sm">
+                  <div className="bg-card rounded-lg p-6 border border-border">
                     <div className="flex items-center justify-center gap-2 mb-2">
-                      <CheckCircle className="w-5 h-5 text-green-500" />
-                      <span className="text-3xl font-bold">
+                      <CheckCircle className="w-5 h-5 text-success" />
+                      <span className="text-3xl font-semibold font-mono tabular-nums">
                         {stats.verified_contracts}
                       </span>
                     </div>
-                    <p className="text-sm text-muted-foreground">Verified</p>
+                    <p className="eyebrow">Verified</p>
                   </div>
 
-                  <div className="bg-background rounded-xl p-6 border border-border shadow-sm">
+                  <div className="bg-card rounded-lg p-6 border border-border">
                     <div className="flex items-center justify-center gap-2 mb-2">
-                      <Users className="w-5 h-5 text-secondary" />
-                      <span className="text-3xl font-bold">
+                      <Users className="w-5 h-5 text-muted-foreground" />
+                      <span className="text-3xl font-semibold font-mono tabular-nums">
                         {stats.total_publishers}
                       </span>
                     </div>
-                    <p className="text-sm text-muted-foreground">Publishers</p>
+                    <p className="eyebrow">Publishers</p>
                   </div>
                 </>
               ) : null}
@@ -176,10 +177,44 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Recently published ticker */}
+      {recentContracts && (recentContracts.items?.length ?? 0) > 0 && (
+        <section aria-label="Recently published contracts" className="border-y border-border bg-card">
+          <div className="marquee py-4">
+            <div className="marquee-track">
+              {[0, 1].map((copyIndex) => (
+                <ul
+                  key={copyIndex}
+                  aria-hidden={copyIndex === 1 || undefined}
+                  className="flex shrink-0 items-center"
+                >
+                  {(recentContracts.items ?? []).map((contract) => (
+                    <li key={contract.id} className="flex items-center">
+                      <Link
+                        href={`/contracts/${contract.id}`}
+                        tabIndex={copyIndex === 1 ? -1 : undefined}
+                        className="flex items-center gap-2 px-6 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {contract.is_verified && (
+                          <CheckCircle className="w-4 h-4 text-primary" aria-label="Verified" />
+                        )}
+                        <span className="font-medium text-foreground">{contract.name}</span>
+                        <span className="font-mono text-xs uppercase">{contract.network}</span>
+                      </Link>
+                      <span className="w-1 h-1 rounded-full bg-border-strong/40" aria-hidden="true" />
+                    </li>
+                  ))}
+                </ul>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Why Soroban Registry — Feature Cards */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
+      <section className="reveal max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
         <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl font-bold mb-4">
+          <h2 className="text-3xl sm:text-4xl font-semibold mb-4">
             {t('home.whyTitle')} <span className="text-gradient">Registry</span>
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
@@ -189,7 +224,7 @@ export default function Home() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="gradient-border-card p-8 card-hover">
-            <div className="w-12 h-12 rounded-xl border-2 border-border-strong flex items-center justify-center mb-6">
+            <div className="w-12 h-12 rounded-md border border-border-strong flex items-center justify-center mb-6">
               <Shield className="w-6 h-6 text-foreground" />
             </div>
             <h3 className="text-xl font-semibold mb-3">{t('home.features.verified.title')}</h3>
@@ -199,7 +234,7 @@ export default function Home() {
           </div>
 
           <div className="gradient-border-card p-8 card-hover">
-            <div className="w-12 h-12 rounded-xl border-2 border-border-strong flex items-center justify-center mb-6">
+            <div className="w-12 h-12 rounded-md border border-border-strong flex items-center justify-center mb-6">
               <GitBranch className="w-6 h-6 text-primary" />
             </div>
             <h3 className="text-xl font-semibold mb-3">{t('home.features.graph.title')}</h3>
@@ -209,7 +244,7 @@ export default function Home() {
           </div>
 
           <div className="gradient-border-card p-8 card-hover">
-            <div className="w-12 h-12 rounded-xl border-2 border-border-strong flex items-center justify-center mb-6">
+            <div className="w-12 h-12 rounded-md border border-border-strong flex items-center justify-center mb-6">
               <Upload className="w-6 h-6 text-foreground" />
             </div>
             <h3 className="text-xl font-semibold mb-3">{t('home.features.easy.title')}</h3>
@@ -221,9 +256,9 @@ export default function Home() {
       </section>
 
       {/* Recent Contracts */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+      <section className="reveal max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="flex items-center justify-between mb-8">
-          <h2 className="text-3xl font-bold">
+          <h2 className="text-3xl font-semibold">
             {t('home.recent')}
           </h2>
           <Link
@@ -248,7 +283,7 @@ export default function Home() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-12 rounded-2xl border border-border bg-card">
+          <div className="text-center py-12 rounded-lg border border-dashed border-border bg-card">
             <Package className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-muted-foreground">No contracts published yet</p>
           </div>
@@ -256,24 +291,24 @@ export default function Home() {
       </section>
 
     {/* Activity Feed Section */}
-    <section className="bg-muted/30 border-y border-border">
+    <section className="reveal bg-muted/30 border-y border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
           <div className="lg:col-span-2">
             <ActivityFeed />
           </div>
           <div className="space-y-8">
-            <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-amber-500" />
-                Live Insights
+            <div className="bg-card border border-border rounded-lg p-6">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-success" aria-hidden="true" />
+                Live insights
               </h3>
               <p className="text-sm text-muted-foreground mb-6">
                 The registry is alive with activity. Watch as developers publish, verify, and deploy contracts in real-time.
               </p>
               <div className="space-y-4">
                 <div className="flex items-start gap-3">
-                  <div className="mt-1 p-1.5 rounded-full bg-blue-500/10 text-blue-500">
+                  <div className="mt-1 p-1.5 rounded-md bg-primary/10 text-primary">
                     <Upload className="w-4 h-4" />
                   </div>
                   <div>
@@ -282,7 +317,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="mt-1 p-1.5 rounded-full bg-emerald-500/10 text-emerald-500">
+                  <div className="mt-1 p-1.5 rounded-md bg-success/10 text-success">
                     <CheckCircle className="w-4 h-4" />
                   </div>
                   <div>
@@ -291,7 +326,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="mt-1 p-1.5 rounded-full bg-amber-500/10 text-amber-500">
+                  <div className="mt-1 p-1.5 rounded-md bg-muted text-muted-foreground">
                     <Zap className="w-4 h-4" />
                   </div>
                   <div>
@@ -302,8 +337,8 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-primary/10 to-secondary/10 border border-primary/20 rounded-xl p-6 shadow-sm">
-              <h3 className="text-lg font-bold mb-2">Build Together</h3>
+            <div className="bg-card border border-primary/40 rounded-lg p-6">
+              <h3 className="text-lg font-semibold mb-2">Build together</h3>
               <p className="text-sm text-muted-foreground mb-4">
                 Share your contracts with the ecosystem and help other builders.
               </p>
@@ -311,7 +346,7 @@ export default function Home() {
                 href="/publish"
                 className={buttonVariants({ size: 'sm', className: 'w-full' })}
               >
-                Publish Your Contract
+                Publish your contract
                 <ArrowRight className="w-4 h-4" />
               </Link>
             </div>
@@ -321,10 +356,10 @@ export default function Home() {
     </section>
 
       {/* Install & Learn — Code Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
+      <section className="reveal max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
           <div>
-            <h2 className="text-3xl sm:text-4xl font-bold mb-6">
+            <h2 className="text-3xl sm:text-4xl font-semibold mb-6">
               Install & start <span className="text-gradient">building</span>
             </h2>
             <p className="text-lg text-muted-foreground mb-8 leading-relaxed">
@@ -336,23 +371,23 @@ export default function Home() {
                 href="/contracts"
                 className={buttonVariants({ size: 'lg' })}
               >
-                Browse Contracts
+                Browse contracts
                 <ArrowRight className="w-4 h-4" />
               </Link>
               <Link
                 href="/templates"
                 className={buttonVariants({ variant: 'outline', size: 'lg' })}
               >
-                View Templates
+                View templates
               </Link>
             </div>
           </div>
 
-          <div className="rounded-2xl overflow-hidden border border-border bg-[#0d1117]">
+          <div className="sweep-line rounded-lg overflow-hidden border border-border bg-deep text-deep-foreground">
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
               <div className="flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground font-mono">Terminal</span>
+                <Terminal className="w-4 h-4 text-deep-foreground/60" />
+                <span className="text-xs text-deep-foreground/60 font-mono">Terminal</span>
               </div>
               <CodeCopyButton
                 onCopy={handleCopyCode}
@@ -360,26 +395,29 @@ export default function Home() {
                 disabled={isCopying}
                 idleLabel="Copy"
                 copiedLabel="Copied"
-                className="border-white/10 bg-transparent text-gray-400 hover:bg-white/10 hover:text-white"
+                tone="terminal"
               />
             </div>
             <div className="p-6 font-mono text-sm leading-relaxed">
-              <div className="text-gray-500 mb-1"># Install the CLI</div>
-              <div className="text-green-400 mb-4">$ cargo install soroban-registry-cli</div>
-              <div className="text-gray-500 mb-1"># Search for contracts</div>
-              <div className="text-green-400 mb-4">$ soroban-registry search token</div>
-              <div className="text-gray-500 mb-1"># Install a contract</div>
-              <div className="text-green-400">$ soroban-registry install my-token-contract</div>
+              <div className="text-deep-foreground/45 mb-1"># Install the CLI</div>
+              <div className="text-deep-foreground mb-4">$ cargo install soroban-registry-cli</div>
+              <div className="text-deep-foreground/45 mb-1"># Search for contracts</div>
+              <div className="text-deep-foreground mb-4">$ soroban-registry search token</div>
+              <div className="text-deep-foreground/45 mb-1"># Install a contract</div>
+              <div className="text-deep-foreground mb-4">$ soroban-registry install my-token-contract</div>
+              <div className="text-deep-foreground">
+                $<span className="terminal-cursor" aria-hidden="true" />
+              </div>
             </div>
           </div>
         </div>
       </section>
 
       {/* Community / CTA Section */}
-      <section className="border-t border-border bg-accent/50">
+      <section className="reveal border-t border-border bg-accent/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <div className="text-center mb-12">
-            <h2 className="text-3xl sm:text-4xl font-bold mb-4">
+            <h2 className="text-3xl sm:text-4xl font-semibold mb-4">
               Join the <span className="text-gradient">community</span>
             </h2>
             <p className="text-lg text-muted-foreground max-w-xl mx-auto">
@@ -394,7 +432,7 @@ export default function Home() {
               rel="noreferrer"
               className="gradient-border-card p-6 text-center card-hover group"
             >
-              <div className="w-14 h-14 rounded-2xl bg-card flex items-center justify-center mx-auto mb-4 border border-border group-hover:border-primary/50 transition-colors">
+              <div className="w-14 h-14 rounded-md bg-background flex items-center justify-center mx-auto mb-4 border border-border group-hover:border-primary/50 transition-colors">
                 <Github className="w-7 h-7 text-muted-foreground group-hover:text-primary transition-colors" />
               </div>
               <h3 className="font-semibold mb-1">GitHub</h3>
@@ -407,7 +445,7 @@ export default function Home() {
               rel="noreferrer"
               className="gradient-border-card p-6 text-center card-hover group"
             >
-              <div className="w-14 h-14 rounded-2xl bg-card flex items-center justify-center mx-auto mb-4 border border-border group-hover:border-primary/50 transition-colors">
+              <div className="w-14 h-14 rounded-md bg-background flex items-center justify-center mx-auto mb-4 border border-border group-hover:border-primary/50 transition-colors">
                 <MessageCircle className="w-7 h-7 text-muted-foreground group-hover:text-primary transition-colors" />
               </div>
               <h3 className="font-semibold mb-1">Discord</h3>
@@ -420,7 +458,7 @@ export default function Home() {
               rel="noreferrer"
               className="gradient-border-card p-6 text-center card-hover group"
             >
-              <div className="w-14 h-14 rounded-2xl bg-card flex items-center justify-center mx-auto mb-4 border border-border group-hover:border-primary/50 transition-colors">
+              <div className="w-14 h-14 rounded-md bg-background flex items-center justify-center mx-auto mb-4 border border-border group-hover:border-primary/50 transition-colors">
                 <BookOpen className="w-7 h-7 text-muted-foreground group-hover:text-primary transition-colors" />
               </div>
               <h3 className="font-semibold mb-1">Documentation</h3>

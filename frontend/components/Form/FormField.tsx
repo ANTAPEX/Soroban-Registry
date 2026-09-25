@@ -22,7 +22,7 @@ export default function FormField({ label, id, required, error, description, chi
 
       {description && <p className="text-xs text-muted-foreground mt-1">{description}</p>}
 
-      {error && <p role="alert" className="text-xs text-red-600 mt-1">{error}</p>}
+      {error && <p role="alert" className="text-xs text-danger mt-1">{error}</p>}
     </div>
   );
 }

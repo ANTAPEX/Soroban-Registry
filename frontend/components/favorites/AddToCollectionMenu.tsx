@@ -66,12 +66,14 @@ export default function AddToCollectionMenu({
           <FolderPlus className="h-3.5 w-3.5" />
         )}
         <span>
-          {memberOf.length > 0 ? `In ${memberOf.length}` : "Collect"}
+          {memberOf.length > 0
+            ? `In ${memberOf.length} collection${memberOf.length === 1 ? "" : "s"}`
+            : "Collect"}
         </span>
       </button>
 
       {open && (
-        <div className="absolute bottom-full mb-1 right-0 z-50 min-w-[160px] rounded-xl border border-border bg-card shadow-xl py-1">
+        <div className="absolute bottom-full mb-1 right-0 z-50 min-w-[160px] rounded-md border border-border bg-card shadow-lg py-1">
           {collections.map((col) => {
             const isMember = col.items.includes(contractId);
             return (

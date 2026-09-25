@@ -5,13 +5,13 @@ export type ButtonVariant = "default" | "outline" | "ghost" | "link";
 export type ButtonSize = "sm" | "default" | "lg" | "icon";
 
 const baseStyles =
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-semibold transition-all duration-200 disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 const variantStyles: Record<ButtonVariant, string> = {
   default:
-    "border-2 border-border-strong bg-primary text-primary-foreground hover:bg-border-strong hover:text-background",
+    "border border-primary bg-primary text-primary-foreground hover:border-primary-gradient-end hover:bg-primary-gradient-end",
   outline:
-    "border-2 border-border-strong bg-transparent text-foreground hover:bg-border-strong hover:text-background",
+    "border border-border-strong bg-transparent text-foreground hover:border-foreground hover:bg-accent",
   ghost: "text-foreground hover:bg-accent",
   link: "text-primary underline-offset-4 hover:underline",
 };
@@ -35,7 +35,7 @@ export interface ButtonVariantsOptions {
   className?: string;
 }
 
-/** Composable class-string builder for the Stellar-style pill button — pass
+/** Composable class-string builder for the squared ledger-style button — pass
  *  it to any element (Link, a, button) the way shadcn's `buttonVariants` is
  *  used with `asChild`. */
 export function buttonVariants({

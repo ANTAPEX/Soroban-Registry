@@ -19,7 +19,7 @@ export default function CompatibilityTestingPage() {
       <div className="min-h-screen bg-background text-foreground">
         <Navbar />
         <div className="max-w-4xl mx-auto px-4 py-10">
-          <div className="rounded-2xl border border-border bg-card p-6">
+          <div className="rounded-lg border border-border bg-card p-6">
             <div className="text-sm font-semibold text-foreground">
               Missing contract id
             </div>
@@ -29,7 +29,7 @@ export default function CompatibilityTestingPage() {
             <div className="mt-4">
               <Link
                 href="/contracts"
-                className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
                 Browse contracts
               </Link>
@@ -59,7 +59,7 @@ export default function CompatibilityTestingPage() {
             <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-secondary/10">
               <FlaskConical className="w-5 h-5 text-secondary" />
             </span>
-            <h1 className="text-2xl font-bold text-foreground">
+            <h1 className="text-2xl font-semibold text-foreground">
               SDK Compatibility Testing
             </h1>
           </div>
@@ -78,7 +78,7 @@ export default function CompatibilityTestingPage() {
         </div>
 
         {/* Content */}
-        <div className="bg-card rounded-2xl border border-border p-6">
+        <div className="bg-card rounded-lg border border-border p-6">
           <CompatibilityTestingMatrix contractId={contractId} />
         </div>
       </div>

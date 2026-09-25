@@ -121,6 +121,13 @@ export function getGridSizes(columnCount: number): string {
 }
 
 /**
+ * Fallback fill for image placeholders. A data-URL SVG cannot read the
+ * page's CSS variables, so this is a literal: a mid-tone neutral that
+ * sits quietly on both the light and dark themes.
+ */
+export const NEUTRAL_PLACEHOLDER_COLOR = "#6b7382";
+
+/**
  * Generates a low-quality image placeholder (LQIP) data URL
  * SVG color fallback used when blurhash is unavailable
  */

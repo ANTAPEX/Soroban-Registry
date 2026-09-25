@@ -15,6 +15,7 @@ export function useFormValidation<T extends Record<string, unknown>>(opts: {
   const [values, setValues] = useState<T>(initialValues);
   const [errors, setErrors] = useState<Errors<T>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const validatingRef = useRef<number | null>(null);
   const latestValidate = useRef(validate);
   useEffect(() => {
@@ -75,6 +76,7 @@ export function useFormValidation<T extends Record<string, unknown>>(opts: {
   const handleSubmit = useCallback(
     async (e?: React.FormEvent) => {
       if (e && typeof e.preventDefault === "function") e.preventDefault();
+      setSubmitAttempted(true);
       if (validate) {
         const next = await runValidation(values);
         setErrors(next);
@@ -87,10 +89,19 @@ export function useFormValidation<T extends Record<string, unknown>>(opts: {
     [onSubmit, runValidation, validate, values],
   );
 
+  // Validation runs continuously, but a field's error is only shown once
+  // the user has left that field or tried to submit, so an untouched form
+  // does not open covered in "required" messages.
+  const visibleErrors: Errors<T> = submitAttempted
+    ? errors
+    : (Object.fromEntries(
+        Object.entries(errors).filter(([name]) => touched[name]),
+      ) as Errors<T>);
+
   return {
     values,
     setValues,
-    errors,
+    errors: visibleErrors,
     setErrors,
     touched,
     handleChange,

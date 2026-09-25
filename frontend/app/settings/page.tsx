@@ -1,8 +1,9 @@
 'use client';
 
 import Navbar from '@/components/Navbar';
+import { useEffect, useState } from 'react';
 import { useTheme, Theme } from '@/hooks/useTheme';
-import { Sun, Moon, Monitor, Shield, Bell, User, Globe, Lock, Palette } from 'lucide-react';
+import { Sun, Moon, Monitor, Globe, Palette } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n/client';
 import { languages } from '@/lib/i18n/settings';
 
@@ -17,6 +18,24 @@ export default function SettingsPage() {
     const { theme, setTheme } = useTheme();
     const { i18n } = useTranslation('common');
     const currentLng = i18n.resolvedLanguage || 'en';
+    const [reducedMotion, setReducedMotion] = useState(false);
+
+    // The class is set before paint by the script in app/layout.tsx.
+    useEffect(() => {
+        setReducedMotion(document.documentElement.classList.contains('reduce-motion'));
+    }, []);
+
+    const toggleReducedMotion = () => {
+        const next = !reducedMotion;
+        setReducedMotion(next);
+        document.documentElement.classList.toggle('reduce-motion', next);
+        try {
+            if (next) localStorage.setItem('soroban-registry-reduced-motion', '1');
+            else localStorage.removeItem('soroban-registry-reduced-motion');
+        } catch {
+            // Storage may be unavailable; the setting still applies for this visit.
+        }
+    };
 
     const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [
         { value: 'light', label: 'Light', icon: Sun },
@@ -30,7 +49,7 @@ export default function SettingsPage() {
 
             <main className="max-w-4xl mx-auto px-4 py-12 sm:px-6 lg:px-8">
                 <div className="mb-10">
-                    <h1 className="text-3xl font-bold tracking-tight mb-2">Settings</h1>
+                    <h1 className="text-3xl font-semibold tracking-tight mb-2">Settings</h1>
                     <p className="text-muted-foreground text-lg">Manage your registry experience and preferences.</p>
                 </div>
 
@@ -38,31 +57,24 @@ export default function SettingsPage() {
                     {/* Sidebar Nav */}
                     <aside className="space-y-1">
                         {[
-                            { label: 'General', icon: Palette, active: true },
-                            { label: 'Account', icon: User },
-                            { label: 'Notifications', icon: Bell },
-                            { label: 'Privacy & Security', icon: Shield },
-                            { label: 'Language', icon: Globe },
-                            { label: 'API Keys', icon: Lock },
+                            { label: 'Appearance', icon: Palette, href: '#appearance' },
+                            { label: 'Language', icon: Globe, href: '#language' },
                         ].map((item) => (
-                            <button
+                            <a
                                 key={item.label}
-                                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                    item.active 
-                                        ? 'bg-primary/10 text-primary' 
-                                        : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                                }`}
+                                href={item.href}
+                                className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-accent"
                             >
                                 <item.icon className="w-4 h-4" />
                                 {item.label}
-                            </button>
+                            </a>
                         ))}
                     </aside>
 
                     {/* Content */}
                     <div className="space-y-8">
                         {/* Appearance Section */}
-                        <section className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+                        <section id="appearance" className="scroll-mt-24 bg-card border border-border rounded-lg overflow-hidden">
                             <div className="px-6 py-5 border-b border-border">
                                 <h2 className="text-lg font-semibold flex items-center gap-2">
                                     <Palette className="w-5 h-5 text-primary" />
@@ -73,13 +85,13 @@ export default function SettingsPage() {
 
                             <div className="p-6 space-y-6">
                                 <div>
-                                    <label className="text-sm font-medium mb-4 block">Color Theme</label>
+                                    <label className="text-sm font-medium mb-4 block">Color theme</label>
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                         {themeOptions.map((option) => (
                                             <button
                                                 key={option.value}
                                                 onClick={() => setTheme(option.value)}
-                                                className={`flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all group ${
+                                                className={`flex flex-col items-center gap-3 p-4 rounded-md border-2 transition-colors group ${
                                                     theme === option.value
                                                         ? 'border-primary bg-primary/5'
                                                         : 'border-border hover:border-primary/50 hover:bg-accent'
@@ -102,11 +114,22 @@ export default function SettingsPage() {
                                 <div className="pt-4 border-t border-border">
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <p className="font-medium">Reduced Motion</p>
-                                            <p className="text-sm text-muted-foreground">Minimize animations across the interface.</p>
+                                            <p id="reduced-motion-label" className="font-medium">Reduced motion</p>
+                                            <p id="reduced-motion-desc" className="text-sm text-muted-foreground">Turn off animations and transitions across the interface.</p>
                                         </div>
-                                        <button className="w-12 h-6 bg-muted rounded-full relative p-1 transition-colors hover:bg-muted/80">
-                                            <div className="w-4 h-4 bg-background rounded-full shadow-sm" />
+                                        <button
+                                            type="button"
+                                            role="switch"
+                                            aria-checked={reducedMotion}
+                                            aria-labelledby="reduced-motion-label"
+                                            aria-describedby="reduced-motion-desc"
+                                            onClick={toggleReducedMotion}
+                                            className={`w-12 h-6 shrink-0 rounded-full relative p-1 transition-colors ${reducedMotion ? 'bg-primary' : 'bg-muted-foreground/35 hover:bg-muted-foreground/50'}`}
+                                        >
+                                            <span
+                                                className={`block w-4 h-4 bg-background rounded-full shadow-sm transition-transform ${reducedMotion ? 'translate-x-6' : 'translate-x-0'}`}
+                                                aria-hidden="true"
+                                            />
                                         </button>
                                     </div>
                                 </div>
@@ -114,11 +137,11 @@ export default function SettingsPage() {
                         </section>
 
                         {/* Language Section */}
-                        <section className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+                        <section id="language" className="scroll-mt-24 bg-card border border-border rounded-lg overflow-hidden">
                             <div className="px-6 py-5 border-b border-border">
                                 <h2 className="text-lg font-semibold flex items-center gap-2">
                                     <Globe className="w-5 h-5 text-secondary" />
-                                    Language & Regional
+                                    Language and region
                                 </h2>
                             </div>
                             <div className="p-6">
@@ -137,11 +160,9 @@ export default function SettingsPage() {
                             </div>
                         </section>
 
-                        <div className="flex justify-end pt-4">
-                            <button className="px-6 py-2 rounded-xl bg-primary text-primary-foreground font-semibold btn-glow hover:brightness-110 transition-all">
-                                Save Changes
-                            </button>
-                        </div>
+                        <p className="pt-2 text-right text-sm text-muted-foreground">
+                            Changes apply and save as soon as you make them.
+                        </p>
                     </div>
                 </div>
             </main>

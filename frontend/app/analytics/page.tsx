@@ -7,6 +7,7 @@ import CategoryDistributionPie from "@/components/analytics/CategoryDistribution
 import DeploymentTrendGraph from "@/components/analytics/DeploymentTrendGraph";
 import NetworkUsageBarChart from "@/components/analytics/NetworkUsageBarChart";
 import TopContractsBarChart from "@/components/analytics/TopContractsBarChart";
+import { resolveCssColor, serializeSvgWithTheme } from "@/lib/chartPalette";
 import {
   AlertCircle,
   Download,
@@ -214,8 +215,7 @@ export default function AnalyticsDashboard() {
       const svg = container?.querySelector("svg");
       if (!container || !svg) return;
 
-      const serializer = new XMLSerializer();
-      const source = serializer.serializeToString(svg);
+      const source = serializeSvgWithTheme(svg);
       const image = new Image();
       const rect = container.getBoundingClientRect();
 
@@ -225,7 +225,7 @@ export default function AnalyticsDashboard() {
         canvas.height = Math.max(Math.round(rect.height), 320);
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = resolveCssColor("var(--card)");
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
         const anchor = document.createElement("a");
@@ -271,20 +271,20 @@ export default function AnalyticsDashboard() {
       <div className="min-h-screen bg-background flex flex-col">
         <Navbar />
         <div className="flex-1 flex items-center justify-center p-4">
-          <div className="bg-card p-8 rounded-2xl shadow-lg border border-red-500/20 max-w-md w-full text-center">
-            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-foreground mb-2">
-              Failed to load analytics
+          <div className="bg-card p-8 rounded-lg border border-danger/30 max-w-md w-full text-center">
+            <AlertCircle className="w-12 h-12 text-danger mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-foreground mb-2">
+              We couldn’t load analytics
             </h2>
             <p className="text-sm text-muted-foreground mb-6">
-              There was an issue connecting to the analytics service. Please
-              check your connection and try again.
+              The analytics service didn’t respond. Check your connection,
+              then try again.
             </p>
             <button
               onClick={() => fetchData()}
-              className="w-full py-2.5 bg-primary hover:opacity-90 text-primary-foreground rounded-lg inline-flex items-center justify-center transition-colors font-medium"
+              className="w-full py-2.5 bg-primary hover:opacity-90 text-primary-foreground rounded-md inline-flex items-center justify-center transition-colors font-medium"
             >
-              <RefreshCw className="w-4 h-4 mr-2" /> Try Again
+              <RefreshCw className="w-4 h-4 mr-2" /> Try again
             </button>
           </div>
         </div>
@@ -300,12 +300,12 @@ export default function AnalyticsDashboard() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Activity className="w-5 h-5 text-primary" />
-              <span className="text-xs font-bold text-primary uppercase tracking-wider">
-                Live Metrics
+              <span className="eyebrow text-primary">
+                Live metrics
               </span>
             </div>
-            <h1 className="text-4xl font-black text-foreground tracking-tight">
-              Ecosystem Insights
+            <h1 className="text-4xl font-semibold text-foreground tracking-[-0.03em]">
+              Ecosystem insights
             </h1>
             <p className="text-muted-foreground mt-1.5 text-sm">
               Monitoring interaction trends, contract leaders, and category mix
@@ -316,14 +316,14 @@ export default function AnalyticsDashboard() {
             <button
               onClick={exportDatasetAsCsv}
               disabled={!data || refreshing}
-              className="px-3 py-2 border border-border rounded-lg bg-card hover:bg-muted transition-colors text-sm inline-flex items-center gap-2 disabled:opacity-50"
+              className="px-3 py-2 border border-border rounded-md bg-card hover:bg-muted transition-colors text-sm inline-flex items-center gap-2 disabled:opacity-50"
             >
               <Download className="w-4 h-4" /> CSV
             </button>
             <button
               onClick={exportDatasetAsJson}
               disabled={!data || refreshing}
-              className="px-3 py-2 border border-border rounded-lg bg-card hover:bg-muted transition-colors text-sm inline-flex items-center gap-2 disabled:opacity-50"
+              className="px-3 py-2 border border-border rounded-md bg-card hover:bg-muted transition-colors text-sm inline-flex items-center gap-2 disabled:opacity-50"
             >
               <Download className="w-4 h-4" /> JSON
             </button>
@@ -336,7 +336,9 @@ export default function AnalyticsDashboard() {
             <button
               onClick={() => fetchData()}
               disabled={refreshing}
-              className="p-2 border border-border rounded-lg bg-card hover:bg-muted transition-colors"
+              aria-label="Refresh analytics"
+              title="Refresh analytics"
+              className="p-2 border border-border rounded-md bg-card hover:bg-muted transition-colors"
             >
               <RefreshCw
                 className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`}
@@ -345,19 +347,20 @@ export default function AnalyticsDashboard() {
           </div>
         </header>
 
-        <section className="bg-card border border-border rounded-2xl p-4 sm:p-5">
+        <section className="bg-card border border-border rounded-lg p-4 sm:p-5">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
             <div className="lg:col-span-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5 block">
-                Time Range
-              </label>
-              <div className="flex flex-wrap gap-2">
+              <p id="analytics-timeframe" className="eyebrow mb-1.5 block">
+                Time range
+              </p>
+              <div className="flex flex-wrap gap-2" role="group" aria-labelledby="analytics-timeframe">
                 {(["7d", "30d", "90d", "custom"] as Timeframe[]).map(
                   (value) => (
                     <button
                       key={value}
                       onClick={() => setTimeframe(value)}
-                      className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+                      aria-pressed={timeframe === value}
+                      className={`px-3 py-1.5 rounded-md text-sm font-mono border transition-colors ${
                         timeframe === value
                           ? "bg-primary text-primary-foreground border-primary"
                           : "bg-background border-border hover:bg-muted"
@@ -371,15 +374,16 @@ export default function AnalyticsDashboard() {
             </div>
 
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5 block">
+              <label htmlFor="analytics-network" className="eyebrow mb-1.5 block">
                 Network
               </label>
               <select
+                id="analytics-network"
                 value={network}
                 onChange={(e) => setNetwork(e.target.value)}
-                className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
               >
-                <option value="all">All Networks</option>
+                <option value="all">All networks</option>
                 <option value="mainnet">Mainnet</option>
                 <option value="testnet">Testnet</option>
                 <option value="futurenet">Futurenet</option>
@@ -387,15 +391,16 @@ export default function AnalyticsDashboard() {
             </div>
 
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5 block">
+              <label htmlFor="analytics-category" className="eyebrow mb-1.5 block">
                 Category
               </label>
               <select
+                id="analytics-category"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
               >
-                <option value="all">All Categories</option>
+                <option value="all">All categories</option>
                 {knownCategories.map((value) => (
                   <option key={value} value={value}>
                     {value}
@@ -405,15 +410,16 @@ export default function AnalyticsDashboard() {
             </div>
 
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5 block">
+              <label htmlFor="analytics-verification" className="eyebrow mb-1.5 block">
                 Verification
               </label>
               <select
+                id="analytics-verification"
                 value={verification}
                 onChange={(e) =>
                   setVerification(e.target.value as VerificationFilter)
                 }
-                className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
               >
                 <option value="all">All</option>
                 <option value="verified">Verified</option>
@@ -421,10 +427,10 @@ export default function AnalyticsDashboard() {
               </select>
             </div>
 
-            <div className="lg:col-span-1 flex items.end">
+            <div className="lg:col-span-1 flex items-end">
               <button
                 onClick={() => fetchData()}
-                className="w-full h-9 rounded-lg border border-border bg-background hover:bg-muted text-sm transition-colors inline-flex items-center justify-center gap-2"
+                className="w-full h-9 rounded-md border border-border bg-background hover:bg-muted text-sm transition-colors inline-flex items-center justify-center gap-2"
               >
                 <CalendarRange className="w-4 h-4" /> Apply
               </button>
@@ -434,25 +440,27 @@ export default function AnalyticsDashboard() {
           {timeframe === "custom" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
               <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5 block">
-                  Custom Start
+                <label htmlFor="analytics-start" className="eyebrow mb-1.5 block">
+                  Custom start
                 </label>
                 <input
+                  id="analytics-start"
                   type="date"
                   value={customStartDate}
                   onChange={(e) => setCustomStartDate(e.target.value)}
-                  className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                  className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5 block">
-                  Custom End
+                <label htmlFor="analytics-end" className="eyebrow mb-1.5 block">
+                  Custom end
                 </label>
                 <input
+                  id="analytics-end"
                   type="date"
                   value={customEndDate}
                   onChange={(e) => setCustomEndDate(e.target.value)}
-                  className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                  className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
                 />
               </div>
             </div>
@@ -466,27 +474,27 @@ export default function AnalyticsDashboard() {
 
         {/* Top Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1">
-              Total Contracts
+          <div className="bg-card border border-border rounded-lg p-6">
+            <p className="eyebrow mb-1">
+              Total contracts
             </p>
-            <p className="text-3xl font-black text-foreground">
+            <p className="text-3xl font-semibold font-mono tabular-nums text-foreground">
               {data?.total_contracts?.toLocaleString() || 0}
             </p>
           </div>
-          <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1">
-              Active Deployments
+          <div className="bg-card border border-border rounded-lg p-6">
+            <p className="eyebrow mb-1">
+              Active deployments
             </p>
-            <p className="text-3xl font-black text-foreground">
+            <p className="text-3xl font-semibold font-mono tabular-nums text-foreground">
               {data?.active_deployments?.toLocaleString() || 0}
             </p>
           </div>
-          <div className="bg-card border border-border rounded-2xl p-6 shadow-sm bg-gradient-to-br from-card to-primary/5">
-            <p className="text-xs font-bold text-primary uppercase tracking-widest mb-1">
-              This Month Interactions
+          <div className="bg-card border border-primary/40 rounded-lg p-6">
+            <p className="eyebrow text-primary mb-1">
+              Interactions this month
             </p>
-            <p className="text-3xl font-black text-foreground">
+            <p className="text-3xl font-semibold font-mono tabular-nums text-foreground">
               {data?.this_month_interactions?.toLocaleString() || 0}
             </p>
           </div>
@@ -494,11 +502,11 @@ export default function AnalyticsDashboard() {
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
           <div className="xl:col-span-2 space-y-8">
-            <section className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden p-5 sm:p-6">
+            <section className="bg-card border border-border rounded-lg overflow-hidden p-5 sm:p-6">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div className="flex items-center gap-2">
                   <Clock className="w-5 h-5 text-primary" />
-                  <h3 className="font-bold text-lg">Interaction Trends</h3>
+                  <h3 className="font-semibold text-lg">Interaction trends</h3>
                 </div>
                 <button
                   onClick={() =>
@@ -523,12 +531,12 @@ export default function AnalyticsDashboard() {
               </div>
             </section>
 
-            <section className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden p-5 sm:p-6">
+            <section className="bg-card border border-border rounded-lg overflow-hidden p-5 sm:p-6">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div className="flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5 text-blue-500" />
-                  <h3 className="font-bold text-lg">
-                    Top Contracts by Interactions
+                  <BarChart3 className="w-5 h-5 text-primary" />
+                  <h3 className="font-semibold text-lg">
+                    Top contracts by interactions
                   </h3>
                 </div>
                 <button
@@ -550,11 +558,11 @@ export default function AnalyticsDashboard() {
           </div>
 
           <div className="space-y-8">
-            <section className="bg-card border border-border rounded-2xl shadow-sm p-5 sm:p-6">
+            <section className="bg-card border border-border rounded-lg p-5 sm:p-6">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div className="flex items-center gap-2">
-                  <PieChart className="w-5 h-5 text-pink-500" />
-                  <h3 className="font-bold">Categories</h3>
+                  <PieChart className="w-5 h-5 text-primary" />
+                  <h3 className="font-semibold">Categories</h3>
                 </div>
                 <button
                   onClick={() =>
@@ -575,11 +583,11 @@ export default function AnalyticsDashboard() {
               </div>
             </section>
 
-            <section className="bg-card border border-border rounded-2xl shadow-sm p-5 sm:p-6">
+            <section className="bg-card border border-border rounded-lg p-5 sm:p-6">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div className="flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5 text-cyan-500" />
-                  <h3 className="font-bold">Network Usage</h3>
+                  <BarChart3 className="w-5 h-5 text-primary" />
+                  <h3 className="font-semibold">Network usage</h3>
                 </div>
                 <button
                   onClick={() =>

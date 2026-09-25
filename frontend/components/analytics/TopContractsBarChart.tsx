@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { CHART_SERIES } from "@/lib/chartPalette";
 
 interface TopContractPoint {
   id: string;
@@ -16,15 +17,7 @@ interface TopContractPoint {
   interaction_count: number;
 }
 
-const COLORS = [
-  "#0ea5e9",
-  "#22c55e",
-  "#f59e0b",
-  "#f97316",
-  "#14b8a6",
-  "#06b6d4",
-  "#84cc16",
-];
+const COLORS = CHART_SERIES;
 
 export default function TopContractsBarChart({
   data,
@@ -58,7 +51,7 @@ export default function TopContractsBarChart({
           <CartesianGrid
             strokeDasharray="3 3"
             vertical={false}
-            stroke="hsl(var(--border))"
+            stroke="var(--border)"
           />
           <XAxis
             dataKey="shortName"
@@ -66,20 +59,20 @@ export default function TopContractsBarChart({
             angle={-25}
             textAnchor="end"
             height={56}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
             tickLine={false}
             axisLine={false}
           />
           <YAxis
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+            tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
             tickLine={false}
             axisLine={false}
           />
           <Tooltip
-            cursor={{ fill: "hsl(var(--muted))", opacity: 0.35 }}
+            cursor={{ fill: "var(--muted)", opacity: 0.35 }}
             contentStyle={{
-              backgroundColor: "hsl(var(--card))",
-              borderColor: "hsl(var(--border))",
+              backgroundColor: "var(--card)",
+              borderColor: "var(--border)",
               borderRadius: "0.5rem",
             }}
             formatter={(value, _name, payload) => {

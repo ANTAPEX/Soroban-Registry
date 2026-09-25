@@ -1,16 +1,19 @@
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
+import { CHART_SERIES, foldIntoOther } from '@/lib/chartPalette';
 
 interface CategoryCount {
   category: string;
   count: number;
 }
 
-const COLORS = ['#6366f1', '#ec4899', '#8b5cf6', '#14b8a6', '#f59e0b', '#3b82f6', '#10b981'];
+const COLORS = CHART_SERIES;
 
-export default function CategoryDistributionPie({ data }: { data: CategoryCount[] }) {
-  if (!data || data.length === 0) {
+export default function CategoryDistributionPie({ data: rawData }: { data: CategoryCount[] }) {
+  if (!rawData || rawData.length === 0) {
     return <div className="h-full flex items-center justify-center text-muted-foreground text-sm">No category data available</div>;
   }
+
+  const data = foldIntoOther(rawData);
 
   return (
     <div className="h-[250px] w-full">
@@ -31,8 +34,8 @@ export default function CategoryDistributionPie({ data }: { data: CategoryCount[
             ))}
           </Pie>
           <Tooltip 
-            contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '0.5rem' }}
-            itemStyle={{ color: 'hsl(var(--foreground))' }}
+            contentStyle={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', borderRadius: '0.5rem' }}
+            itemStyle={{ color: 'var(--foreground)' }}
             formatter={(value) => [typeof value === 'number' ? value : (value ?? 0), 'Contracts']}
           />
         </PieChart>

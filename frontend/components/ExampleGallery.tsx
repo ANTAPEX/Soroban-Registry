@@ -6,6 +6,7 @@ import ExampleCardSkeleton from "./ExampleCardSkeleton";
 import { AlertCircle, Terminal, Search } from "lucide-react";
 import { useAnalytics } from "@/hooks/useAnalytics";
 import { useContractExamples } from "@/hooks/queries";
+import { ApiError } from "@/lib/errors";
 
 interface ExampleGalleryProps {
   contractId: string;
@@ -23,7 +24,7 @@ export default function ExampleGallery({ contractId }: ExampleGalleryProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    if (!error) return;
+    if (!error || (error instanceof ApiError && error.statusCode === 404)) return;
     logEvent("error_event", {
       source: "example_gallery",
       contract_id: contractId,
@@ -37,8 +38,8 @@ export default function ExampleGallery({ contractId }: ExampleGalleryProps) {
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h2 className="text-2xl font-bold text-foreground">
-                Usage Examples
+              <h2 className="text-2xl font-semibold text-foreground">
+                Usage examples
               </h2>
             </div>
           </div>
@@ -53,9 +54,12 @@ export default function ExampleGallery({ contractId }: ExampleGalleryProps) {
     );
   }
 
-  if (error) {
+  // A 404 means this contract has no examples, which is the empty state.
+  const notFound = error instanceof ApiError && error.statusCode === 404;
+
+  if (error && !notFound) {
     return (
-      <div className="p-4 bg-red-500/10 text-red-500 rounded-xl flex items-center gap-2">
+      <div className="p-4 bg-danger/10 text-danger rounded-lg flex items-center gap-2">
         <AlertCircle className="w-5 h-5" />
         Failed to load examples
       </div>
@@ -64,14 +68,14 @@ export default function ExampleGallery({ contractId }: ExampleGalleryProps) {
 
   if (!examples || examples.length === 0) {
     return (
-      <div className="text-center py-12 bg-accent rounded-xl border border-dashed border-border">
+      <div className="text-center py-12 bg-card rounded-lg border border-dashed border-border">
         <Terminal className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
         <h3 className="text-lg font-medium text-foreground mb-2">
-          No Examples Yet
+          No examples yet
         </h3>
         <p className="text-muted-foreground max-w-sm mx-auto">
           There are no code examples for this contract yet. Be the first to
-          contribute one!
+          contribute one.
         </p>
       </div>
     );
@@ -94,8 +98,8 @@ export default function ExampleGallery({ contractId }: ExampleGalleryProps) {
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h2 className="text-2xl font-bold text-foreground">
-              Usage Examples
+            <h2 className="text-2xl font-semibold text-foreground">
+              Usage examples
             </h2>
             <span className="px-2 py-1 rounded-full bg-accent text-xs font-medium text-muted-foreground">
               {filteredExamples.length}
@@ -148,7 +152,7 @@ export default function ExampleGallery({ contractId }: ExampleGalleryProps) {
           ))
         ) : (
           // Empty state spans all columns so it stays centered
-          <div className="col-span-full text-center py-12 bg-accent rounded-xl">
+          <div className="col-span-full text-center py-12 bg-card rounded-lg border border-dashed border-border">
             <p className="text-muted-foreground">
               No examples found matching your criteria.
             </p>

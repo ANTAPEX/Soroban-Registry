@@ -384,7 +384,7 @@ async fn get_contract_analytics_inner(
 
     // ── Deployment stats (within requested range) ─────────────────────────────
     let deploy_total: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(count), 0)
+        "SELECT COALESCE(SUM(count), 0)::BIGINT
          FROM   contract_interaction_daily_aggregates
          WHERE  contract_id = $1
            AND  interaction_type = 'deploy'
@@ -474,7 +474,7 @@ async fn get_contract_analytics_inner(
 
     // ── Error rate ────────────────────────────────────────────────────────────
     let total_in_range: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(count), 0)
+        "SELECT COALESCE(SUM(count), 0)::BIGINT
          FROM   contract_interaction_daily_aggregates
          WHERE  contract_id = $1
            AND  day BETWEEN $2 AND $3",
@@ -487,7 +487,7 @@ async fn get_contract_analytics_inner(
     .map_err(|err| db_err("fetch total interactions", err))?;
 
     let failed_in_range: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(count), 0)
+        "SELECT COALESCE(SUM(count), 0)::BIGINT
          FROM   contract_interaction_daily_aggregates
          WHERE  contract_id = $1
            AND  interaction_type = 'publish_failed'
@@ -761,12 +761,12 @@ pub async fn get_analytics_summary(
         r#"
         SELECT
             p.id,
-            p.name,
+            COALESCE(p.username, p.stellar_address) AS name,
             COUNT(c.id)::BIGINT           AS contract_count,
             COALESCE(SUM(c.view_count), 0)::BIGINT AS total_views
         FROM publishers p
         LEFT JOIN contracts c ON c.publisher_id = p.id
-        GROUP BY p.id, p.name
+        GROUP BY p.id
         ORDER BY contract_count DESC
         LIMIT 10
         "#,
@@ -831,7 +831,7 @@ pub async fn get_analytics_summary(
             c.id,
             c.name,
             c.created_at,
-            p.name as publisher_name,
+            COALESCE(p.username, p.stellar_address) AS publisher_name,
             c.network::TEXT,
             c.category,
             c.contract_id
@@ -1410,24 +1410,23 @@ pub async fn get_analytics_dashboard(
     let trend_rows: Vec<(NaiveDate, i64)> = sqlx::query_as(
         r#"
         SELECT d::DATE AS date,
-                             COALESCE(t.count, 0)::BIGINT AS count
+               COALESCE(t.count, 0)::BIGINT AS count
         FROM   generate_series(
-                                     $1::DATE,
-                                     $2::DATE,
+                   $1::DATE,
+                   $2::DATE,
                    '1 day'::INTERVAL
                ) d
-                LEFT JOIN (
-                    SELECT agg.day, SUM(agg.count)::BIGINT AS count
-                    FROM contract_interaction_daily_aggregates agg
-                    JOIN contracts c ON c.id = agg.contract_id
-                    WHERE agg.day BETWEEN $1 AND $2
-                        AND agg.interaction_type = 'deploy'
-                        AND ($3::network_type IS NULL OR c.network = $3)
-                        AND ($4::TEXT IS NULL OR c.category = $4)
-                        AND ($5::BOOL IS NULL OR c.is_verified = $5)
-                    GROUP BY agg.day
-                ) t ON t.day = d::DATE
-        GROUP  BY d::DATE
+        LEFT JOIN (
+          SELECT agg.day, SUM(agg.count)::BIGINT AS count
+          FROM contract_interaction_daily_aggregates agg
+          JOIN contracts c ON c.id = agg.contract_id
+          WHERE agg.day BETWEEN $1 AND $2
+            AND agg.interaction_type = 'deploy'
+            AND ($3::network_type IS NULL OR c.network = $3)
+            AND ($4::TEXT IS NULL OR c.category = $4)
+            AND ($5::BOOL IS NULL OR c.is_verified = $5)
+          GROUP BY agg.day
+        ) t ON t.day = d::DATE
         ORDER  BY d::DATE
         "#,
     )
@@ -1464,7 +1463,6 @@ pub async fn get_analytics_dashboard(
             AND ($5::BOOL IS NULL OR c.is_verified = $5)
           GROUP BY agg.day
         ) t ON t.day = d::DATE
-        GROUP  BY d::DATE
         ORDER  BY d::DATE
         "#,
     )

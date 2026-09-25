@@ -3,56 +3,85 @@
 /* Enable class-based dark mode for Tailwind 4 */
 @variant dark (&:where(.dark, .dark *));
 
-/* ── Stellar editorial design system ──────────────────────────── */
-/* Black/white base with a signature warm-yellow accent, bold
-   geometric display type over a clean grotesque body face —
-   modeled on Stellar.org's public brand language. */
+/* ── Ledger design system ─────────────────────────────────────── */
+/* Dark-first. A blue-black base with warm paper-white ink, one amber
+   signal accent, sage for success and brick for danger. Space Grotesk
+   for display and UI, JetBrains Mono for addresses, versions, labels
+   and numbers. Light mode is a warm paper variant of the same system.
+   Chart series colours live here too (--chart-1..6) so SVG charts and
+   the dependency graph follow the theme; read them via lib/chartPalette. */
 
 :root {
-  --background: #ffffff;
-  --foreground: #0a0a0a;
-  --primary: #7a5f14;
+  --background: #f6f2eb;
+  --foreground: #121826;
+  --primary: #95550c;
   --primary-foreground: #ffffff;
-  --primary-gradient-end: #5c4710;
-  --secondary: #0a0a0a;
-  --secondary-foreground: #ffffff;
-  --accent: #fdf6e3;
-  --accent-foreground: #0a0a0a;
-  --muted: #f4f4f2;
-  --muted-foreground: #63635e;
-  --border: #e4e4e0;
-  --border-strong: #0a0a0a;
-  --input: #f4f4f2;
-  --ring: #7a5f14;
-  --radius: 0.625rem;
-  --card: #ffffff;
-  --card-foreground: #0a0a0a;
-  --surface: #ffffff;
-  --glow-primary: rgba(122, 95, 20, 0.35);
-  --glow-secondary: rgba(10, 10, 10, 0.1);
+  --primary-gradient-end: #bd6c14;
+  --secondary: #121826;
+  --secondary-foreground: #f6f2eb;
+  --accent: #ece5d8;
+  --accent-foreground: #121826;
+  --muted: #eee8de;
+  --muted-foreground: #545b66;
+  --border: #ddd5c7;
+  --border-strong: #121826;
+  --input: #fbf9f5;
+  --ring: #bd6c14;
+  --radius: 0.5rem;
+  --card: #fbf9f5;
+  --card-foreground: #121826;
+  --surface: #fbf9f5;
+  --deep: #121826;
+  --deep-foreground: #f3efe8;
+  --success: #2f7f5e;
+  --danger: #b83b2b;
+  --glow-primary: rgba(189, 108, 20, 0.22);
+  --glow-secondary: rgba(18, 24, 38, 0.08);
+
+  --chart-1: #bd6c14;
+  --chart-2: #2f7f5e;
+  --chart-3: #3d6a9e;
+  --chart-4: #8a5a7c;
+  --chart-5: #b83b2b;
+  --chart-6: #6b7382;
+  --chart-grid: #ddd5c7;
+  --chart-axis: #6b7382;
 }
 
 .dark {
-  --background: #0a0a0a;
-  --foreground: #f5f5f0;
-  --primary: #f7c948;
-  --primary-foreground: #0a0a0a;
-  --primary-gradient-end: #ffe08a;
-  --secondary: #f5f5f0;
-  --secondary-foreground: #0a0a0a;
-  --accent: #17170f;
-  --accent-foreground: #f5f5f0;
-  --muted: #151513;
-  --muted-foreground: #a3a39c;
-  --border: #2a2a26;
-  --border-strong: #f5f5f0;
-  --input: #17170f;
-  --ring: #f7c948;
-  --card: #121210;
-  --card-foreground: #f5f5f0;
-  --surface: #121210;
-  --glow-primary: rgba(247, 201, 72, 0.2);
-  --glow-secondary: rgba(245, 245, 240, 0.08);
+  --background: #0e131c;
+  --foreground: #f3efe8;
+  --primary: #f0a93b;
+  --primary-foreground: #0e131c;
+  --primary-gradient-end: #fbc25a;
+  --secondary: #f3efe8;
+  --secondary-foreground: #0e131c;
+  --accent: #1a212d;
+  --accent-foreground: #f3efe8;
+  --muted: #161c27;
+  --muted-foreground: #9a968f;
+  --border: #262e3b;
+  --border-strong: #5a6372;
+  --input: #161c27;
+  --ring: #f0a93b;
+  --card: #141a24;
+  --card-foreground: #f3efe8;
+  --surface: #141a24;
+  --deep: #080b11;
+  --deep-foreground: #f3efe8;
+  --success: #57b48a;
+  --danger: #e46a57;
+  --glow-primary: rgba(240, 169, 59, 0.18);
+  --glow-secondary: rgba(243, 239, 232, 0.06);
+
+  --chart-1: #f0a93b;
+  --chart-2: #57b48a;
+  --chart-3: #6f9fd8;
+  --chart-4: #c49ab8;
+  --chart-5: #e46a57;
+  --chart-6: #8b93a1;
+  --chart-grid: #262e3b;
+  --chart-axis: #8b93a1;
 }
 
 @theme inline {
@@ -74,9 +103,146 @@
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-surface: var(--surface);
+  --color-deep: var(--deep);
+  --color-deep-foreground: var(--deep-foreground);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
 
-  --font-sans: var(--font-inter);
-  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-grotesk);
+  --font-display: var(--font-grotesk);
+  --font-mono: var(--font-jetbrains);
+}
+
+/* ── Palette remap ────────────────────────────────────────────
+   Many components still use raw Tailwind palette classes
+   (text-gray-500, bg-green-100, ...). Rather than touch hundreds of
+   call sites, the scales themselves are redefined to match this
+   system: neutrals become the blue-grey of the base, green/emerald
+   become sage, red becomes brick, and amber/yellow/indigo become the
+   amber accent. Blue, purple and the rest keep Tailwind's values
+   because they carry meaning (testnet, futurenet). New code should
+   use the semantic tokens above, not these scales. */
+
+@theme {
+  --color-gray-50: #f4f5f7;
+  --color-gray-100: #e8eaee;
+  --color-gray-200: #d3d7de;
+  --color-gray-300: #b2b8c3;
+  --color-gray-400: #8b93a1;
+  --color-gray-500: #6b7382;
+  --color-gray-600: #535a67;
+  --color-gray-700: #3d4450;
+  --color-gray-800: #262e3b;
+  --color-gray-900: #161c27;
+  --color-gray-950: #0e131c;
+
+  --color-slate-50: #f4f5f7;
+  --color-slate-100: #e8eaee;
+  --color-slate-200: #d3d7de;
+  --color-slate-300: #b2b8c3;
+  --color-slate-400: #8b93a1;
+  --color-slate-500: #6b7382;
+  --color-slate-600: #535a67;
+  --color-slate-700: #3d4450;
+  --color-slate-800: #262e3b;
+  --color-slate-900: #161c27;
+  --color-slate-950: #0e131c;
+
+  --color-zinc-50: #f4f5f7;
+  --color-zinc-100: #e8eaee;
+  --color-zinc-200: #d3d7de;
+  --color-zinc-300: #b2b8c3;
+  --color-zinc-400: #8b93a1;
+  --color-zinc-500: #6b7382;
+  --color-zinc-600: #535a67;
+  --color-zinc-700: #3d4450;
+  --color-zinc-800: #262e3b;
+  --color-zinc-900: #161c27;
+  --color-zinc-950: #0e131c;
+
+  --color-neutral-50: #f4f5f7;
+  --color-neutral-100: #e8eaee;
+  --color-neutral-200: #d3d7de;
+  --color-neutral-300: #b2b8c3;
+  --color-neutral-400: #8b93a1;
+  --color-neutral-500: #6b7382;
+  --color-neutral-600: #535a67;
+  --color-neutral-700: #3d4450;
+  --color-neutral-800: #262e3b;
+  --color-neutral-900: #161c27;
+  --color-neutral-950: #0e131c;
+
+  --color-green-50: #eef8f3;
+  --color-green-100: #d5efe2;
+  --color-green-200: #aee0c8;
+  --color-green-300: #7fcaa8;
+  --color-green-400: #57b48a;
+  --color-green-500: #3f9c74;
+  --color-green-600: #2f7f5e;
+  --color-green-700: #27654c;
+  --color-green-800: #20503d;
+  --color-green-900: #1a4133;
+  --color-green-950: #0d241c;
+
+  --color-emerald-50: #eef8f3;
+  --color-emerald-100: #d5efe2;
+  --color-emerald-200: #aee0c8;
+  --color-emerald-300: #7fcaa8;
+  --color-emerald-400: #57b48a;
+  --color-emerald-500: #3f9c74;
+  --color-emerald-600: #2f7f5e;
+  --color-emerald-700: #27654c;
+  --color-emerald-800: #20503d;
+  --color-emerald-900: #1a4133;
+  --color-emerald-950: #0d241c;
+
+  --color-red-50: #fdf1ef;
+  --color-red-100: #fadcd7;
+  --color-red-200: #f5bab0;
+  --color-red-300: #ee9181;
+  --color-red-400: #e46a57;
+  --color-red-500: #d44d3a;
+  --color-red-600: #b83b2b;
+  --color-red-700: #962f23;
+  --color-red-800: #7a2920;
+  --color-red-900: #64251e;
+  --color-red-950: #36100c;
+
+  --color-amber-50: #fff8eb;
+  --color-amber-100: #feecc7;
+  --color-amber-200: #fdd88a;
+  --color-amber-300: #fbc25a;
+  --color-amber-400: #f0a93b;
+  --color-amber-500: #dd8c1f;
+  --color-amber-600: #bd6c14;
+  --color-amber-700: #95550c;
+  --color-amber-800: #7a4511;
+  --color-amber-900: #653a12;
+  --color-amber-950: #3a1e05;
+
+  --color-yellow-50: #fff8eb;
+  --color-yellow-100: #feecc7;
+  --color-yellow-200: #fdd88a;
+  --color-yellow-300: #fbc25a;
+  --color-yellow-400: #f0a93b;
+  --color-yellow-500: #dd8c1f;
+  --color-yellow-600: #bd6c14;
+  --color-yellow-700: #95550c;
+  --color-yellow-800: #7a4511;
+  --color-yellow-900: #653a12;
+  --color-yellow-950: #3a1e05;
+
+  --color-indigo-50: #fff8eb;
+  --color-indigo-100: #feecc7;
+  --color-indigo-200: #fdd88a;
+  --color-indigo-300: #fbc25a;
+  --color-indigo-400: #f0a93b;
+  --color-indigo-500: #dd8c1f;
+  --color-indigo-600: #bd6c14;
+  --color-indigo-700: #95550c;
+  --color-indigo-800: #7a4511;
+  --color-indigo-900: #653a12;
+  --color-indigo-950: #3a1e05;
 }
 
 /* Wrapped in @layer base so Tailwind's generated utilities (which live in
@@ -97,8 +263,8 @@
     background-color: var(--background);
     color: var(--foreground);
     font-family:
-      var(--font-inter),
-      "Inter",
+      var(--font-grotesk),
+      "Space Grotesk",
       ui-sans-serif,
       system-ui,
       -apple-system,
@@ -107,7 +273,6 @@
       Roboto,
       "Helvetica Neue",
       Arial,
-      "Noto Sans",
       sans-serif;
     transition:
       background-color 0.3s ease,
@@ -115,22 +280,38 @@
       border-color 0.3s ease;
   }
 
-  /* Editorial serif display face for headings, sitewide — matches
-     Stellar's own serif/sans pairing (serif headlines over a clean
-     grotesque for everything else) without touching every component
-     that renders an <h1>-<h4>. Reference the next/font variable
-     directly rather than through the @theme inline alias. */
+  /* Display type is the same grotesque as the body, set tighter and
+     heavier; reference the next/font variable directly rather than
+     through the @theme inline alias. */
   h1,
   h2,
   h3,
   h4 {
     font-family:
-      var(--font-fraunces),
-      Georgia,
-      "Times New Roman",
-      serif;
+      var(--font-grotesk),
+      "Space Grotesk",
+      ui-sans-serif,
+      system-ui,
+      sans-serif;
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.03em;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family:
+      var(--font-jetbrains),
+      "JetBrains Mono",
+      ui-monospace,
+      SFMono-Regular,
+      monospace;
+  }
+
+  ::selection {
+    background: var(--primary);
+    color: var(--primary-foreground);
   }
 }
 
@@ -149,31 +330,8 @@
   background-size: 24px 24px;
 }
 
-/* ── Hero dot field — warm gold dot pattern fading in behind the
-   headline, matching Stellar's hero background treatment ─────────── */
-
-.hero-dot-field {
-  position: relative;
-}
-
-.hero-dot-field::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image: radial-gradient(circle, var(--primary) 1.5px, transparent 1.5px);
-  background-size: 26px 26px;
-  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 35%, black 30%, transparent 75%);
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 35%, black 30%, transparent 75%);
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-.dark .hero-dot-field::before {
-  opacity: 0.35;
-}
-
 .hero-gradient {
-  background: #0a0a0a;
+  background: var(--background);
   position: relative;
   overflow: hidden;
 }
@@ -183,16 +341,8 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(
-      ellipse 80% 50% at 20% 40%,
-      rgba(247, 201, 72, 0.16) 0%,
-      transparent 70%
-    ),
-    radial-gradient(
-      ellipse 60% 40% at 80% 60%,
-      rgba(245, 245, 240, 0.06) 0%,
-      transparent 70%
-    );
+    radial-gradient(ellipse 80% 50% at 20% 40%, var(--glow-primary) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 40% at 80% 60%, var(--glow-secondary) 0%, transparent 70%);
   animation: aurora-shift 12s ease-in-out infinite alternate;
   pointer-events: none;
 }
@@ -212,22 +362,34 @@
   }
 }
 
-:root:not(.dark) .hero-gradient {
-  background: #ffffff;
+/* ── Ledger grid — hairline grid that fades out from the top ─── */
+
+.ledger-grid {
+  position: relative;
 }
 
-:root:not(.dark) .hero-gradient::before {
-  background:
-    radial-gradient(
-      ellipse 80% 50% at 20% 40%,
-      rgba(247, 201, 72, 0.18) 0%,
-      transparent 70%
-    ),
-    radial-gradient(
-      ellipse 60% 40% at 80% 60%,
-      rgba(10, 10, 10, 0.03) 0%,
-      transparent 70%
-    );
+.ledger-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, black 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, black 20%, transparent 75%);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* ── Eyebrow label — mono, uppercase, tracked ─────────────── */
+
+.eyebrow {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
 }
 
 /* ── Glassmorphism ────────────────────────────────────────────── */
@@ -305,10 +467,11 @@
 
 /* ── Fade-in-up animation ─────────────────────────────────────── */
 
+/* Long ease-out-expo curve: fast start, soft landing. */
 @keyframes fade-in-up {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(24px);
   }
   to {
     opacity: 1;
@@ -317,22 +480,116 @@
 }
 
 .animate-fade-in-up {
-  animation: fade-in-up 0.6s ease-out forwards;
+  animation: fade-in-up 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .animate-fade-in-up-delay-1 {
-  animation: fade-in-up 0.6s ease-out 0.1s forwards;
+  animation: fade-in-up 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.08s forwards;
   opacity: 0;
 }
 
 .animate-fade-in-up-delay-2 {
-  animation: fade-in-up 0.6s ease-out 0.2s forwards;
+  animation: fade-in-up 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.16s forwards;
   opacity: 0;
 }
 
 .animate-fade-in-up-delay-3 {
-  animation: fade-in-up 0.6s ease-out 0.3s forwards;
+  animation: fade-in-up 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.24s forwards;
   opacity: 0;
+}
+
+/* ── Scroll reveal ────────────────────────────────────────────
+   Sections start hidden only once JS has marked the document
+   (html.reveal-ready), so content is never invisible without JS.
+   useReveal adds .is-revealed when the element enters the viewport. */
+
+.reveal-ready .reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reveal-ready .reveal.is-revealed {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Marquee ticker ───────────────────────────────────────────
+   The track holds the item list twice; shifting by -50% lands
+   exactly on the start of the copy, so the loop has no seam. */
+
+@keyframes marquee-x {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.marquee {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent);
+  mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent);
+}
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee-x 40s linear infinite;
+}
+
+.marquee:hover .marquee-track,
+.marquee:focus-within .marquee-track {
+  animation-play-state: paused;
+}
+
+/* ── Sweep — a thin gold beam crossing the top edge of a surface ── */
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(400%);
+  }
+}
+
+.sweep-line {
+  position: relative;
+  overflow: hidden;
+}
+
+.sweep-line::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 25%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  animation: sweep 6s linear infinite;
+  pointer-events: none;
+}
+
+/* ── Terminal cursor ──────────────────────────────────────── */
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.terminal-cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.1em;
+  margin-left: 0.25em;
+  vertical-align: text-bottom;
+  background: currentColor;
+  animation: blink 1.1s step-end infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -344,6 +601,44 @@
     opacity: 1;
     transform: none;
   }
+
+  .reveal-ready .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .hero-gradient::before,
+  .marquee-track,
+  .sweep-line::before,
+  .terminal-cursor {
+    animation: none;
+  }
+
+  .sweep-line::before {
+    display: none;
+  }
+}
+
+/* The in-app "Reduced motion" setting (html.reduce-motion) goes further
+   than the OS media query above: it stops every animation and transition,
+   including the skeleton pulse and the global colour transition. */
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+.reduce-motion.reveal-ready .reveal {
+  opacity: 1;
+  transform: none;
+}
+
+.reduce-motion .sweep-line::before {
+  display: none;
 }
 
 /* ── Skeleton loading animation ───────────────────────────────── */
@@ -381,7 +676,7 @@
     0 8px 30px -8px var(--glow-primary);
 }
 
-/* ── Stellar button glow ──────────────────────────────────────── */
+/* ── Button glow ──────────────────────────────────────── */
 
 .btn-glow {
   position: relative;

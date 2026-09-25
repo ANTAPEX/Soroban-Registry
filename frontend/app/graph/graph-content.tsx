@@ -3,6 +3,7 @@
 import { api, GraphNode, GraphEdge } from '@/lib/api';
 import DependencyGraph from '@/components/DependencyGraph';
 import GraphControls from '@/components/GraphControls';
+import { GRAPH_COLORS, NETWORK_COLORS } from '@/lib/chartPalette';
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { AlertCircle, Sparkles, ExternalLink, X } from 'lucide-react';
 import { useAnalytics } from '@/hooks/useAnalytics';
@@ -364,8 +365,8 @@ export function GraphContent() {
             <div className="relative h-[calc(100vh-4rem)] overflow-hidden bg-background">
                 <div className="absolute inset-0 flex items-center justify-center z-20">
                     <div className="text-center gradient-border-card p-10 max-w-md">
-                        <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center mx-auto mb-4">
-                            <AlertCircle className="w-7 h-7 text-amber-500" />
+                        <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                            <AlertCircle className="w-7 h-7 text-primary" />
                         </div>
                         <h3 className="text-xl font-semibold text-foreground mb-2">{t('graph.apiUnavailable')}</h3>
                         <p className="text-muted-foreground mb-6 text-sm leading-relaxed">
@@ -373,10 +374,10 @@ export function GraphContent() {
                         </p>
                         <button
                             onClick={() => setDemoMode(true)}
-                            className="btn-glow px-6 py-2.5 bg-primary hover:brightness-110 text-primary-foreground rounded-lg font-medium transition-all inline-flex items-center gap-2"
+                            className="px-6 py-2.5 bg-primary hover:opacity-90 text-primary-foreground rounded-md font-medium transition-opacity inline-flex items-center gap-2"
                         >
                             <Sparkles className="w-4 h-4" />
-                            Enable Demo Mode
+                            Enable demo mode
                         </button>
                     </div>
                 </div>
@@ -439,7 +440,7 @@ export function GraphContent() {
 
             {/* Selected Node Panel */}
             {selectedNode && (
-                <div className="absolute bottom-4 left-4 z-30 w-80 bg-card/90 backdrop-blur-xl border border-border rounded-xl shadow-lg overflow-hidden">
+                <div className="absolute bottom-4 left-1/2 z-30 w-80 max-w-[calc(100%-2rem)] -translate-x-1/2 bg-card/90 backdrop-blur-xl border border-border rounded-lg shadow-lg overflow-hidden">
                     <div className="p-4 pb-3">
                         <div className="flex items-start justify-between">
                             <div className="flex-1 min-w-0 pr-2">
@@ -458,15 +459,15 @@ export function GraphContent() {
 
                     <div className="grid grid-cols-3 gap-px bg-border">
                         <div className="bg-card p-2.5 text-center">
-                            <div className="text-lg font-bold text-foreground">{dependentCounts.get(selectedNode.id) || 0}</div>
+                            <div className="text-lg font-semibold font-mono tabular-nums text-foreground">{dependentCounts.get(selectedNode.id) || 0}</div>
                             <div className="text-[10px] text-muted-foreground">{t('graph.dependents')}</div>
                         </div>
                         <div className="bg-card p-2.5 text-center">
-                            <div className="text-lg font-bold text-foreground">{dependencyCounts.get(selectedNode.id) || 0}</div>
+                            <div className="text-lg font-semibold font-mono tabular-nums text-foreground">{dependencyCounts.get(selectedNode.id) || 0}</div>
                             <div className="text-[10px] text-muted-foreground">{t('graph.dependencies')}</div>
                         </div>
                         <div className="bg-card p-2.5 text-center">
-                            <div className={`text-sm font-bold ${selectedNode.is_verified ? 'text-green-500' : 'text-muted-foreground'}`}>
+                            <div className={`text-sm font-semibold ${selectedNode.is_verified ? 'text-success' : 'text-muted-foreground'}`}>
                                 {selectedNode.is_verified ? t('common.yes', 'Yes') : '—'}
                             </div>
                             <div className="text-[10px] text-muted-foreground">{t('graph.verified')}</div>
@@ -477,11 +478,14 @@ export function GraphContent() {
                         <div className="space-y-1.5 text-sm">
                             <div className="flex justify-between">
                                 <span className="text-muted-foreground">{t('graph.network')}</span>
-                                <span className={`font-medium px-2 py-0.5 rounded-full text-xs ${
-                                    selectedNode.network === 'mainnet' ? 'text-green-600 bg-green-500/10' :
-                                    selectedNode.network === 'testnet' ? 'text-blue-600 bg-blue-500/10' :
-                                    'text-purple-600 bg-purple-500/10'
-                                }`}>{selectedNode.network}</span>
+                                <span className="inline-flex items-center gap-1.5 font-medium text-xs text-foreground">
+                                    <span
+                                        className="h-2 w-2 rounded-full"
+                                        style={{ backgroundColor: NETWORK_COLORS[selectedNode.network] ?? GRAPH_COLORS.muted }}
+                                        aria-hidden="true"
+                                    />
+                                    {selectedNode.network}
+                                </span>
                             </div>
                             {selectedNode.category && (
                                 <div className="flex justify-between">
@@ -494,7 +498,7 @@ export function GraphContent() {
                         <div className="grid grid-cols-2 gap-2 pt-2">
                             <button
                                 onClick={() => handleExpandNode(selectedNode.id)}
-                                className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all focus-visible:ring-1 focus:outline-none ${
+                                className={`flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-semibold transition-colors focus-visible:ring-1 focus:outline-none ${
                                     expandedNodeIds.has(selectedNode.id)
                                         ? 'bg-accent text-foreground border border-border hover:bg-accent/80'
                                         : 'bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30'
@@ -505,7 +509,7 @@ export function GraphContent() {
                             </button>
                             <a
                                 href={`/contracts/${selectedNode.contract_id}`}
-                                className="flex items-center justify-center gap-1.5 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-semibold btn-glow hover:brightness-110 transition-all focus-visible:ring-1 focus-visible:ring-primary focus:outline-none"
+                                className="flex items-center justify-center gap-1.5 py-2 bg-primary text-primary-foreground rounded-md text-xs font-semibold hover:opacity-90 transition-opacity focus-visible:ring-1 focus-visible:ring-primary focus:outline-none"
                             >
                                 <ExternalLink className="w-3 h-3" />
                                 Details
@@ -519,7 +523,7 @@ export function GraphContent() {
             {!demoMode && nodes.length === 0 && !isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center z-20">
                     <div className="text-center gradient-border-card p-10 max-w-md">
-                        <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                        <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center mx-auto mb-4">
                             <Sparkles className="w-7 h-7 text-primary" />
                         </div>
                         <h3 className="text-xl font-semibold text-foreground mb-2">{t('graph.noContracts')}</h3>
@@ -528,10 +532,10 @@ export function GraphContent() {
                         </p>
                         <button
                             onClick={() => setDemoMode(true)}
-                            className="btn-glow px-6 py-2.5 bg-primary hover:brightness-110 text-primary-foreground rounded-lg font-medium transition-all inline-flex items-center gap-2"
+                            className="px-6 py-2.5 bg-primary hover:opacity-90 text-primary-foreground rounded-md font-medium transition-opacity inline-flex items-center gap-2"
                         >
                             <Sparkles className="w-4 h-4" />
-                            Enable Demo Mode
+                            Enable demo mode
                         </button>
                     </div>
                 </div>

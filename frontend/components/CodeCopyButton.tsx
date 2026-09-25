@@ -2,6 +2,7 @@
 
 import type { KeyboardEvent } from "react";
 import { Check, Copy } from "lucide-react";
+import { cn } from "@/lib/utils/cn";
 
 interface CodeCopyButtonProps {
   onCopy: () => void | Promise<void> | Promise<boolean>;
@@ -10,6 +11,8 @@ interface CodeCopyButtonProps {
   idleLabel?: string;
   copiedLabel?: string;
   shortcutHint?: boolean;
+  /** "terminal" suits the dark code panels, which stay dark in both themes. */
+  tone?: "default" | "terminal";
   className?: string;
 }
 
@@ -20,7 +23,8 @@ export default function CodeCopyButton({
   idleLabel = "Copy",
   copiedLabel = "Copied",
   shortcutHint = true,
-  className = "",
+  tone = "default",
+  className,
 }: CodeCopyButtonProps) {
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     const isCopyShortcut =
@@ -38,7 +42,13 @@ export default function CodeCopyButton({
       onClick={() => void onCopy()}
       onKeyDown={handleKeyDown}
       disabled={disabled}
-      className={`inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60 ${className}`.trim()}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+        tone === "terminal"
+          ? "border-white/10 bg-transparent text-deep-foreground/60 hover:bg-white/10 hover:text-deep-foreground"
+          : "border-border bg-card text-foreground hover:bg-accent",
+        className,
+      )}
       aria-label={`${copied ? copiedLabel : idleLabel}${shortcutLabel}`}
       title={`${copied ? copiedLabel : idleLabel}${shortcutLabel}`}
     >

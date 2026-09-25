@@ -13,7 +13,7 @@ const ContractDiffViewer = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="rounded-2xl border border-border bg-card p-6 animate-pulse">
+      <div className="rounded-lg border border-border bg-card p-6 animate-pulse">
         <div className="h-5 w-40 rounded bg-border mb-3" />
         <div className="h-3 w-64 rounded bg-border" />
       </div>
@@ -62,7 +62,7 @@ function DiffPageContent() {
 
         {/* Page heading */}
         <div className="mb-6">
-          <h1 className="text-xl font-bold text-foreground">
+          <h1 className="text-xl font-semibold text-foreground">
             {contract
               ? `${contract.name} — Version Diff`
               : "Contract Version Diff"}
@@ -80,7 +80,7 @@ function DiffPageContent() {
             contractName={contract?.name}
           />
         ) : (
-          <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
+          <div className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
             No contract ID provided.
           </div>
         )}
@@ -98,7 +98,7 @@ export default function DiffPage() {
           <div className="mx-auto max-w-7xl px-4 py-8">
             <div className="h-4 w-40 rounded bg-border mb-6" />
             <div className="h-6 w-72 rounded bg-border mb-8" />
-            <div className="h-80 rounded-2xl bg-border" />
+            <div className="h-80 rounded-lg bg-border" />
           </div>
         </div>
       }
