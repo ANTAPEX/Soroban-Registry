@@ -12,22 +12,21 @@ this one leaves the question open.
 
 ## The design language that already exists
 
-`frontend/app/globals.css` calls it the **Stellar editorial design system** and models it
-on Stellar.org's public brand language:
+`frontend/app/globals.css` calls it the **Ledger design system**. It replaced the
+earlier Stellar editorial system (gold on black and white, Fraunces serif headings):
 
-- A black and white base with one signature warm-gold accent.
-- An editorial serif display face over a clean grotesque for everything else.
-- Light and dark are both first-class, not a light theme with a dark afterthought.
+- Dark-first. A blue-black base with warm paper-white ink. With no saved choice the
+  app renders dark, whatever the OS setting; light mode is a warm paper variant.
+- One amber signal accent (`--primary`), sage for success (`--success`), brick for
+  danger (`--danger`).
+- Space Grotesk for display and UI, JetBrains Mono for addresses, versions, numbers
+  and the `.eyebrow` label style.
+- Squared controls (`rounded-md`), 1px borders, a hairline `.ledger-grid` behind the
+  hero rather than glows and dot fields.
 
-Treat that as settled. It is a deliberate brand match, so do not "fix" it toward a
-different look, and do not restyle a shipped page because a newer aesthetic seems
+Treat that as settled. Do not restyle a shipped page because a newer aesthetic seems
 better. If you believe the direction itself is wrong, say so and let a human decide
 before writing code.
-
-Two consequences that regularly surprise people: the hero uses an animated aurora
-gradient and a gold dot field, and several surfaces use glassmorphism and glow. A
-general design skill will read those as generated-looking defaults. Here they are
-intentional, they match the brand, and they stay.
 
 ## Colour: use the tokens, never a raw hex
 
@@ -43,10 +42,15 @@ app has two themes. The check:
 grep -rn "#[0-9a-fA-F]\{6\}" frontend/app frontend/components --include='*.tsx'
 ```
 
-That currently returns matches, and most of them are chart series colours where Recharts
-needs a literal value. If you need a literal for a chart, read it from a shared palette
-module and make sure it has a dark-mode counterpart. Do not add a new inline hex to a
-component.
+Chart and graph colours come from `lib/chartPalette.ts`, which hands out `var(--chart-*)`
+references defined per theme. SVG fill and stroke resolve those directly; for canvas use
+`resolveCssColor`, and export SVGs with `serializeSvgWithTheme` so the file keeps its
+colours. Do not add a new inline hex to a component.
+
+Tailwind's gray, slate, zinc, neutral, green, emerald, red, amber, yellow and indigo
+scales are redefined in `globals.css` to match the palette, so older components that
+still use `text-gray-500` and friends follow along. New code should use the semantic
+tokens, not those scales.
 
 The full token list lives at the top of `app/globals.css`. Read it rather than guessing
 a name.
@@ -56,12 +60,12 @@ a name.
 Two families, loaded through `next/font/google` in `app/layout.tsx` and wired to CSS
 variables:
 
-- `--font-fraunces` (Fraunces, serif) for display type. `h1` through `h4` already use it
-  sitewide via a base-layer rule, so a heading needs no font class.
-- `--font-inter` (Inter, sans) for body and UI.
+- `--font-grotesk` (Space Grotesk) for display and body. `h1` through `h4` get a
+  tighter tracking through a base-layer rule, so a heading needs no font class.
+- `--font-jetbrains` (JetBrains Mono), exposed as Tailwind's `font-mono`, for data:
+  contract IDs, versions, counts, network names and eyebrow labels.
 
-Do not introduce a third family, and do not set a font on a heading to get the serif:
-it is already there.
+Do not introduce a third family.
 
 ## Dark mode
 
@@ -75,11 +79,12 @@ you own both themes by hand.
 Motion that answers a user action is welcome. Ambient motion is not: it should be rare,
 deliberate and reducible.
 
-`@media (prefers-reduced-motion: reduce)` in `app/globals.css` currently covers only the
-four `animate-fade-in-up` classes. The 12-second `aurora-shift` loop, the skeleton pulse
-and the global transition on `*` are not covered. So if you add an animation, add its
-reduced-motion case in the same change, and prefer extending the existing block to
-adding a new one.
+The motion vocabulary is a long ease-out entrance (`cubic-bezier(0.16, 1, 0.3, 1)`,
+0.9s), scroll reveal via `useReveal` and the `.reveal` class, a `.marquee` ticker, a
+`.sweep-line` beam and a `.terminal-cursor`. All of them, and the `aurora-shift` loop,
+are switched off in the `prefers-reduced-motion` block in `app/globals.css`. The skeleton
+pulse and the global transition on `*` are not. If you add an animation, add its
+reduced-motion case to that block in the same change.
 
 ## Writing
 

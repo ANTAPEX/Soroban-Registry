@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { ContractExample, api } from '@/lib/api';
-import { generateBlurHashPlaceholder, generateSolidPlaceholder } from '@/lib/images';
+import { generateBlurHashPlaceholder, generateSolidPlaceholder, NEUTRAL_PLACEHOLDER_COLOR } from '@/lib/images';
 import CodeRunner from './CodeRunner';
 import { ThumbsUp, ThumbsDown } from 'lucide-react';
 
@@ -37,7 +37,7 @@ export default function ExampleCard({ example }: ExampleCardProps) {
   const avatarFallbackColor =
     exampleWithImage.repo_avatar_placeholder_color ??
     exampleWithImage.thumbnail_placeholder_color ??
-    '#e5e7eb';
+    NEUTRAL_PLACEHOLDER_COLOR;
 
   useEffect(() => {
     requestAnimationFrame(() => {

@@ -1,11 +1,12 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { CHART_SERIES } from '@/lib/chartPalette';
 
 interface NetworkCount {
   network: string;
   contract_count: number;
 }
 
-const COLORS = ['#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
+const COLORS = CHART_SERIES;
 
 export default function NetworkUsageBarChart({ data }: { data: NetworkCount[] }) {
   if (!data || data.length === 0) {

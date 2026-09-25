@@ -8,6 +8,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { StatsResponse } from '@/types/stats';
+import { CHART_AXIS, CHART_GRID, CHART_SERIES } from '@/lib/chartPalette';
 
 interface DeploymentsTrendChartProps {
   data: StatsResponse['deploymentsTrend'];
@@ -32,29 +33,30 @@ const DeploymentsTrendChart: React.FC<DeploymentsTrendChartProps> = ({
               bottom: 5,
             }}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
             <XAxis
               dataKey="date"
               tickFormatter={(date) => {
                 const d = new Date(date);
                 return `${d.getMonth() + 1}/${d.getDate()}`;
               }}
-              stroke="#9ca3af"
+              stroke={CHART_AXIS}
               tick={{ fontSize: 12 }}
             />
-            <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} />
+            <YAxis stroke={CHART_AXIS} tick={{ fontSize: 12 }} />
             <Tooltip
               contentStyle={{
-                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                backgroundColor: 'var(--card)',
+                color: 'var(--card-foreground)',
                 borderRadius: '8px',
-                border: 'none',
+                border: '1px solid var(--border)',
                 boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
               }}
             />
             <Line
               type="monotone"
               dataKey="count"
-              stroke="#3b82f6"
+              stroke={CHART_SERIES[0]}
               strokeWidth={2}
               activeDot={{ r: 8 }}
             />

@@ -1,11 +1,12 @@
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
+import { CHART_SERIES } from '@/lib/chartPalette';
 
 interface CategoryCount {
   category: string;
   count: number;
 }
 
-const COLORS = ['#6366f1', '#ec4899', '#8b5cf6', '#14b8a6', '#f59e0b', '#3b82f6', '#10b981'];
+const COLORS = CHART_SERIES;
 
 export default function CategoryDistributionPie({ data }: { data: CategoryCount[] }) {
   if (!data || data.length === 0) {

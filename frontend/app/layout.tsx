@@ -1,6 +1,6 @@
 import { ANALYTICS_PROVIDER, GA_ID } from "@/lib/env";
 import type { Metadata } from "next";
-import { Inter, Fraunces } from "next/font/google";
+import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import Providers from "@/components/Providers";
 import Script from "next/script";
@@ -15,17 +15,16 @@ acceptLanguage.languages(languages);
 const GA_PROVIDER = ANALYTICS_PROVIDER
 
 
-const inter = Inter({
+const grotesk = Space_Grotesk({
   subsets: ["latin"],
-  variable: "--font-inter",
+  variable: "--font-grotesk",
   display: "swap",
 });
 
-const fraunces = Fraunces({
+const jetbrains = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["500", "600"],
-  style: ["normal"],
-  variable: "--font-fraunces",
+  weight: ["400", "500"],
+  variable: "--font-jetbrains",
   display: "swap",
 });
 
@@ -96,10 +95,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       lang={lng}
       dir={dir}
       suppressHydrationWarning
-      className={`${inter.variable} ${fraunces.variable}`}
+      className={`dark ${grotesk.variable} ${jetbrains.variable}`}
     >
       <head>
-        {/* Theme detection script to prevent flash */}
+        {/* Theme detection script to prevent flash; dark by default */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -107,7 +106,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 try {
                   var theme = localStorage.getItem('soroban-registry-theme');
                   var supportDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                  if (theme === 'dark' || (theme === 'system' && supportDarkMode) || (!theme && supportDarkMode)) {
+                  // Dark-first: no saved choice means dark.
+                  if (!theme || theme === 'dark' || (theme === 'system' && supportDarkMode)) {
                     document.documentElement.classList.add('dark');
                   } else {
                     document.documentElement.classList.remove('dark');

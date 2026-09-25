@@ -178,15 +178,15 @@ function SearchModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
    Japanese word for abacus, which is also why Stellar named its smart-
    contracts platform Soroban — so the rods + beads are a literal nod to
    the name, not just a generic icon. The bead color reuses --primary,
-   the same gold used for the nav's active underline and the Publish
-   CTA's badge, so the mark and the rest of the chrome read as one
+   the same amber used for the nav's active underline and the Publish
+   CTA, so the mark and the rest of the chrome read as one
    system rather than a logo bolted onto an unrelated palette. ─── */
 function LogoMark({ className = 'w-8 h-8' }: { className?: string }) {
     return (
-        <span className={`relative flex items-center justify-center rounded-lg bg-foreground flex-shrink-0 ${className}`}>
+        <span className={`relative flex items-center justify-center rounded-md border border-border bg-card flex-shrink-0 ${className}`}>
             <svg viewBox="0 0 24 24" className="w-[62%] h-[62%]" fill="none" aria-hidden="true">
-                <line x1="3.5" y1="8" x2="20.5" y2="8" strokeWidth="2" strokeLinecap="round" className="stroke-background/40" />
-                <line x1="3.5" y1="16" x2="20.5" y2="16" strokeWidth="2" strokeLinecap="round" className="stroke-background/40" />
+                <line x1="3.5" y1="8" x2="20.5" y2="8" strokeWidth="2" strokeLinecap="round" className="stroke-muted-foreground/60" />
+                <line x1="3.5" y1="16" x2="20.5" y2="16" strokeWidth="2" strokeLinecap="round" className="stroke-muted-foreground/60" />
                 <circle cx="9" cy="8" r="2.75" className="fill-primary" />
                 <circle cx="15" cy="16" r="2.75" className="fill-primary" />
             </svg>
@@ -194,25 +194,22 @@ function LogoMark({ className = 'w-8 h-8' }: { className?: string }) {
     );
 }
 
-/* ─── Publish CTA — black pill with a trailing gold arrow badge ─── */
+/* ─── Publish CTA — squared amber button with a trailing arrow ─── */
 function PublishCta({ onClick, size = 'sm' }: { onClick?: () => void; size?: 'sm' | 'lg' }) {
     const isLg = size === 'lg';
     return (
         <Link
             href="/publish"
             onClick={onClick}
-            className={`group inline-flex items-center rounded-full bg-foreground text-background font-semibold hover:opacity-90 transition-opacity ${
-                isLg ? 'justify-center gap-2.5 pl-5 pr-2 py-2 text-sm w-full' : 'gap-2 pl-4 pr-1.5 py-1.5 text-[13px]'
+            className={`group inline-flex items-center rounded-md border border-primary bg-primary text-primary-foreground font-medium hover:bg-primary-gradient-end hover:border-primary-gradient-end transition-colors ${
+                isLg ? 'justify-center gap-2 px-5 py-2.5 text-sm w-full' : 'gap-1.5 px-3.5 py-1.5 text-[13px]'
             }`}
         >
             Publish
-            <span
-                className={`flex items-center justify-center rounded-full bg-primary text-primary-foreground flex-shrink-0 motion-safe:group-hover:scale-105 transition-transform ${
-                    isLg ? 'w-7 h-7' : 'w-6 h-6'
-                }`}
-            >
-                <ArrowUpRight className={isLg ? 'w-4 h-4' : 'w-3.5 h-3.5'} strokeWidth={2.5} />
-            </span>
+            <ArrowUpRight
+                className={`flex-shrink-0 motion-safe:group-hover:translate-x-0.5 motion-safe:group-hover:-translate-y-0.5 transition-transform ${isLg ? 'w-4 h-4' : 'w-3.5 h-3.5'}`}
+                strokeWidth={2.5}
+            />
         </Link>
     );
 }

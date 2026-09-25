@@ -20,14 +20,14 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import { useCopy } from '@/hooks/useCopy';
 import { formatContractId } from '@/lib/utils/formatting';
 import { useTranslation } from '@/lib/i18n/client';
-import { generateSolidPlaceholder } from '@/lib/images';
+import { generateSolidPlaceholder, NEUTRAL_PLACEHOLDER_COLOR } from '@/lib/images';
 import VerificationBadge from '@/components/verification/VerificationBadge';
 import HealthWidget from './HealthWidget';
 import ContractQuickViewModal from './contracts/ContractQuickViewModal';
 import FavoriteButton from './FavoriteButton';
 
 const LOGO_SIZE_PX = 40;
-const LOGO_PLACEHOLDER = generateSolidPlaceholder('#e5e7eb');
+const LOGO_PLACEHOLDER = generateSolidPlaceholder(NEUTRAL_PLACEHOLDER_COLOR);
 
 interface ContractCardProps {
   contract: Contract;

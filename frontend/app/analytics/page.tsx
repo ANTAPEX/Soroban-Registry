@@ -7,6 +7,7 @@ import CategoryDistributionPie from "@/components/analytics/CategoryDistribution
 import DeploymentTrendGraph from "@/components/analytics/DeploymentTrendGraph";
 import NetworkUsageBarChart from "@/components/analytics/NetworkUsageBarChart";
 import TopContractsBarChart from "@/components/analytics/TopContractsBarChart";
+import { resolveCssColor, serializeSvgWithTheme } from "@/lib/chartPalette";
 import {
   AlertCircle,
   Download,
@@ -214,8 +215,7 @@ export default function AnalyticsDashboard() {
       const svg = container?.querySelector("svg");
       if (!container || !svg) return;
 
-      const serializer = new XMLSerializer();
-      const source = serializer.serializeToString(svg);
+      const source = serializeSvgWithTheme(svg);
       const image = new Image();
       const rect = container.getBoundingClientRect();
 
@@ -225,7 +225,7 @@ export default function AnalyticsDashboard() {
         canvas.height = Math.max(Math.round(rect.height), 320);
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = resolveCssColor("var(--card)");
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
         const anchor = document.createElement("a");

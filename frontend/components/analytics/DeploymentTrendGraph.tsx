@@ -8,6 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { CHART_SERIES } from "@/lib/chartPalette";
 
 interface DeploymentTrend {
   date: string;
@@ -76,7 +77,7 @@ export default function DeploymentTrendGraph({
               borderRadius: "0.5rem",
               boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
             }}
-            itemStyle={{ color: "#6366f1", fontWeight: 600 }}
+            itemStyle={{ color: CHART_SERIES[0], fontWeight: 600 }}
             labelStyle={{
               color: "hsl(var(--foreground))",
               marginBottom: "4px",
@@ -86,7 +87,7 @@ export default function DeploymentTrendGraph({
             type="monotone"
             dataKey={dataKey}
             name={metricLabel}
-            stroke="#6366f1"
+            stroke={CHART_SERIES[0]}
             strokeWidth={3}
             dot={false}
             activeDot={{ r: 4 }}

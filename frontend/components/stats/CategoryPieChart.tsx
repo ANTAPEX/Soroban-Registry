@@ -7,21 +7,13 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { StatsResponse } from '@/types/stats';
+import { CHART_SERIES } from '@/lib/chartPalette';
 
 interface CategoryPieChartProps {
   data: StatsResponse['contractsByCategory'];
 }
 
-const COLORS = [
-  '#0088FE',
-  '#00C49F',
-  '#FFBB28',
-  '#FF8042',
-  '#8884d8',
-  '#82ca9d',
-  '#ffc658',
-  '#d0ed57',
-];
+const COLORS = CHART_SERIES;
 
 const CategoryPieChart: React.FC<CategoryPieChartProps> = ({ data }) => {
   return (
@@ -38,7 +30,7 @@ const CategoryPieChart: React.FC<CategoryPieChartProps> = ({ data }) => {
               cy="50%"
               labelLine={false}
               outerRadius={80}
-              fill="#8884d8"
+              fill={CHART_SERIES[0]}
               dataKey="count"
               nameKey="category"
             >
@@ -51,7 +43,8 @@ const CategoryPieChart: React.FC<CategoryPieChartProps> = ({ data }) => {
             </Pie>
             <Tooltip
               contentStyle={{
-                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                backgroundColor: 'var(--card)',
+                color: 'var(--card-foreground)',
                 borderRadius: '8px',
                 border: 'none',
                 boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',

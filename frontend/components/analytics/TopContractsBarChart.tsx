@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { CHART_SERIES } from "@/lib/chartPalette";
 
 interface TopContractPoint {
   id: string;
@@ -16,15 +17,7 @@ interface TopContractPoint {
   interaction_count: number;
 }
 
-const COLORS = [
-  "#0ea5e9",
-  "#22c55e",
-  "#f59e0b",
-  "#f97316",
-  "#14b8a6",
-  "#06b6d4",
-  "#84cc16",
-];
+const COLORS = CHART_SERIES;
 
 export default function TopContractsBarChart({
   data,

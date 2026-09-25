@@ -17,7 +17,8 @@ const getInitial = (): Theme => {
   } catch {
     // ignore
   }
-  return "system";
+  // Dark-first: without a saved choice, use dark regardless of OS setting.
+  return "dark";
 };
 
 const initialState: ThemeState = { value: getInitial() };

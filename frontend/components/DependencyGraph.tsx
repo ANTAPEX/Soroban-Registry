@@ -3,6 +3,7 @@
 import * as d3 from "d3";
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState } from "react";
 import type { GraphNode, GraphEdge } from "@/lib/api";
+import { GRAPH_COLORS, NETWORK_COLORS, resolveCssColor, serializeSvgWithTheme } from "@/lib/chartPalette";
 
 // ─── Public handle type ──────────────────────────────────────────────────────
 export interface DependencyGraphHandle {
@@ -35,14 +36,8 @@ interface D3EdgeWithNode {
 }
 
 // ─── Colour helpers ───────────────────────────────────────────────────────────
-const NETWORK_COLOR: Record<string, string> = {
-  mainnet: "#22c55e",
-  testnet: "#3b82f6",
-  futurenet: "#a855f7",
-};
-
 function nodeColor(node: GraphNode): string {
-  return NETWORK_COLOR[node.network] ?? "#6b7280";
+  return NETWORK_COLORS[node.network] ?? GRAPH_COLORS.muted;
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -206,8 +201,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
       },
       exportSVG: () => {
         if (!svgRef.current) return;
-        const serializer = new XMLSerializer();
-        const source = serializer.serializeToString(svgRef.current);
+        const source = serializeSvgWithTheme(svgRef.current);
         const blob = new Blob([source], { type: "image/svg+xml" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -218,8 +212,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
       },
       exportPNG: () => {
         if (!svgRef.current) return;
-        const serializer = new XMLSerializer();
-        const source = serializer.serializeToString(svgRef.current);
+        const source = serializeSvgWithTheme(svgRef.current);
         const img = new Image();
         const svg = svgRef.current;
         img.onload = () => {
@@ -227,7 +220,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
           canvas.width = svg.clientWidth || 1200;
           canvas.height = svg.clientHeight || 800;
           const ctx = canvas.getContext("2d")!;
-          ctx.fillStyle = "#030712";
+          ctx.fillStyle = resolveCssColor("var(--background)");
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0);
           const a = document.createElement("a");
@@ -273,7 +266,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
         .attr("orient", "auto")
         .append("path")
         .attr("d", "M0,-5L10,0L0,5")
-        .attr("fill", "#4b5563");
+        .attr("fill", GRAPH_COLORS.label);
 
       // ── Root group (zoom target) ──
       const g = svg.append("g").attr("class", "graph-root");
@@ -306,7 +299,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
           data: e,
         }));
 
-      const baseEdgeColor = (link: SimLink) => link.data.is_circular ? "#ef4444" : "#374151";
+      const baseEdgeColor = (link: SimLink) => link.data.is_circular ? GRAPH_COLORS.danger : GRAPH_COLORS.edge;
       const baseEdgeOpacity = (link: SimLink) => {
         if (link.data.is_circular) return isLargeGraph ? 0.72 : 0.9;
         return isLargeGraph ? 0.35 : 0.6;
@@ -345,7 +338,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
           .data(simLinks)
           .join("text")
           .attr("font-size", "9px")
-          .attr("fill", (d) => d.data.is_circular ? "#fca5a5" : "#9ca3af")
+          .attr("fill", (d) => d.data.is_circular ? GRAPH_COLORS.danger : GRAPH_COLORS.label)
           .attr("text-anchor", "middle")
           .attr("pointer-events", "none")
           .text((d) => {
@@ -369,7 +362,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
         .attr("fill-opacity", 0.85)
         .attr("stroke", (d) => {
           const deps = dependentCounts.get(d.id) ?? 0;
-          return deps >= 5 ? "#f59e0b" : "transparent";
+          return deps >= 5 ? GRAPH_COLORS.accent : "transparent";
         })
         .attr("stroke-width", 2.5);
 
@@ -377,7 +370,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
         nodeEls.append("text")
           .attr("dy", (d) => d.radius + 12)
           .attr("text-anchor", "middle")
-          .attr("fill", "#d1d5db")
+          .attr("fill", GRAPH_COLORS.labelStrong)
           .attr("font-size", "10px")
           .attr("pointer-events", "none")
           .text((d) => { const n = d.data.name ?? d.data.contract_id ?? ""; return n.length > 14 ? n.slice(0, 13) + "…" : n; });
@@ -412,8 +405,8 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
         .attr("r", 5)
         .attr("cx", (d) => d.radius - 4)
         .attr("cy", -6)
-        .attr("fill", "#f97316")
-        .attr("stroke", "#1f2937")
+        .attr("fill", GRAPH_COLORS.accent)
+        .attr("stroke", GRAPH_COLORS.nodeStroke)
         .attr("stroke-width", 1.5);
 
       pinGroup.append("text")
@@ -459,7 +452,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
             .attr("stroke", (ld) => {
               const src = (ld.source as SimNode).id;
               const tgt = (ld.target as SimNode).id;
-              return (src === d.id || tgt === d.id) ? "#60a5fa" : baseEdgeColor(ld);
+              return (src === d.id || tgt === d.id) ? GRAPH_COLORS.info : baseEdgeColor(ld);
             });
 
           nodeEls.attr("opacity", (nd) => connected.has(nd.id) ? 1 : 0.2);
@@ -495,7 +488,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
         });
 
         d3.select(event.currentTarget as SVGLineElement)
-          .attr("stroke", d.data.is_circular ? "#dc2626" : "#60a5fa")
+          .attr("stroke", d.data.is_circular ? GRAPH_COLORS.danger : GRAPH_COLORS.info)
           .attr("stroke-opacity", 1)
           .attr("stroke-width", isLargeGraph ? 1.4 : 2.2);
       });
@@ -606,7 +599,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
         g.selectAll<SVGGElement, SimNode>("g.node").attr("opacity", 1);
         g.selectAll<SVGLineElement, SimLink>("line.graph-edge")
           .attr("opacity", (d) => d.data.is_circular ? 0.9 : 0.6)
-          .attr("stroke", (d) => d.data.is_circular ? "#ef4444" : "#374151");
+          .attr("stroke", (d) => d.data.is_circular ? GRAPH_COLORS.danger : GRAPH_COLORS.edge);
         return;
       }
 
@@ -634,10 +627,10 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
         })
         .select("circle")
         .attr("stroke", (d) => {
-          if (selectedNode?.id === d.id) return "#60a5fa";
-          if (chainNodeIds.has(d.id)) return "#3b82f6";
+          if (selectedNode?.id === d.id) return GRAPH_COLORS.info;
+          if (chainNodeIds.has(d.id)) return GRAPH_COLORS.info;
           const deps = dependentCounts.get(d.id) ?? 0;
-          return deps >= 5 ? "#f59e0b" : "transparent";
+          return deps >= 5 ? GRAPH_COLORS.accent : "transparent";
         })
         .attr("stroke-width", (d) => {
            if (selectedNode?.id === d.id) return 4;
@@ -659,9 +652,9 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
           const src = (d.source as SimNode).id;
           const tgt = (d.target as SimNode).id;
           const edgeId = `${src}-${tgt}`;
-          if (chainEdgeIds.has(edgeId)) return "#60a5fa";
-          if (selectedNode && (src === selectedNode.id || tgt === selectedNode.id)) return "#93c5fd";
-          return d.data.is_circular ? "#ef4444" : "#374151";
+          if (chainEdgeIds.has(edgeId)) return GRAPH_COLORS.info;
+          if (selectedNode && (src === selectedNode.id || tgt === selectedNode.id)) return GRAPH_COLORS.info;
+          return d.data.is_circular ? GRAPH_COLORS.danger : GRAPH_COLORS.edge;
         })
         .attr("stroke-width", (d) => {
           const src = (d.source as SimNode).id;
@@ -679,7 +672,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
       if (!searchQuery) {
         g.selectAll<SVGGElement, SimNode>("g.node").select("circle")
           .attr("stroke-width", (d) => (dependentCounts.get(d.id) ?? 0) >= 5 ? 2.5 : 0)
-          .attr("stroke", (d) => (dependentCounts.get(d.id) ?? 0) >= 5 ? "#f59e0b" : "transparent");
+          .attr("stroke", (d) => (dependentCounts.get(d.id) ?? 0) >= 5 ? GRAPH_COLORS.accent : "transparent");
         return;
       }
       const q = searchQuery.toLowerCase();
@@ -690,7 +683,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
         })
         .attr("stroke", (d) => {
           const isMatch = d.data.name.toLowerCase().includes(q) || d.data.contract_id.toLowerCase().includes(q);
-          return isMatch ? "#facc15" : ((dependentCounts.get(d.id) ?? 0) >= 5 ? "#f59e0b" : "transparent");
+          return isMatch ? GRAPH_COLORS.highlight : ((dependentCounts.get(d.id) ?? 0) >= 5 ? GRAPH_COLORS.accent : "transparent");
         });
     }, [searchQuery, dependentCounts]);
 
@@ -754,7 +747,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
               <div className="space-y-0.5">
                 <div className="flex justify-between gap-4">
                   <span className="text-muted-foreground">Network</span>
-                  <span style={{ color: NETWORK_COLOR[tooltip.node.network] ?? undefined }}>
+                  <span style={{ color: NETWORK_COLORS[tooltip.node.network] ?? undefined }}>
                     {tooltip.node.network}
                   </span>
                 </div>
@@ -767,7 +760,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
                 <div className="flex justify-between gap-4">
                   <span className="text-muted-foreground">Verified</span>
                   <span className={tooltip.node.is_verified ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}>
-                    {tooltip.node.is_verified ? "✓" : "—"}
+                    {tooltip.node.is_verified ? "Yes" : "No"}
                   </span>
                 </div>
                 <div className="flex justify-between gap-4">
