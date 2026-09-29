@@ -12,6 +12,8 @@ pub mod notification;
 pub mod output_format;
 #[path = "support/profiler.rs"]
 pub mod profiler;
+#[path = "support/ranking.rs"]
+pub mod ranking;
 #[path = "support/search_pagination.rs"]
 pub mod search_pagination;
 #[path = "support/table_format.rs"]

@@ -198,17 +198,19 @@ pub async fn dispatch_command(
             limit,
             offset,
             json,
+            explain,
         } => {
             let networks_vec: Vec<String> = filter_networks
                 .map(|n| n.split(',').map(|s| s.trim().to_string()).collect())
                 .unwrap_or_default();
             log::debug!(
-                "Command: search | query={:?} verified_only={} networks={:?} category={:?} sort={:?}",
+                "Command: search | query={:?} verified_only={} networks={:?} category={:?} sort={:?} explain={}",
                 query,
                 verified_only,
                 networks_vec,
                 category,
-                sort
+                sort,
+                explain
             );
             crate::commands::search::search(
                 &cli.api_url,
@@ -221,6 +223,7 @@ pub async fn dispatch_command(
                 limit,
                 offset,
                 json,
+                explain,
             )
             .await?;
         }
