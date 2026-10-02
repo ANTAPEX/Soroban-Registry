@@ -1076,6 +1076,17 @@ pub enum Commands {
         action: PublisherCommands,
     },
 
+    /// INTERNAL-ONLY debug state dump (#1177). Compiled in only with
+    /// `--features internal-debug`; never reachable from default builds.
+    /// Convention: docs/cli-internal-commands.md.
+    #[cfg(feature = "internal-debug")]
+    #[command(name = "debug-dump")]
+    DebugDump {
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// External command (may be provided by an installed plugin)
     #[command(external_subcommand)]
     External(Vec<String>),

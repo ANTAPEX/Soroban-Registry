@@ -174,6 +174,15 @@ pub async fn dispatch_command(
                 }
             },
         },
+        #[cfg(feature = "internal-debug")]
+        Commands::DebugDump { json } => {
+            // #1177: internal diagnostic only, never compiled into default builds.
+            if json {
+                println!("{{\"internal_debug\":true}}");
+            } else {
+                println!("internal-debug build: ok");
+            }
+        }
         Commands::External(args) => {
             if args.is_empty() {
                 anyhow::bail!("No external command provided");

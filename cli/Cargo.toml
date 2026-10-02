@@ -64,3 +64,9 @@ keyring = { version = "3.6.3", features = ["windows-native"] }
 [dev-dependencies]
 criterion = "0.5"
 wiremock = "0.6"
+
+# #1177: internal-only CLI surface. Debug/diagnostic subcommands live behind
+# this feature so they can never leak into default/release builds. See
+# docs/cli-internal-commands.md for the convention.
+[features]
+internal-debug = []

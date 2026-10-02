@@ -164,3 +164,26 @@ jobs:
             echo "::error::Command tree smoke check failed. A subcommand present in the source is missing from the built CLI."
             exit 1
           fi
+
+      # Issue #1177: internal-only commands must never leak into default builds.
+      # Fails if `debug-dump` (or any future internal-debug gate) is reachable
+      # without the feature, or missing with it.
+      - name: Internal-debug gate check
+        run: |
+          set -euo pipefail
+          echo "::group::default build hides internal commands"
+          if cargo run --manifest-path cli/Cargo.toml --locked --quiet \
+               --bin soroban-registry -- --help | grep -q "debug-dump"; then
+            echo "::endgroup::"
+            echo "::error::'debug-dump' is reachable from a default build. Internal commands must sit behind --features internal-debug (see docs/cli-internal-commands.md)."
+            exit 1
+          fi
+          echo "::endgroup::"
+          echo "::group::feature build exposes internal commands"
+          if ! cargo run --manifest-path cli/Cargo.toml --locked --quiet \
+               --bin soroban-registry --features internal-debug -- debug-dump --help; then
+            echo "::endgroup::"
+            echo "::error::'debug-dump' is missing from an internal-debug build. The gate is broken."
+            exit 1
+          fi
+          echo "::endgroup::"
