@@ -221,14 +221,40 @@ mod tests {
         assert_eq!(config.network_name(), "mainnet");
     }
 
+    /// Serialises the tests that read or write the `STELLAR_*` variables.
+    ///
+    /// Environment variables are process-global while `cargo test` runs the
+    /// tests in one binary on parallel threads, so without this lock
+    /// `test_invalid_network`'s `set_var` lands between
+    /// `test_network_config_defaults`'s `remove_var` and its `from_env()`,
+    /// and the latter fails having asked for a default it did set up.
+    /// Poisoning is ignored so one failure does not cascade into the rest.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     #[test]
     fn test_invalid_network() {
+        let _guard = env_guard();
         env::set_var("STELLAR_NETWORK", "invalid_network");
-        // Note: would fail to parse as expected
+
+        let err =
+            NetworkConfig::from_env().expect_err("an unrecognised network name must not load");
+        assert!(
+            matches!(err, ConfigError::InvalidNetwork(ref s) if s == "invalid_network"),
+            "unexpected error: {:?}",
+            err
+        );
+
+        // Leaving this set would break every later reader of the variable.
+        env::remove_var("STELLAR_NETWORK");
     }
 
     #[test]
     fn test_network_config_defaults() {
+        let _guard = env_guard();
         env::remove_var("STELLAR_NETWORK");
         env::remove_var("STELLAR_RPC_TESTNET");
         env::remove_var("STELLAR_POLL_INTERVAL_SECS");
