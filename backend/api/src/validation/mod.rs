@@ -71,6 +71,9 @@ pub mod payload_size;
 pub mod requests;
 #[allow(dead_code)]
 pub mod sanitizers;
+
+/// SSRF guards for URLs the registry will fetch on a user's behalf.
+pub mod ssrf;
 #[allow(dead_code)]
 pub mod url_validation;
 #[allow(dead_code)]

@@ -112,6 +112,23 @@ async fn process_delivery(db: &PgPool, client: &reqwest::Client, delivery: Pendi
         return;
     }
 
+    // Re-check the target here and not only at registration: the host is a name
+    // the owner controls, so it can be repointed at a private address after the
+    // webhook was accepted. Failed outright rather than retried — a blocked
+    // target will still be blocked on the next attempt, and retrying it just
+    // repeats the lookup.
+    if let Err(reason) = crate::validation::ssrf::validate_outbound_target(&endpoint.url).await {
+        warn!(
+            delivery_id = %delivery.id,
+            webhook_id = %delivery.webhook_id,
+            reason = %reason,
+            "Refusing webhook delivery to a non-routable target"
+        );
+        mark_failed(db, delivery.id, &reason, None).await;
+        update_webhook_stats(db, delivery.webhook_id, false).await;
+        return;
+    }
+
     // Apply backoff before retrying (first attempt has 0-second backoff).
     let attempt = delivery.attempt_number as usize;
     let backoff = BACKOFF_SECS.get(attempt).copied().unwrap_or(1200);

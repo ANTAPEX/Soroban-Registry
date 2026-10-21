@@ -686,6 +686,14 @@ pub async fn create_webhook(
         ));
     }
 
+    // The scheme check above says nothing about where the host points. Without
+    // this, a caller can register https://169.254.169.254/ or a name that
+    // resolves into the private range and have the server fetch it for them.
+    // Re-checked at delivery too, since the name can be repointed later.
+    crate::validation::ssrf::validate_outbound_target(&req.url)
+        .await
+        .map_err(|e| ApiError::bad_request_with("InvalidWebhookUrl", e))?;
+
     // Generate a random signing secret if the caller didn't supply one.
     let secret: String = req.secret.filter(|s| !s.is_empty()).unwrap_or_else(|| {
         use std::fmt::Write as _;
