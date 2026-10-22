@@ -209,6 +209,10 @@ pub enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Explain contributing ranking factors for each search result
+        #[arg(long)]
+        explain: bool,
     },
 
     /// Compare multiple contracts
