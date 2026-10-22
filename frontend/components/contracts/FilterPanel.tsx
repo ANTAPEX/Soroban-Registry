@@ -32,6 +32,8 @@ interface FilterPanelProps {
   onAuthorChange: (value: string) => void;
   verifiedOnly: boolean;
   onVerifiedChange: (value: boolean) => void;
+  driftOnly?: boolean;
+  onDriftChange?: (value: boolean) => void;
   favoritesOnly?: boolean;
   onFavoritesChange?: (value: boolean) => void;
   activeFilterCount: number;
@@ -317,6 +319,29 @@ export function FilterPanel({
           )}
         </div>
         Verified only
+      </button>
+
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={driftOnly}
+        onClick={() => onDriftChange?.(!driftOnly)}
+        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
+          driftOnly
+            ? 'bg-red-500/10 text-red-600 font-medium'
+            : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+        }`}
+      >
+        <div
+          className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
+            driftOnly ? 'bg-red-500 border-red-500' : 'border-border'
+          }`}
+        >
+          {driftOnly && (
+            <Check className="w-3 h-3 text-white" />
+          )}
+        </div>
+        Drift detected
       </button>
 
       {languages.length > 0 && (

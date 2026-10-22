@@ -152,6 +152,7 @@ export type ContractsUiFilters = {
   author: string;
   networks: NonNullable<ContractSearchParams["network"]>[];
   verified_only: boolean;
+  drift_only: boolean;
   favorites_only: boolean;
   sort_by: SortBy;
   sort_order: "asc" | "desc";
@@ -209,6 +210,7 @@ export function getInitialFilters(
     author: searchParams.get("author") || "",
     networks,
     verified_only: searchParams.get("verified_only") === "true",
+    drift_only: searchParams.get("drift_only") === "true",
     favorites_only: searchParams.get("favorites_only") === "true",
     sort_by: sortPreference.sort_by,
     sort_order: sortPreference.sort_order,
@@ -261,6 +263,7 @@ export function ContractsContent() {
     networks,
     author,
     verified_only,
+    drift_only,
     favorites_only,
     sort_by,
     sort_order,
@@ -277,6 +280,7 @@ export function ContractsContent() {
     networks.forEach((network) => params.append("network", network));
     if (author) params.set("author", author);
     if (verified_only) params.set("verified_only", "true");
+    if (drift_only) params.set("drift_only", "true");
     if (favorites_only) params.set("favorites_only", "true");
     if (sort_by !== DEFAULT_SORT_BY || query) params.set("sort_by", sort_by);
     if (sort_order !== DEFAULT_SORT_ORDER) params.set("sort_order", sort_order);
@@ -294,6 +298,7 @@ export function ContractsContent() {
     networks,
     author,
     verified_only,
+    drift_only,
     favorites_only,
     sort_by,
     sort_order,
@@ -460,6 +465,7 @@ export function ContractsContent() {
       author: "",
       networks: [],
       verified_only: false,
+      drift_only: false,
       favorites_only: false,
       sort_by: DEFAULT_SORT_BY,
       sort_order: DEFAULT_SORT_ORDER,
@@ -553,6 +559,19 @@ export function ContractsContent() {
       });
     }
 
+    if (filters.drift_only) {
+      chips.push({
+        id: "drift",
+        label: "Drift detected",
+        onRemove: () =>
+          setFilters((current) => ({
+            ...current,
+            drift_only: false,
+            page: 1,
+          })),
+      });
+    }
+
     if (filters.favorites_only) {
       chips.push({
         id: "favorites",
@@ -632,6 +651,9 @@ export function ContractsContent() {
     verifiedOnly: filters.verified_only,
     onVerifiedChange: (value: boolean) =>
       setFilters((current) => ({ ...current, verified_only: value, page: 1 })),
+    driftOnly: filters.drift_only,
+    onDriftChange: (value: boolean) =>
+      setFilters((current) => ({ ...current, drift_only: value, page: 1 })),
     favoritesOnly: filters.favorites_only,
     onFavoritesChange: (value: boolean) =>
       setFilters((current) => ({ ...current, favorites_only: value, page: 1 })),

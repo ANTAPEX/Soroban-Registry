@@ -8,7 +8,7 @@ use crate::{
     clone_federation_handlers, collaborative_reviews, compatibility_testing_handlers,
     contract_events, contract_stats_handlers, contributor_handlers, custom_metrics_handlers,
     db_pool, dependency_handlers, dependency_vulnerability_handlers, deprecated_contracts_handlers,
-    deprecation_handlers, elasticsearch_handlers, error_logging, formal_verification_handlers,
+    deprecation_handlers, drift_handlers, elasticsearch_handlers, error_logging, formal_verification_handlers,
     formal_verification_integration, gas_estimation_handlers, governance_handlers,
     graph_analysis_handlers, handlers, integrity, interoperability_handlers,
     marketplace::{
@@ -369,6 +369,22 @@ pub fn contract_routes() -> Router<AppState> {
         .route("/api/contracts/batch", post(handlers::get_contracts_batch))
         .route("/contracts/batch", post(handlers::get_contracts_batch))
         .route("/api/contracts/graph", get(handlers::get_contract_graph))
+        .route(
+            "/api/contracts/drift",
+            get(drift_handlers::list_drift_contracts),
+        )
+        .route(
+            "/contracts/drift",
+            get(drift_handlers::list_drift_contracts),
+        )
+        .route(
+            "/api/contracts/:id/drift",
+            get(drift_handlers::get_contract_drift),
+        )
+        .route(
+            "/contracts/:id/drift",
+            get(drift_handlers::get_contract_drift),
+        )
         .route("/api/contracts/:id", get(handlers::get_contract))
         .route(
             "/api/contracts/:id/metadata",

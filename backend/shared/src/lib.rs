@@ -2,6 +2,7 @@ pub mod abi;
 pub mod contract_compatibility;
 pub mod contract_spec;
 pub mod dependency_graph;
+pub mod drift;
 pub mod error;
 pub mod interface_fingerprint;
 pub mod logging;
@@ -16,8 +17,10 @@ pub mod upgrade;
 pub mod wasm;
 
 pub use abi::*;
+pub use drift::*;
 pub use error::*;
 pub use models::*;
 pub use semver::*;
 pub use slug::*;
 pub use upgrade::*;
+

@@ -28,6 +28,7 @@ pub mod custom_metrics_handlers;
 pub mod dependency_handlers;
 pub mod deprecation_handlers;
 pub mod disaster_recovery_models;
+pub mod drift_handlers;
 pub mod error;
 pub mod error_logging;
 pub mod events;
