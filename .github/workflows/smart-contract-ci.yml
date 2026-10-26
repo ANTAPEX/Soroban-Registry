@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install pinned toolchain and wasm target
         run: |
@@ -92,7 +92,7 @@ jobs:
       # is dynamic, so a crate added elsewhere simply gets a cold build rather than a wrong
       # cache; caching is an optimisation, never a correctness input.
       - name: Cache cargo registry and build artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -191,7 +191,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install pinned toolchain and wasm target
         run: |
@@ -200,7 +200,7 @@ jobs:
           rustc --version
 
       - name: Cache cargo registry and build artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
